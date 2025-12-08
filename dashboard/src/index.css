@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface text-text-primary antialiased;
+  }
+  
+  ::-webkit-scrollbar {
+    @apply w-2;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-surface-100;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-300 rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-accent-dim;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-50 border border-surface-200 rounded-xl p-6 transition-all duration-300;
+  }
+  
+  .card:hover {
+    @apply border-surface-300 shadow-lg;
+  }
+  
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center gap-2;
+  }
+  
+  .btn-primary {
+    @apply bg-accent text-white hover:bg-accent-bright hover:shadow-glow-accent;
+  }
+  
+  .btn-success {
+    @apply bg-success text-white hover:bg-success-dim hover:shadow-glow-success;
+  }
+  
+  .btn-ghost {
+    @apply bg-transparent text-text-secondary hover:bg-surface-100 hover:text-text-primary;
+  }
+  
+  .btn-danger {
+    @apply bg-danger/10 text-danger hover:bg-danger hover:text-white;
+  }
+  
+  .status-badge {
+    @apply px-2 py-1 rounded-full text-xs font-medium;
+  }
+  
+  .input {
+    @apply bg-surface-100 border border-surface-200 rounded-lg px-4 py-2 text-text-primary 
+           placeholder-text-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50;
+  }
+}
+
+/* Terminal output styling */
+.terminal {
+  @apply bg-surface font-mono text-sm leading-relaxed p-4 rounded-lg border border-surface-200 overflow-auto;
+}
+
+.terminal-line {
+  @apply whitespace-pre-wrap;
+}
+
+.terminal-line.stdout {
+  @apply text-text-primary;
+}
+
+.terminal-line.stderr {
+  @apply text-warning;
+}
+
+.terminal-line.error {
+  @apply text-danger;
+}
+
+.terminal-line.success {
+  @apply text-success;
+}
+
+/* Pulse animation for running state */
+.running-indicator {
+  @apply relative;
+}
+
+.running-indicator::before {
+  content: '';
+  @apply absolute inset-0 rounded-full bg-accent animate-ping opacity-75;
+}
+

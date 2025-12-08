@@ -1,0 +1,15 @@
+# Identity Verification Service Dependencies
+# For running the semantic identity verification service
+
+# Core ML
+torch>=2.0.0
+sentence-transformers>=2.2.0
+numpy>=1.24.0
+
+# HTTP Server
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# Progress and utilities
+tqdm>=4.65.0
+

@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Rehydration state
+.rehydration-state/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+ollama_models/
+
+.cursor/
+training_data/
+adapters/
+
+# Sensitive data - ignore all files but keep folder structure
+conversations/*
+!conversations/.gitkeep
+files/*
+!files/.gitkeep
+files/**/*
+!files/transmissions/.gitkeep
+memory/*
+!memory/.gitkeep
+models/*
+!models/.gitkeep

@@ -1,0 +1,232 @@
+# docker exec ollama-server ollama list
+# docker exec ollama-server ollama pull gpt-oss:20b
+# docker cp ollama-server:/root/.ollama/models/blobs ollama_models/
+services:
+  mcp-server:
+    build: .
+    container_name: mcp-server
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - PROJECT_ROOT=/app
+      - MEMORY_DIR=/app/memory
+      - FILES_DIR=/app/files
+      - IDENTITY_SERVICE_URL=http://identity-service:4001
+    volumes:
+      - ./memory:/app/memory
+      - ./conversations:/app/conversations
+      - ./files:/app/files
+      - ./scripts:/app/scripts
+      - ./models:/app/models
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-server
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+      # Mount local ollama_models to persist downloaded models (read-write so new models can be saved)
+      # Models are stored in /home/nick/models/ollama_models/blobs on the host
+      - /home/nick/models/ollama_models/blobs:/root/.ollama/models/blobs
+    networks:
+      - mcp-network
+    # Enable GPU support for NVIDIA RTX 3080
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/11434' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # Identity Verification Service with Semantic Embeddings
+  # Uses sentence-transformers for deep semantic identity verification
+  # 
+  # NOTE: This service uses a Docker Compose profile so it doesn't start by default.
+  # To start it: docker-compose --profile identity up -d identity-service
+  # Or start with all optional services: docker-compose --profile identity --profile hf up -d
+  #
+  # When running, the MCP will automatically use it for enhanced verification.
+  # If not running, MCP falls back to stylistic-only verification.
+  identity-service:
+    profiles: ["identity"]  # Only start when --profile identity is used
+    build:
+      context: ./identity_service
+      dockerfile: Dockerfile
+    container_name: identity-service
+    ports:
+      - "4001:4001"
+    environment:
+      - PORT=4001
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ./models:/app/models
+    networks:
+      - mcp-network
+    runtime: nvidia  # Enable GPU support for faster embeddings
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # HuggingFace Inference Service with Tool Support
+  # Uses Transformers to run HuggingFace models with proper tool calling support
+  # Can be used for GLM, GPT-OSS, or any other HF model that supports tools
+  # 
+  # NOTE: This service uses a Docker Compose profile so it doesn't start by default.
+  # This prevents it from consuming GPU memory when not needed.
+  # To start it: docker-compose --profile hf up -d hf-service
+  # Or: docker-compose --profile hf up (to start all services including HF)
+  #
+  # The service uses lazy loading - models only load on first request.
+  # Models auto-unload after 5 minutes of inactivity (configurable via HF_KEEP_ALIVE).
+  hf-service:
+    profiles: ["hf"]  # Only start when --profile hf is used
+    build:
+      context: ./hf-service
+      dockerfile: Dockerfile
+    container_name: hf-service
+    ports:
+      - "8000:8000"
+    environment:
+      - HF_MODEL=THUDM/glm-4-5-air  # Model to load (can be changed for other HF models)
+      - HF_KEEP_ALIVE=300  # Unload after 5 minutes of inactivity (0=immediate, -1=never)
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_HOME=/root/.cache/huggingface  # Use mounted cache
+    volumes:
+      # Mount local HuggingFace models directory directly
+      # Models are stored in /home/nick/models/hf_models on the host
+      # This directory contains both direct models and HuggingFace cache format models
+      # Mount to hub subdirectory where HuggingFace expects models
+      - /home/nick/models/hf_models:/root/.cache/huggingface/hub:ro
+    networks:
+      - mcp-network
+    # Enable GPU support
+    runtime: nvidia
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s  # Reduced since model loads lazily on first request
+
+  # LibreChat Dependencies
+  mongodb:
+    image: mongo:7.0
+    container_name: librechat-mongodb
+    restart: unless-stopped
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - mcp-network
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=librechat
+      - MONGO_INITDB_ROOT_PASSWORD=librechat
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: librechat-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    networks:
+      - mcp-network
+    command: redis-server --appendonly yes
+
+  # LibreChat API
+  librechat-api:
+    image: ghcr.io/danny-avila/librechat:latest
+    container_name: librechat-api
+    restart: unless-stopped
+    ports:
+      - "3080:3080"
+    environment:
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://librechat:librechat@mongodb:27017/LibreChat?authSource=admin
+      - REDIS_URI=redis://redis:6379
+      - MEILI_HOST=http://meilisearch:7700
+      - MEILI_MASTER_KEY=masterKey
+      - JWT_SECRET=mcp-demo-secret-key-change-in-production
+      - JWT_REFRESH_SECRET=mcp-demo-refresh-secret-change-in-production
+      - JWT_EXPIRES_IN=1d
+      - JWT_REFRESH_EXPIRES_IN=7d
+      - DOMAIN_CLIENT=${LIBRECHAT_DOMAIN:-http://192.168.1.77:3080}
+      - DOMAIN_SERVER=${LIBRECHAT_DOMAIN:-http://192.168.1.77:3080}
+      - ALLOW_REGISTRATION=true
+      - ALLOW_SOCIAL_LOGIN=false
+      - APP_TITLE=Chat
+      - ENABLE_AGENTS=false
+      - LANGGRAPH_RECURSION_LIMIT=50000
+    volumes:
+      - ./librechat-config/librechat.yaml:/app/librechat.yaml:ro
+      - librechat-uploads:/app/client/public/uploads
+    networks:
+      - mcp-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      meilisearch:
+        condition: service_started
+      ollama:
+        condition: service_started
+      # hf-service is optional (uses profile) - removed from depends_on
+      # If you need it, start with: docker-compose --profile hf up -d hf-service
+      mcp-server:
+        condition: service_healthy
+
+  # Meilisearch for LibreChat search
+  meilisearch:
+    image: getmeili/meilisearch:v1.5
+    container_name: librechat-meilisearch
+    restart: unless-stopped
+    volumes:
+      - meilisearch-data:/meili_data
+    networks:
+      - mcp-network
+    environment:
+      - MEILI_MASTER_KEY=masterKey
+      - MEILI_ENV=development
+
+networks:
+  mcp-network:
+    driver: bridge
+
+volumes:
+  ollama-data:
+    driver: local
+  hf-cache:
+    driver: local
+  mongodb-data:
+    driver: local
+  redis-data:
+    driver: local
+  meilisearch-data:
+    driver: local
+  librechat-uploads:
+    driver: local
+
