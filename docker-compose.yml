@@ -39,7 +39,7 @@ services:
       - ollama-data:/root/.ollama
       # Mount local ollama_models to persist downloaded models (read-write so new models can be saved)
       # Models are stored in /home/nick/models/ollama_models/blobs on the host
-      - /home/nick/models/ollama_models/blobs:/root/.ollama/models/blobs
+      - /home/<USERNAME>/models/ollama_models/blobs:/root/.ollama/models/blobs # CHANGE THIS TO YOUR OWN PATH
     networks:
       - mcp-network
     # Enable GPU support for NVIDIA
