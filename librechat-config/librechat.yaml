@@ -114,7 +114,7 @@ endpoints:
 # MCP Server Configuration
 # Implements the full MCP protocol (2024-11-05) for LibreChat integration
 mcpServers:
-  memory-mcp:
+  identity-mcp:
     type: http
     url: http://mcp-server:4000/mcp-protocol
     timeout: 300000  # 5 minutes for long rehydration sessions
