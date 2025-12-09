@@ -54,3 +54,4 @@ models/*
 
 *_old*
 notes.dev
+deploy.sh

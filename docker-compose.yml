@@ -42,7 +42,7 @@ services:
       - /home/nick/models/ollama_models/blobs:/root/.ollama/models/blobs
     networks:
       - mcp-network
-    # Enable GPU support for NVIDIA RTX 3080
+    # Enable GPU support for NVIDIA
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
