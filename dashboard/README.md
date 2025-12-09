@@ -1,6 +1,6 @@
 # Identity MCP Dashboard
 
-A dark-themed admin dashboard for managing the identity processing pipeline.
+A simple admin dashboard for managing the identity processing pipeline.
 
 ## Features
 
