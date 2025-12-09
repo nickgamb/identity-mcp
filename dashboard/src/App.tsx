@@ -110,11 +110,25 @@ function App() {
   // Check if any scripts are running
   const hasRunningScripts = Object.values(scriptStates).some(state => state.status === 'running')
 
-  // Check MCP status on mount
+  // Check MCP status and pipeline completion on mount
   useEffect(() => {
     checkMcpStatus()
-    const interval = setInterval(checkMcpStatus, 30000)
-    return () => clearInterval(interval)
+    checkPipelineCompletion()
+    const interval = setInterval(() => {
+      checkMcpStatus()
+      checkPipelineCompletion()
+    }, 30000)
+    
+    // Listen for data-cleaned event from DataExplorer
+    const handleDataCleaned = () => {
+      checkPipelineCompletion()
+    }
+    window.addEventListener('data-cleaned', handleDataCleaned)
+    
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('data-cleaned', handleDataCleaned)
+    }
   }, [])
 
   const checkMcpStatus = async () => {
@@ -123,6 +137,83 @@ function App() {
       setMcpStatus(res.ok ? 'online' : 'offline')
     } catch {
       setMcpStatus('offline')
+    }
+  }
+
+  const checkPipelineCompletion = async () => {
+    try {
+      // Check data status to determine which scripts have completed
+      const res = await fetch('/api/mcp/data.status')
+      const data = await res.json()
+      
+      const newStates: Record<string, ScriptState> = {}
+      
+      // Parse Conversations - check if conversation JSONL files exist
+      if (data.generatedData?.conversations) {
+        newStates['parse_conversations'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      }
+      
+      // Parse Memories - check if user.context.jsonl exists
+      if (data.generatedData?.memory && data.counts?.memoryFiles > 0) {
+        newStates['parse_memories'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      }
+      
+      // Analyze Patterns - check if identity.jsonl and patterns.jsonl exist
+      const identityRes = await fetch('/api/mcp/file.get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filepath: 'memory/identity.jsonl' })
+      }).catch(() => null)
+      
+      const patternsRes = await fetch('/api/mcp/file.get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filepath: 'memory/patterns.jsonl' })
+      }).catch(() => null)
+      
+      if (identityRes?.ok && patternsRes?.ok) {
+        newStates['analyze_patterns'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      }
+      
+      // Analyze Identity - check if identity_analysis.jsonl exists
+      const analysisRes = await fetch('/api/mcp/file.get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filepath: 'memory/identity_analysis.jsonl' })
+      }).catch(() => null)
+      
+      if (analysisRes?.ok) {
+        newStates['analyze_identity'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      }
+      
+      // Build Emergence Map - check if emergence_map_index.json exists
+      const emergenceRes = await fetch('/api/mcp/file.get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filepath: 'memory/emergence_map_index.json' })
+      }).catch(() => null)
+      
+      if (emergenceRes?.ok) {
+        newStates['build_emergence_map'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      }
+      
+      // Train Identity Model - check if model exists
+      if (data.generatedData?.identityModel) {
+        newStates['train_identity_model'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      }
+      
+      // Only update states that aren't currently running
+      setScriptStates(prev => {
+        const updated = { ...prev }
+        for (const [scriptId, state] of Object.entries(newStates)) {
+          if (!prev[scriptId] || prev[scriptId].status !== 'running') {
+            updated[scriptId] = state
+          }
+        }
+        return updated
+      })
+    } catch (error) {
+      console.error('Failed to check pipeline completion:', error)
     }
   }
 

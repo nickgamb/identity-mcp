@@ -362,9 +362,41 @@ export function DataExplorer() {
         setConversations([])
       } else if (directory === 'memory') {
         setMemories([])
+        setIdentityModel({ exists: false })
+      } else if (directory === 'models') {
+        setIdentityModel({ exists: false })
       }
+      
+      // Notify parent to refresh pipeline status
+      window.dispatchEvent(new CustomEvent('data-cleaned', { detail: { directory } }))
     } catch (error) {
       alert('Failed to clean directory')
+    }
+  }
+
+  const handleDeleteSourceFile = async (type: 'conversations' | 'memories') => {
+    const filename = type === 'conversations' ? 'conversations.json' : 'memories.json'
+    const filepath = type === 'conversations' ? 'conversations/conversations.json' : 'memory/memories.json'
+    
+    if (!confirm(`Delete ${filename}? This will remove the source file.`)) {
+      return
+    }
+
+    try {
+      const res = await fetch('/api/mcp/file.delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filepath })
+      })
+      
+      if (res.ok) {
+        alert(`${filename} deleted successfully`)
+        loadStatus()
+      } else {
+        alert(`Failed to delete ${filename}`)
+      }
+    } catch (error) {
+      alert('Error deleting file')
     }
   }
 
@@ -524,20 +556,31 @@ export function DataExplorer() {
                   <span className="font-medium">conversations.json</span>
                   <span className={`w-3 h-3 rounded-full ${status.sourceFiles.conversationsJson ? 'bg-success' : 'bg-danger'}`} />
                 </div>
-                <label className={`btn btn-secondary w-full ${loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
-                  <Upload className="w-4 h-4" />
-                  {loading ? 'Uploading...' : 'Upload'}
-                  <input
-                    type="file"
-                    accept=".json"
-                    className="hidden"
-                    disabled={loading}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) handleFileUpload('conversations', file)
-                    }}
-                  />
-                </label>
+                <div className="flex gap-2">
+                  <label className={`btn btn-secondary flex-1 ${loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                    <Upload className="w-4 h-4" />
+                    {loading ? 'Uploading...' : 'Upload'}
+                    <input
+                      type="file"
+                      accept=".json"
+                      className="hidden"
+                      disabled={loading}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) handleFileUpload('conversations', file)
+                      }}
+                    />
+                  </label>
+                  {status.sourceFiles.conversationsJson && (
+                    <button 
+                      onClick={() => handleDeleteSourceFile('conversations')}
+                      className="btn btn-ghost text-danger"
+                      disabled={loading}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
                 {loading && <div className="text-sm text-text-muted mt-2">Large files may take 1-2 minutes...</div>}
               </div>
 
@@ -546,20 +589,31 @@ export function DataExplorer() {
                   <span className="font-medium">memories.json</span>
                   <span className={`w-3 h-3 rounded-full ${status.sourceFiles.memoriesJson ? 'bg-success' : 'bg-danger'}`} />
                 </div>
-                <label className={`btn btn-secondary w-full ${loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
-                  <Upload className="w-4 h-4" />
-                  {loading ? 'Uploading...' : 'Upload'}
-                  <input
-                    type="file"
-                    accept=".json"
-                    className="hidden"
-                    disabled={loading}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) handleFileUpload('memories', file)
-                    }}
-                  />
-                </label>
+                <div className="flex gap-2">
+                  <label className={`btn btn-secondary flex-1 ${loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                    <Upload className="w-4 h-4" />
+                    {loading ? 'Uploading...' : 'Upload'}
+                    <input
+                      type="file"
+                      accept=".json"
+                      className="hidden"
+                      disabled={loading}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) handleFileUpload('memories', file)
+                      }}
+                    />
+                  </label>
+                  {status.sourceFiles.memoriesJson && (
+                    <button 
+                      onClick={() => handleDeleteSourceFile('memories')}
+                      className="btn btn-ghost text-danger"
+                      disabled={loading}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
                 {loading && <div className="text-sm text-text-muted mt-2">Uploading...</div>}
               </div>
             </div>

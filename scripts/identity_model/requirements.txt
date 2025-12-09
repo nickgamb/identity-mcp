@@ -1,15 +1,11 @@
 # Requirements for Identity Model Training
-# Install these on your host machine (not in Docker)
 # 
-# For CPU training:
-# pip install numpy torch sentence-transformers scikit-learn tqdm
-#
-# For GPU training (CUDA 11.8):
-# pip install numpy sentence-transformers scikit-learn tqdm
-# pip install torch --index-url https://download.pytorch.org/whl/cu118
+# Install with: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+# Or for GPU: pip install -r requirements.txt (uses default PyPI)
 
 numpy>=1.24.0
 torch>=2.0.0
+torchvision>=0.15.0
 sentence-transformers>=2.2.0
 scikit-learn>=1.3.0
 tqdm>=4.65.0

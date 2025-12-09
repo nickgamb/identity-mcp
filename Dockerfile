@@ -22,7 +22,10 @@ COPY scripts ./scripts
 RUN pip3 install --no-cache-dir --break-system-packages -r scripts/conversation_processing/requirements.txt
 
 # Install Python dependencies for identity model (ML libraries)
-RUN pip3 install --no-cache-dir --break-system-packages -r scripts/identity_model/requirements.txt
+# Use CPU-only PyTorch for compatibility
+RUN pip3 install --no-cache-dir --break-system-packages \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r scripts/identity_model/requirements.txt
 
 # Build using esbuild (much faster and uses less memory than tsc)
 RUN npm run build

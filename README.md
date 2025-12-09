@@ -12,14 +12,37 @@ A behavioral identity verification system that creates an "identity fingerprint"
 
 ## Screenshots
 
-### Dashboard
-![Dashboard](screenshots/dashboard.png)
+### Pipeline Dashboard
+![Pipeline Dashboard](screenshots/dashboard1.png)
+*Run processing scripts and monitor real-time output*
 
-### Chat Interface
+### Data Explorer - Status & Upload
+![Data Explorer](screenshots/data_explorer.png)
+*Upload conversations and memories, see completion status*
+
+### Data Explorer - Conversations
+![Conversations Browser](screenshots/data_explorer_conversations.png)
+*Browse, search, and edit all parsed conversations*
+
+### Data Explorer - Memories
+![Memories Browser](screenshots/data_explorer_memories.png)
+*View and manage all memory files with Monaco editor*
+
+### Data Explorer - Identity Analysis
+![Identity Analysis](screenshots/data_explorer_memories_analysis.png)
+*Visualize your identity model with stylistic profiles and vocabulary*
+
+### Data Explorer - Files
+![Files Manager](screenshots/data_explorer_files.png)
+*Upload, view, edit, and delete files for RAG access*
+
+### Chat Interface (LibreChat)
 ![Chat](screenshots/chat.png)
+*Use your identity data in conversations via MCP*
 
 ### Docker Compose
 ![Docker Compose](screenshots/compose.png)
+*Full stack deployment with GPU support*
 
 ## Quick Start
 
