@@ -55,3 +55,4 @@ models/*
 *_old*
 notes.dev
 deploy.sh
+docker-compose-dev.yml
