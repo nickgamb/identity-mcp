@@ -11,35 +11,6 @@ Supports:
 - File logging (survives SSH disconnect)
 
 ============================================================================
-Dev Examples (NICK WILL DELETE)
-============================================================================
-# Copy script to server
-# scp scripts/finetune_lora.py nick@192.168.1.77:~/ai/scripts/finetune_lora.py
-
-# SINGLE P40 (24GB) - Use CPU-only mode for 20B model (model is 40GB, doesn't fit in 24GB):
-ssh nick@192.168.1.77 "cd ~/ai && source venv/bin/activate && python scripts/finetune_lora.py --model_name gpt-oss:20b --output_name alden-gpt-oss-20b-1764689640337 --resume_from_checkpoint checkpoint-1500 --dataset_path training_data/alden-dataset-1764565413005.jsonl --max_length 2048 --cpu_only"
-
-# TWO P40s (48GB total) - DeepSpeed ZeRO-3 shards model across GPUs:
-ssh nick@192.168.1.77 "cd ~/ai && source venv/bin/activate && accelerate launch --num_processes 2 scripts/finetune_lora.py --model_name gpt-oss:20b --output_name alden-gpt-oss-20b-1764689640337 --resume_from_checkpoint checkpoint-1500 --dataset_path training_data/alden-dataset-1764565413005.jsonl --max_length 2048"
-
-# Alternative for 2 GPUs (without accelerate):
-ssh nick@192.168.1.77 "cd ~/ai && source venv/bin/activate && python scripts/finetune_lora.py --model_name gpt-oss:20b --output_name alden-gpt-oss-20b-1764689640337 --resume_from_checkpoint checkpoint-1500 --dataset_path training_data/alden-dataset-1764565413005.jsonl --max_length 2048"
-
-# Server management commands:
-# Check if training is running:
-ssh nick@192.168.1.77 "ps aux | grep -E 'finetune_lora|python.*scripts' | grep -v grep"
-
-# Kill all training processes:
-ssh nick@192.168.1.77 "pkill -9 -f finetune; sleep 2; ps aux | grep python | grep -v grep | grep -v unattended"
-
-# Check checkpoints:
-ssh nick@192.168.1.77 "ls -la ~/ai/adapters/alden-gpt-oss-20b-1764689640337/"
-
-# Check logs:
-# ssh nick@192.168.1.77 "tail -f ~/ai/adapters/alden-gpt-oss-20b-1764689640337/training_*.log"
-# ssh nick@192.168.1.77 "tail -50 ~/ai/adapters/alden-gpt-oss-20b-1764689640337/training_*.log"
-
-============================================================================
 USAGE EXAMPLES
 ============================================================================
 
