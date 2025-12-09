@@ -56,3 +56,4 @@ models/*
 notes.dev
 deploy.sh
 docker-compose-dev.yml
+docker-compose.yml
