@@ -106,15 +106,17 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - HF_MODEL=THUDM/glm-4-5-air  # Model to load (can be changed for other HF models)
+      # For local models, use the full path. For HF Hub models, use model ID (e.g., THUDM/glm-4-5-air)
+      - HF_MODEL=/root/.cache/huggingface/models/glm-4.5-air  # Local model path (adjust model name as needed)
       - HF_KEEP_ALIVE=300  # Unload after 5 minutes of inactivity (0=immediate, -1=never)
       - NVIDIA_VISIBLE_DEVICES=all
       - HF_HOME=/root/.cache/huggingface  # Use mounted cache
     volumes:
       # Mount local HuggingFace models directory directly
       # Models are stored in /home/<USERNAME>/models/hf_models on the host
-      # This directory contains both direct models and HuggingFace cache format models
-      # Mount to hub subdirectory where HuggingFace expects models
+      # Mount the direct model directory (if you have models in direct format like glm-4.5-air)
+      # and the cache format directory (for models downloaded via HuggingFace)
+      - /home/<USERNAME>/models/hf_models/glm-4.5-air:/root/.cache/huggingface/models/glm-4.5-air:ro # CHANGE model name to match your local model
       - /home/<USERNAME>/models/hf_models:/root/.cache/huggingface/hub:ro # CHANGE THIS TO YOUR OWN PATH
     networks:
       - mcp-network

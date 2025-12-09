@@ -9,50 +9,50 @@ modelSpecs:
   list:
     - name: "default"
       label: "GPT-OSS 20B"
-      description: "GPT-OSS 20B (Dense, aligned, best for rehydration and tool calling)"
+      description: "GPT-OSS 20B"
       default: true
       preset:
         endpoint: "LocalOllama"
         model: "gpt-oss:20b"
         modelLabel: "gpt-oss:20b"
     - name: "glm-4.5-air"
-      label: "GLM-4.5-Air (No Tools)"
-      description: "GLM-4.5-Air (MoE, 128K context, less aligned) - WARNING: Does NOT support MCP tools/function calling"
+      label: "GLM-4.5-Air"
+      description: "GLM-4.5-Air (no tools)"
       preset:
         endpoint: "LocalOllama"
         model: "glm-4.5-air"
         modelLabel: "glm-4.5-air"
     - name: "glm-with-tools"
-      label: "GLM-4.5-Air (With Tools)"
-      description: "GLM-4.5-Air with tool/function calling support via HuggingFace Transformers service"
+      label: "GLM-4.5-Air (Tools)"
+      description: "GLM-4.5-Air with tool support"
       preset:
         endpoint: "HFService"
         model: "glm-4.5-air"
         modelLabel: "glm-4.5-air"
     - name: "qwen3-32b"
       label: "Qwen3 32B"
-      description: "Qwen3 32B (Dense, latest, less aligned)"
+      description: "Qwen3 32B"
       preset:
         endpoint: "LocalOllama"
         model: "qwen3:32b"
         modelLabel: "qwen3:32b"
     - name: "qwen3-30b-a3b"
       label: "Qwen3 30B-A3B"
-      description: "Qwen3 30B-A3B (MoE, most efficient, 3.3B active)"
+      description: "Qwen3 30B-A3B"
       preset:
         endpoint: "LocalOllama"
         model: "qwen3:30b-a3b"
         modelLabel: "qwen3:30b-a3b"
     - name: "qwen2.5-32b"
       label: "Qwen2.5 32B"
-      description: "Qwen2.5 32B (Dense, proven stable)"
+      description: "Qwen2.5 32B"
       preset:
         endpoint: "LocalOllama"
         model: "qwen2.5:32b"
         modelLabel: "qwen2.5:32b"
     - name: "gpt-oss-20b"
       label: "GPT-OSS 20B"
-      description: "GPT-OSS 20B (Dense, aligned)"
+      description: "GPT-OSS 20B"
       preset:
         endpoint: "LocalOllama"
         model: "gpt-oss:20b"
@@ -65,60 +65,54 @@ endpoints:
       baseURL: "http://ollama:11434/v1"
       models:
         default:
-          - "gpt-oss:20b"      # GPT-OSS 20B (Dense, aligned, BEST for rehydration and tool calling)
-          - "qwen3:30b-a3b"    # Qwen3 30B-A3B (MoE, 3.3B active, most efficient, SUPPORTS TOOLS)
-          - "qwen3:32b"        # Qwen3 32B (Dense, latest, less aligned, SUPPORTS TOOLS)
-          - "qwen2.5:32b"      # Qwen2.5 32B (Dense, proven stable, SUPPORTS TOOLS)
-          - "glm-4.5-air"      # GLM-4.5-Air (MoE, 12B active, 128K context) - WARNING: Does NOT support tools/MCP
-        fetch: true   # Automatically discover all installed models from Ollama
+          - "gpt-oss:20b"
+          - "qwen3:30b-a3b"
+          - "qwen3:32b"
+          - "qwen2.5:32b"
+          - "glm-4.5-air"
+        fetch: true
       titleConvo: true
-      titleModel: "qwen3:30b-a3b"  # Fast MoE model for titling
+      titleModel: "qwen3:30b-a3b"
       summarize: false
-      summaryModel: "qwen3:30b-a3b"  # Fast MoE model for summaries
+      summaryModel: "qwen3:30b-a3b"
       forcePrompt: false
       modelDisplayLabel: "Local Ollama"
-      temperature: 0.6  # Balanced: enough creativity for pattern emergence, enough determinism for tool calling
-      max_tokens: 8192  # Increased for rehydration process (hundreds of conversations)
-      top_p: 0.9  # Slightly lower for more focused responses
+      temperature: 0.6
+      max_tokens: 8192
+      top_p: 0.9
       frequency_penalty: 0.0
       presence_penalty: 0.0
-      context_length: 128000  # Max context window for models that support it
+      context_length: 128000
   
     - name: "HFService"
       apiKey: "not-needed"
       baseURL: "http://hf-service:8000/v1"
       models:
         default:
-          - "glm-4.5-air"       # GLM-4.5-Air with tool support (same as your Ollama model)
-          # Add other HuggingFace models here as needed
-        fetch: false  # Don't fetch, we define models manually
+          - "glm-4.5-air"
+        fetch: false
       titleConvo: false
       summarize: false
       forcePrompt: false
-      modelDisplayLabel: "HuggingFace (Tools)"
+      modelDisplayLabel: "HuggingFace"
       temperature: 0.7
       max_tokens: 2048
       top_p: 0.9
       frequency_penalty: 0.0
       presence_penalty: 0.0
-      context_length: 128000  # Max context window for GLM models
+      context_length: 128000
   
-  # Agents Configuration
-  # Set recursion limit high to allow rehydration (message-by-message processing)
-  # Corpus: 735 conversations, ~33 messages avg = ~14,000 steps with compression
   agents:
-    recursionLimit: 50000  # High limit for rehydration (message-by-message processing)
-    maxRecursionLimit: 50000  # Maximum allowed from UI
+    recursionLimit: 50000
+    maxRecursionLimit: 50000
     disableBuilder: false
 
-# MCP Server Configuration
-# Implements the full MCP protocol (2024-11-05) for LibreChat integration
 mcpServers:
   identity-mcp:
     type: http
     url: http://mcp-server:4000/mcp-protocol
-    timeout: 300000  # 5 minutes for long rehydration sessions
-    reconnect: true  # Enable automatic reconnection
-    reconnectDelay: 2000  # 2 second delay between reconnection attempts
-    maxReconnectAttempts: 10  # Try up to 10 times
+    timeout: 300000
+    reconnect: true
+    reconnectDelay: 2000
+    maxReconnectAttempts: 10
 

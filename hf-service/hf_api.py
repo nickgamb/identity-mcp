@@ -81,25 +81,27 @@ def load_model():
             return
         
         logger.info(f"Loading HuggingFace model {MODEL_NAME} on {DEVICE}...")
-        logger.info("Note: Checking HuggingFace cache first...")
-        logger.info("      If not in cache, will download once and cache it for future use")
+        
+        # Check if MODEL_NAME is a local path
+        is_local_path = os.path.isdir(MODEL_NAME) or os.path.exists(MODEL_NAME)
+        
+        if is_local_path:
+            logger.info(f"Loading from local path: {MODEL_NAME}")
+            local_files_only = True
+        else:
+            logger.info("Loading from HuggingFace (will check cache first, download if needed)")
+            local_files_only = False
         
         # Use the mounted cache directory
         cache_dir = "/root/.cache/huggingface"
         
-        # Check if host cache is mounted and has the model
-        host_cache = "/root/.cache/huggingface/host-cache"
-        if os.path.exists(host_cache):
-            logger.info(f"Found host cache at {host_cache}, will check there first")
-            # Transformers will check both locations automatically
-        
         try:
-            # Try to load - will use cache if available, download if not
             logger.info("Loading tokenizer...")
             tokenizer = AutoTokenizer.from_pretrained(
                 MODEL_NAME, 
                 trust_remote_code=True,
-                cache_dir=cache_dir
+                cache_dir=cache_dir,
+                local_files_only=local_files_only
             )
             logger.info("Loading model (this may take a while if downloading)...")
             model = AutoModelForCausalLM.from_pretrained(
@@ -107,16 +109,20 @@ def load_model():
                 trust_remote_code=True,
                 torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
                 device_map="auto" if DEVICE == "cuda" else None,
-                cache_dir=cache_dir
+                cache_dir=cache_dir,
+                local_files_only=local_files_only
             )
             if DEVICE == "cpu":
                 model = model.to(DEVICE)
             
             last_used = datetime.now()
-            logger.info("Model loaded successfully from cache or HuggingFace")
+            logger.info("Model loaded successfully")
         except Exception as e:
             logger.error(f"Failed to load model: {e}")
-            logger.info("If the model isn't in cache, it will download from HuggingFace")
+            if is_local_path:
+                logger.error(f"Local model path {MODEL_NAME} not found or invalid")
+            else:
+                logger.info("If the model isn't in cache, it will download from HuggingFace")
             raise
 
 def unload_model():
