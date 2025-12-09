@@ -168,7 +168,7 @@ See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for full tool reference.
 | ✅ | Train semantic embedding model |
 | ✅ | Identity verification via MCP tools |
 | ✅ | Memory files enhance training (boosts distinctive terms) |
-| 🔲 | Add authentication and authorization for human and agent identity across the entire project using Strata Maverics (learn more at maverics.ai)  |
+| 🔲 | Add authentication and authorization for human and agent identity across the entire project using Strata Maverics (learn more at [maverics.ai](https://maverics.ai))  |
 | 🔲 | **Non-conversational data support** - Train on essays, journals, emails, blog posts, social media |
 | 🔲 | Multiple identity profiles (compare/switch between identities) |
 | 🔲 | Identity drift detection (alert when patterns change over time) |
