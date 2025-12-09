@@ -172,3 +172,8 @@ See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for full tool reference.
 | 🔲 | Multiple identity profiles (compare/switch between identities) |
 | 🔲 | Identity drift detection (alert when patterns change over time) |
 | 🔲 | Export identity model for use in other systems |
+
+#License
+
+Apache License 2.0
+See the LICENSE.md file for full details.
