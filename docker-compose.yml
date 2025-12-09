@@ -38,7 +38,7 @@ services:
     volumes:
       - ollama-data:/root/.ollama
       # Mount local ollama_models to persist downloaded models (read-write so new models can be saved)
-      # Models are stored in /home/nick/models/ollama_models/blobs on the host
+      # Models are stored in /home/<USERNAME>/models/ollama_models/blobs on the host
       - /home/<USERNAME>/models/ollama_models/blobs:/root/.ollama/models/blobs # CHANGE THIS TO YOUR OWN PATH
     networks:
       - mcp-network
@@ -112,10 +112,10 @@ services:
       - HF_HOME=/root/.cache/huggingface  # Use mounted cache
     volumes:
       # Mount local HuggingFace models directory directly
-      # Models are stored in /home/nick/models/hf_models on the host
+      # Models are stored in /home/<USERNAME>/models/hf_models on the host
       # This directory contains both direct models and HuggingFace cache format models
       # Mount to hub subdirectory where HuggingFace expects models
-      - /home/nick/models/hf_models:/root/.cache/huggingface/hub:ro
+      - /home/<USERNAME>/models/hf_models:/root/.cache/huggingface/hub:ro # CHANGE THIS TO YOUR OWN PATH
     networks:
       - mcp-network
     # Enable GPU support
