@@ -33,17 +33,6 @@ const SCRIPTS = [
     order: 1,
   },
   {
-    id: 'parse_memories',
-    name: 'Parse Memories',
-    file: 'parse_memories.py',
-    path: 'scripts/conversation_processing/',
-    description: 'Converts ChatGPT memories.json into searchable context records.',
-    outputs: ['memory/user.context.jsonl'],
-    icon: Database,
-    color: 'accent',
-    order: 2,
-  },
-  {
     id: 'analyze_patterns',
     name: 'Analyze Patterns',
     file: 'analyze_patterns.py',
@@ -51,6 +40,17 @@ const SCRIPTS = [
     description: 'Discovers distinctive terms, topics, entities, and tone patterns from your conversations.',
     outputs: ['memory/identity.jsonl', 'memory/patterns.jsonl'],
     icon: Sparkles,
+    color: 'accent',
+    order: 2,
+  },
+  {
+    id: 'parse_memories',
+    name: 'Parse Memories',
+    file: 'parse_memories.py',
+    path: 'scripts/conversation_processing/',
+    description: 'Converts ChatGPT memories.json into searchable context records.',
+    outputs: ['memory/user.context.jsonl'],
+    icon: Database,
     color: 'accent',
     order: 3,
   },
@@ -148,17 +148,19 @@ function App() {
       
       const newStates: Record<string, ScriptState> = {}
       
-      // Parse Conversations - check if conversation JSONL files exist
-      if (data.generatedData?.conversations) {
-        newStates['parse_conversations'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-      }
-      
-      // Parse Memories - check if user.context.jsonl exists
-      if (data.generatedData?.memory && data.counts?.memoryFiles > 0) {
-        newStates['parse_memories'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      // Parse Conversations - ONLY check if generated conversation JSONL files exist
+      // NOT checking if conversations.json exists - only the parsed output files
+      if (data.counts?.conversationFiles > 0) {
+        // Verify at least one conversation_*.jsonl file actually exists
+        const conversationsRes = await fetch('/api/mcp/data.conversations')
+        const conversationsData = await conversationsRes.json()
+        if (conversationsData.conversations && conversationsData.conversations.length > 0) {
+          newStates['parse_conversations'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+        }
       }
       
       // Analyze Patterns - check if identity.jsonl and patterns.jsonl exist
+      // These are generated files, not source files
       const identityRes = await fetch('/api/mcp/file.get', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -175,7 +177,19 @@ function App() {
         newStates['analyze_patterns'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
       }
       
-      // Analyze Identity - check if identity_analysis.jsonl exists
+      // Parse Memories - ONLY check if user.context.jsonl exists (generated file)
+      // NOT checking if memories.json exists - only the parsed output file
+      const userContextRes = await fetch('/api/mcp/file.get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filepath: 'memory/user.context.jsonl' })
+      }).catch(() => null)
+      
+      if (userContextRes?.ok) {
+        newStates['parse_memories'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      }
+      
+      // Analyze Identity - check if identity_analysis.jsonl exists (generated file)
       const analysisRes = await fetch('/api/mcp/file.get', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -186,7 +200,7 @@ function App() {
         newStates['analyze_identity'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
       }
       
-      // Build Emergence Map - check if emergence_map_index.json exists
+      // Build Emergence Map - check if emergence_map_index.json exists (generated file)
       const emergenceRes = await fetch('/api/mcp/file.get', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -197,19 +211,35 @@ function App() {
         newStates['build_emergence_map'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
       }
       
-      // Train Identity Model - check if model exists
-      if (data.generatedData?.identityModel) {
+      // Train Identity Model - check if model config exists (generated file)
+      const modelConfigRes = await fetch('/api/mcp/file.get', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filepath: 'models/identity/config.json' })
+      }).catch(() => null)
+      
+      if (modelConfigRes?.ok) {
         newStates['train_identity_model'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
       }
       
-      // Only update states that aren't currently running
+      // Replace all states with fresh check (except currently running scripts)
       setScriptStates(prev => {
-        const updated = { ...prev }
-        for (const [scriptId, state] of Object.entries(newStates)) {
-          if (!prev[scriptId] || prev[scriptId].status !== 'running') {
+        const updated: Record<string, ScriptState> = {}
+        
+        // Keep running scripts
+        for (const [scriptId, state] of Object.entries(prev)) {
+          if (state.status === 'running') {
             updated[scriptId] = state
           }
         }
+        
+        // Set completed states from file checks
+        for (const [scriptId, state] of Object.entries(newStates)) {
+          if (!updated[scriptId]) {
+            updated[scriptId] = state
+          }
+        }
+        
         return updated
       })
     } catch (error) {

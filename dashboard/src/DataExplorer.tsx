@@ -376,24 +376,26 @@ export function DataExplorer() {
 
   const handleDeleteSourceFile = async (type: 'conversations' | 'memories') => {
     const filename = type === 'conversations' ? 'conversations.json' : 'memories.json'
-    const filepath = type === 'conversations' ? 'conversations/conversations.json' : 'memory/memories.json'
     
     if (!confirm(`Delete ${filename}? This will remove the source file.`)) {
       return
     }
 
     try {
-      const res = await fetch('/api/mcp/file.delete', {
+      const res = await fetch('/api/mcp/data.delete_source', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filepath })
+        body: JSON.stringify({ type })
       })
       
-      if (res.ok) {
+      const data = await res.json()
+      
+      if (data.success) {
         alert(`${filename} deleted successfully`)
         loadStatus()
+        window.dispatchEvent(new CustomEvent('data-cleaned', { detail: { directory: type } }))
       } else {
-        alert(`Failed to delete ${filename}`)
+        alert(`Failed to delete ${filename}: ${data.message || 'Unknown error'}`)
       }
     } catch (error) {
       alert('Error deleting file')

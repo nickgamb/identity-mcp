@@ -255,8 +255,8 @@ export async function handlePipelineRunAll(): Promise<{
   const results: ScriptResult[] = [];
   const order = [
     "parse_conversations",
-    "parse_memories",
     "analyze_patterns",
+    "parse_memories",
     "analyze_identity",
     "build_emergence_map",
   ];

@@ -87,6 +87,7 @@ import {
   handleDataUploadConversations,
   handleDataUploadMemories,
   handleDataClean,
+  handleDataDeleteSource,
   handleDataConversationsList,
   handleDataConversationGet,
   handleDataConversationUpdate,
@@ -726,6 +727,18 @@ function registerTools(server: McpServer) {
       }),
     },
     async ({ directory }) => toContent(await handleDataClean({ directory })),
+  );
+
+  server.registerTool(
+    "data_delete_source",
+    {
+      title: "Delete Source File",
+      description: "Delete a source file (conversations.json or memories.json). Use this to remove uploaded source files.",
+      inputSchema: z.object({
+        type: z.enum(["conversations", "memories"]),
+      }),
+    },
+    async ({ type }) => toContent(await handleDataDeleteSource({ type })),
   );
 
   server.registerTool(

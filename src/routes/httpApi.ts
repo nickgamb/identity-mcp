@@ -102,6 +102,7 @@ import {
   handleDataUploadConversations,
   handleDataUploadMemories,
   handleDataClean,
+  handleDataDeleteSource,
   handleDataConversationsList,
   handleDataConversationGet,
   handleDataConversationUpdate,
@@ -763,6 +764,16 @@ mcpRouter.post("/mcp/data.clean", async (req: Request, res: Response) => {
     }
     
     const result = await handleDataClean({ directory });
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.post("/mcp/data.delete_source", async (req: Request, res: Response) => {
+  try {
+    const { type } = req.body;
+    const result = await handleDataDeleteSource({ type });
     res.json(result);
   } catch (err) {
     handleError(res, err);

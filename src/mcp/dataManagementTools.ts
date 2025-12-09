@@ -114,6 +114,27 @@ export async function handleDataClean({ directory }: { directory: string }): Pro
   return { success: true, message: `Cleaned ${directory}: removed ${deletedCount} items`, deletedCount };
 }
 
+export async function handleDataDeleteSource({ type }: { type: string }): Promise<{ success: boolean; message: string }> {
+  if (type !== "conversations" && type !== "memories") {
+    return { success: false, message: "Invalid type. Must be 'conversations' or 'memories'" };
+  }
+  
+  const filename = type === "conversations" ? "conversations.json" : "memories.json";
+  const directory = type === "conversations" ? "conversations" : "memory";
+  const filePath = path.join(PROJECT_ROOT, directory, filename);
+  
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return { success: true, message: `${filename} deleted successfully` };
+    } else {
+      return { success: false, message: `${filename} not found` };
+    }
+  } catch (error: any) {
+    return { success: false, message: error.message || `Failed to delete ${filename}` };
+  }
+}
+
 // ============================================================================
 // Conversations
 // ============================================================================
