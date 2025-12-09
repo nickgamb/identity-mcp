@@ -51,3 +51,5 @@ memory/*
 !memory/.gitkeep
 models/*
 !models/.gitkeep
+
+*_old*

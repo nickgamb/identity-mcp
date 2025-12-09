@@ -10,6 +10,17 @@ A behavioral identity verification system that creates an "identity fingerprint"
 - **Verifies** new messages against your identity fingerprint
 - **Serves** identity data via MCP protocol (for LibreChat, etc.)
 
+## Screenshots
+
+### Dashboard
+![Dashboard](screenshots/dashboard.png)
+
+### Chat Interface
+![Chat](screenshots/chat.png)
+
+### Docker Compose
+![Docker Compose](screenshots/compose.png)
+
 ## Quick Start
 
 ```bash

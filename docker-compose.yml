@@ -212,6 +212,29 @@ services:
       - MEILI_MASTER_KEY=masterKey
       - MEILI_ENV=development
 
+  # Identity MCP Dashboard
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: identity-dashboard
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./dashboard:/app
+      - /app/node_modules
+    networks:
+      - mcp-network
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 networks:
   mcp-network:
     driver: bridge

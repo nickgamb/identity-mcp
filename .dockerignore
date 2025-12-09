@@ -9,4 +9,5 @@ dist
 .DS_Store
 librechat-config
 ollama-models
+*_old*
 
