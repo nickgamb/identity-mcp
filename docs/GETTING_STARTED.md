@@ -229,5 +229,6 @@ python finetune_lora.py --model_name mistral:7b --output_name my-model
 
 ## Next Steps
 
-- **[API Reference](./README.md)** - Full API documentation
+- **[MCP Readme](./MCP_README.md)** - Full MCP documentation
+- **[Identity Verification](./IDENTITY_VERIFICATION.md)** - Full Identity Verification documentation
 - **[Docker Setup](./DOCKER_SETUP.md)** - Container deployment
