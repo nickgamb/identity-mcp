@@ -168,7 +168,7 @@ See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for full tool reference.
 | ✅ | Train semantic embedding model |
 | ✅ | Identity verification via MCP tools |
 | ✅ | Memory files enhance training (boosts distinctive terms) |
-| 🔲 | **Non-conversational data support** - Train on essays, journals, emails, blog posts (no ChatGPT export needed) |
+| 🔲 | **Non-conversational data support** - Train on essays, journals, emails, blog posts, social media |
 | 🔲 | Multiple identity profiles (compare/switch between identities) |
 | 🔲 | Identity drift detection (alert when patterns change over time) |
 | 🔲 | Export identity model for use in other systems |
