@@ -260,6 +260,7 @@ npm start
 
 ## Documentation
 - **[GETTING_STARTED.md](./GETTING_STARTED.md)** - End-to-end setup with your ChatGPT data
+- **[Identity Verification](./IDENTITY_VERIFICATION.md)** - Full Identity Verification documentation
 - **[DOCKER_SETUP.md](./DOCKER_SETUP.md)** - Docker deployment guide
 
 

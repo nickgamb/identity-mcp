@@ -227,8 +227,8 @@ python finetune_lora.py --model_name mistral:7b --output_name my-model
 - Conversations might be too short
 - Try `--min-freq 3` for lower threshold
 
-## Next Steps
+## Documentation
 
 - **[MCP Readme](./MCP_README.md)** - Full MCP documentation
 - **[Identity Verification](./IDENTITY_VERIFICATION.md)** - Full Identity Verification documentation
-- **[Docker Setup](./DOCKER_SETUP.md)** - Container deployment
+- **[DOCKER_SETUP.md](./DOCKER_SETUP.md)** - Docker deployment guide

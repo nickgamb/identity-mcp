@@ -177,4 +177,7 @@ Ensure NVIDIA Container Toolkit is installed on your host.
 3. **Query your memories** with memory_search
 4. **Try unified search** with search_all
 
-See [README.md](./README.md) for full API documentation.
+## Documentation
+- **[GETTING_STARTED.md](./GETTING_STARTED.md)** - End-to-end setup with your ChatGPT data
+- **[MCP Readme](./MCP_README.md)** - Full MCP documentation
+- **[Identity Verification](./IDENTITY_VERIFICATION.md)** - Full Identity Verification documentation
