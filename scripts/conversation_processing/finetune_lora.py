@@ -600,63 +600,57 @@ elif global_step > 0:
         scheduler.step()
 
 # Calculate remaining training
-steps_per_epoch = len(dataloader)
+# Get dataset length directly (batch_size=1, so steps = dataset length)
+dataset_len = len(tokenized["train"])
+steps_per_epoch = dataset_len
 start_epoch = global_step // steps_per_epoch
 start_step_in_epoch = global_step % steps_per_epoch
 remaining_steps = total_steps - global_step
-log.info(f"\\nTotal steps: {{total_steps}}, Starting from step {{global_step}}")
-log.info(f"Steps per epoch: {{steps_per_epoch}}, Remaining: {{remaining_steps}}")
-log.info(f"Start epoch: {{start_epoch}}, Start step in epoch: {{start_step_in_epoch}}")
-log.info(f"Current LR: {{scheduler.get_last_lr()[0]:.2e}}")
+
+# If we've already completed all epochs but have remaining steps, continue training
+# This handles the case where checkpoint is past the original epoch count
+if start_epoch >= EPOCHS and remaining_steps > 0:
+    # Calculate how many more epochs we need to complete remaining steps
+    epochs_needed = (remaining_steps + steps_per_epoch - 1) // steps_per_epoch
+    effective_epochs = start_epoch + epochs_needed
+    log.info(f"Resuming past original epoch count ({{start_epoch}} >= {{EPOCHS}}), extending to {{effective_epochs}} epochs")
+else:
+    effective_epochs = EPOCHS
+
+log.info(f"Starting from step {{global_step}}, remaining: {{remaining_steps}} steps")
+log.info(f"Epoch {{start_epoch+1}}/{{effective_epochs}}, step {{start_step_in_epoch}}/{{steps_per_epoch}} in epoch")
 
 # Training loop
 log.info("\\nStarting training...")
 model.train()
+device = torch.device('cpu')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-for epoch in range(start_epoch, EPOCHS):
-    log.info(f"\\nEpoch {{epoch + 1}}/{{EPOCHS}}")
+for epoch in range(start_epoch, effective_epochs):
+    log.info(f"\\n=== Epoch {{epoch + 1}}/{{effective_epochs}} (step {{global_step}}/{{total_steps}}) ===")
     epoch_loss = 0.0
     num_batches = 0
     
     # Recreate dataloader each epoch with appropriate shuffle setting
-    # When resuming, disable shuffle to maintain consistent order
     epoch_shuffle = use_shuffle and (epoch > start_epoch or start_step_in_epoch == 0)
     if epoch == start_epoch and start_step_in_epoch > 0:
         # Recreate dataloader without shuffle for resumption
         dataloader = DataLoader(tokenized["train"], batch_size=1, shuffle=False, num_workers=0)
-        log.info(f"Created dataloader for resumption (shuffle=False, will skip first {{start_step_in_epoch}} batches)")
     else:
         # Normal epoch - use shuffle setting
         dataloader = DataLoader(tokenized["train"], batch_size=1, shuffle=epoch_shuffle, num_workers=0)
-        if epoch_shuffle:
-            log.info("Created dataloader with shuffle enabled")
     
     if epoch == start_epoch and start_step_in_epoch > 0:
-        # When resuming mid-epoch, we need to skip batches
-        # But shuffle=True means we can't reliably skip by index
-        # Solution: enumerate and skip based on step count
-        log.info(f"Resuming mid-epoch: will skip first {{start_step_in_epoch}} batches")
-        log.info(f"Progress bar will start at {{start_step_in_epoch}}/{{steps_per_epoch}}")
-        # Use enumerate to track position, skip until we reach start_step_in_epoch
-        # Note: With shuffle=False (when resuming), batch order is consistent
-        # Use itertools.islice to skip batches more efficiently (no need to iterate through skipped batches)
-        # Skip the first start_step_in_epoch batches
+        # When resuming mid-epoch, skip batches using islice
+        log.info(f"Resuming mid-epoch: skipping first {{start_step_in_epoch}} batches")
         remaining_batches = islice(dataloader, start_step_in_epoch, None)
-        remaining_count = steps_per_epoch - start_step_in_epoch
-        progress = tqdm(enumerate(remaining_batches, start=start_step_in_epoch), total=steps_per_epoch, initial=start_step_in_epoch, desc=f"Epoch {{epoch+1}}")
-        log.info(f"Skipped first {{start_step_in_epoch}} batches using islice")
+        progress = tqdm(remaining_batches, total=steps_per_epoch - start_step_in_epoch, initial=0, desc=f"Epoch {{epoch+1}}", leave=True)
         
-        for batch_idx, batch in progress:
-            
-            # Log when we start actually training
-            if batch_idx == start_step_in_epoch:
-                log.info(f"Reached resumption point! Starting training from batch {{batch_idx}}")
-            
-            # Now we're at the right position, process this batch
-            input_ids = batch["input_ids"]
-            attention_mask = batch["attention_mask"]
-            labels = batch["labels"]
+        for batch in progress:
+            # Move batch to device
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            labels = batch["labels"].to(device)
             
             optimizer.zero_grad()
             outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
@@ -670,10 +664,8 @@ for epoch in range(start_epoch, EPOCHS):
             num_batches += 1
             global_step += 1
             
-            # Update progress bar with current metrics and force refresh
-            current_pos = batch_idx + 1  # +1 because batch_idx is 0-indexed
-            progress.set_postfix({{"loss": f"{{loss.item():.4f}}", "avg": f"{{epoch_loss/num_batches:.4f}}", "lr": f"{{scheduler.get_last_lr()[0]:.2e}}", "step": global_step, "pos": current_pos}})
-            progress.refresh()  # Force refresh to ensure progress bar updates
+            # Update progress bar
+            progress.set_postfix({{"loss": f"{{loss.item():.4f}}", "step": global_step}})
             
             # Checkpoint every 500 steps
             if global_step % 500 == 0:
@@ -681,7 +673,6 @@ for epoch in range(start_epoch, EPOCHS):
                 os.makedirs(ckpt_dir, exist_ok=True)
                 model.save_pretrained(ckpt_dir)
                 tokenizer.save_pretrained(ckpt_dir)
-                # Save optimizer and scheduler state for proper resumption
                 torch.save({{
                     'optimizer': optimizer.state_dict(),
                     'scheduler': scheduler.state_dict(),
@@ -689,14 +680,15 @@ for epoch in range(start_epoch, EPOCHS):
                     'epoch': epoch,
                     'epoch_loss': epoch_loss,
                 }}, os.path.join(ckpt_dir, 'training_state.pt'))
-                log.info(f"\\nSaved checkpoint: {{ckpt_dir}} (with optimizer/scheduler state)")
+                log.info(f"\\nCheckpoint saved: {{global_step}}")
     else:
         # Normal epoch (not resuming mid-epoch)
-        progress = tqdm(enumerate(dataloader), total=steps_per_epoch, desc=f"Epoch {{epoch+1}}")
-        for batch_idx, batch in progress:
-            input_ids = batch["input_ids"]
-            attention_mask = batch["attention_mask"]
-            labels = batch["labels"]
+        progress = tqdm(dataloader, total=steps_per_epoch, desc=f"Epoch {{epoch+1}}", leave=True)
+        for batch in progress:
+            # Move batch to device
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            labels = batch["labels"].to(device)
             
             optimizer.zero_grad()
             outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
@@ -710,10 +702,8 @@ for epoch in range(start_epoch, EPOCHS):
             num_batches += 1
             global_step += 1
             
-            # Update progress bar with current metrics and force refresh
-            current_pos = batch_idx + 1  # +1 because batch_idx is 0-indexed
-            progress.set_postfix({{"loss": f"{{loss.item():.4f}}", "avg": f"{{epoch_loss/num_batches:.4f}}", "lr": f"{{scheduler.get_last_lr()[0]:.2e}}", "step": global_step, "pos": current_pos}})
-            progress.refresh()  # Force refresh to ensure progress bar updates
+            # Update progress bar
+            progress.set_postfix({{"loss": f"{{loss.item():.4f}}", "step": global_step}})
             
             # Checkpoint every 500 steps
             if global_step % 500 == 0:
@@ -721,7 +711,6 @@ for epoch in range(start_epoch, EPOCHS):
                 os.makedirs(ckpt_dir, exist_ok=True)
                 model.save_pretrained(ckpt_dir)
                 tokenizer.save_pretrained(ckpt_dir)
-                # Save optimizer and scheduler state for proper resumption
                 torch.save({{
                     'optimizer': optimizer.state_dict(),
                     'scheduler': scheduler.state_dict(),
@@ -729,7 +718,7 @@ for epoch in range(start_epoch, EPOCHS):
                     'epoch': epoch,
                     'epoch_loss': epoch_loss,
                 }}, os.path.join(ckpt_dir, 'training_state.pt'))
-                log.info(f"\\nSaved checkpoint: {{ckpt_dir}} (with optimizer/scheduler state)")
+                log.info(f"\\nCheckpoint saved: {{global_step}}")
     
     avg_loss = epoch_loss / num_batches if num_batches > 0 else 0
     log.info(f"Epoch {{epoch+1}} complete. Avg loss: {{avg_loss:.4f}}")
