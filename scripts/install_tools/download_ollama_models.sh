@@ -11,7 +11,22 @@ MODELS=(
     "qwen3:30b-a3b"
     "qwen3:32b"
     "qwen2.5:32b"
+    "qwen2.5:14b"
+    "qwen2.5:7b"
     "glm-4.5-air"
+    "codellama:7b"
+    "deepseek-coder:6.7b"
+    "deepseek-r1"
+    "gemma2:9b"
+    "gemma2:27b"
+    "llama3.1:8b"
+    "llama3.1:70b"
+    "llama3.2:3b"
+    "llama3.2:11b"
+    "mistral:latest"
+    "mistral-nemo"
+    "mixtral:8x7b"
+    "phi3.5:3.8b"
 )
 
 # Check if running in Docker or locally
