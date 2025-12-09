@@ -1,7 +1,13 @@
-FROM node:20-alpine
+FROM node:20-slim
 
-# Install wget for health checks
-RUN apk add --no-cache wget
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    python3 \
+    python3-pip \
+    python3-venv \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -11,6 +17,12 @@ RUN npm install --production=false
 COPY src ./src
 COPY memory ./memory
 COPY scripts ./scripts
+
+# Install Python dependencies for processing scripts
+RUN pip3 install --no-cache-dir --break-system-packages -r scripts/conversation_processing/requirements.txt
+
+# Install Python dependencies for identity model (ML libraries)
+RUN pip3 install --no-cache-dir --break-system-packages -r scripts/identity_model/requirements.txt
 
 # Build using esbuild (much faster and uses less memory than tsc)
 RUN npm run build

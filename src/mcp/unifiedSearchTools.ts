@@ -49,7 +49,7 @@ export async function handleUnifiedSearch(
 ): Promise<UnifiedSearchResponse> {
   try {
     const sources = req.sources || ["memories", "files", "conversations"];
-    const limit = req.limit || 20;
+    const limit = req.limit ?? 20;
     
     const results: UnifiedSearchResponse = {
       memories: { results: [], count: 0 },

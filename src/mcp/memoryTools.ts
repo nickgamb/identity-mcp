@@ -61,15 +61,13 @@ export async function handleMemoryGet(req: MemoryGetRequest): Promise<MemoryGetR
 }
 
 export async function handleMemoryAppend(
-  req: MemoryAppendRequest,
-  sessionId?: string
+  req: MemoryAppendRequest
 ): Promise<MemoryAppendResponse> {
   const { file, record } = req;
   const id = record.id || `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const toStore: MemoryRecord = { ...record, id };
   await appendRecord(file, toStore);
 
-  // Session storage disabled - just store to main memory file
   return { ok: true, id };
 }
 

@@ -6,6 +6,8 @@ Supports:
 - Models up to 20B+ parameters with CPU offloading
 - DeepSpeed ZeRO-3 for multi-GPU training
 - Single GPU, multi-GPU, and CPU-only modes
+- Configurable VRAM limits per GPU
+- Optional CPU offloading (enabled by default)
 - Checkpoint resumption with optimizer/scheduler state
 - Automatic dataset preparation from conversations/files/memory
 - File logging (survives SSH disconnect)
@@ -14,14 +16,133 @@ Supports:
 USAGE EXAMPLES
 ============================================================================
 
-Single GPU (24GB) - CPU-only mode for 20B+ models:
-  python finetune_lora.py --model_name <model> --cpu_only --max_length 2048
+CPU-ONLY MODE (for 20B+ models, long sequences):
+  python finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --cpu_only \\
+    --max_length 2048 \\
+    --epochs 3
 
-Multi-GPU (2x 24GB) - DeepSpeed ZeRO-3:
-  accelerate launch --num_processes 2 finetune_lora.py --model_name <model>
+SINGLE GPU (P40 24GB) - Default (20GB VRAM + CPU offload):
+  python finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --max_length 512 \\
+    --epochs 3
 
-Resume from checkpoint:
-  python finetune_lora.py --model_name <model> --resume_from_checkpoint checkpoint-1500
+SINGLE GPU - Custom VRAM limit (22GB):
+  python finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --max_vram_per_gpu 22 \\
+    --epochs 3
+
+SINGLE GPU - No VRAM limit (auto):
+  python finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --max_vram_per_gpu auto \\
+    --epochs 3
+
+SINGLE GPU - GPU-only (no CPU offload, not recommended):
+  python finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --max_vram_per_gpu 22 \\
+    --no_cpu_offload \\
+    --epochs 3
+
+DUAL GPU (2x P40) - DeepSpeed ZeRO-3 with defaults:
+  # Option 1: Try plain python first (may work with Trainer)
+  python finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --max_length 512 \\
+    --epochs 3
+  
+  # Option 2: Use deepspeed launcher (recommended for multi-GPU)
+  deepspeed --num_gpus=2 finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --max_length 512 \\
+    --epochs 3
+  
+  # DeepSpeed auto-scales batch size to 32 (16 per GPU * 2)
+  # Uses 20GB per GPU + CPU offload
+
+DUAL GPU - Maximum VRAM utilization:
+  deepspeed --num_gpus=2 finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --max_vram_per_gpu auto \\
+    --epochs 3
+  # No VRAM limits, DeepSpeed manages memory automatically
+
+DUAL GPU - Custom VRAM per GPU:
+  deepspeed --num_gpus=2 finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --max_vram_per_gpu 22 \\
+    --epochs 3
+  # 22GB per GPU (44GB total)
+
+DUAL GPU - Alternative launchers:
+  # Accelerate (if you prefer it over deepspeed launcher)
+  accelerate launch --num_processes 2 finetune_lora.py \\
+    --model_name gpt-oss:20b
+  
+  # Torchrun (PyTorch native)
+  torchrun --nproc_per_node=2 finetune_lora.py \\
+    --model_name gpt-oss:20b
+
+RESUME FROM CHECKPOINT (works with any mode):
+  python finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --resume_from_checkpoint checkpoint-1500 \\
+    --epochs 3
+  # Now shows skip progress: "Skipping to checkpoint: 1500/1500"
+
+EXPORT DATASET ONLY (no training):
+  python finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --dataset_source conversations \\
+    --export_only
+
+FULL CUSTOMIZATION:
+  python finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --dataset_source all \\
+    --epochs 5 \\
+    --learning_rate 3e-5 \\
+    --max_length 1024 \\
+    --max_vram_per_gpu 20 \\
+    --output_name my-custom-lora
+
+VERIFYING MULTI-GPU SETUP:
+  # Start training, then in another terminal check GPU usage:
+  nvidia-smi
+  # Both GPUs should show similar utilization (~18-20GB memory)
+  # If only 1 GPU active, use deepspeed/accelerate launcher
+
+MONITORING:
+  # Watch GPU utilization (updates every 1 second)
+  watch -n 1 nvidia-smi
+  
+  # Detailed GPU metrics
+  nvidia-smi dmon -s pucvmet
+  
+  # Check training logs
+  tail -f adapters/*/training_*.log
+  
+  # Monitor checkpoints
+  ls -lh adapters/*/checkpoint-*
+
+============================================================================
+PARAMETERS
+============================================================================
+--model_name          Model to fine-tune (default: gpt-oss:20b)
+--dataset_source      Data source: conversations|files|memories|all (default: all)
+--epochs              Training epochs (default: 3)
+--learning_rate       Learning rate (default: 2e-5)
+--max_length          Max sequence length (default: 192 GPU, 2048 CPU)
+--max_vram_per_gpu    VRAM per GPU: "20"|"22"|"auto" (default: 20)
+--no_cpu_offload      Disable CPU offload (not recommended for 20B models)
+--cpu_only            Force CPU-only training (for long sequences)
+--resume_from_checkpoint  Resume from checkpoint-N
+--output_name         Custom name for output adapter
+--no_deepspeed        Disable DeepSpeed ZeRO-3
 
 ============================================================================
 """
@@ -277,34 +398,67 @@ def get_huggingface_model_id(model_name: str) -> str:
 # ============================================================================
 
 def create_deepspeed_config(output_dir: Path) -> Path:
-    """Create DeepSpeed ZeRO-3 configuration with CPU offloading."""
+    """Create DeepSpeed ZeRO-3 configuration with CPU offloading.
+    
+    Automatically scales with available GPUs for optimal multi-GPU performance.
+    """
+    # Detect number of GPUs
+    try:
+        import torch
+        num_gpus = max(1, torch.cuda.device_count())
+    except:
+        num_gpus = 1
+    
+    # Calculate batch sizes: micro_batch * grad_accum * num_gpus
+    micro_batch = 1
+    grad_accum = 16
+    train_batch_size = micro_batch * grad_accum * num_gpus
+    
+    # Scale ZeRO-3 parameters based on available VRAM
+    # Single GPU (24GB): Conservative settings
+    # Dual GPU (48GB): More aggressive prefetching and live parameters
+    if num_gpus >= 2:
+        max_live_params = 3e9  # 3B parameters can be live (more VRAM available)
+        max_reuse_distance = 3e9
+        reduce_bucket = 8e8  # Larger buckets for multi-GPU communication
+        prefetch_bucket = 8e8
+    else:
+        max_live_params = 1e9  # Conservative for single GPU
+        max_reuse_distance = 1e9
+        reduce_bucket = 5e8
+        prefetch_bucket = 5e8
+    
     config = {
         "zero_optimization": {
             "stage": 3,
             "offload_param": {
                 "device": "cpu",
-                "pin_memory": True
+                "pin_memory": True,
+                "buffer_count": 5 if num_gpus >= 2 else 4,  # More buffers for multi-GPU
+                "buffer_size": 1e8,
             },
             "offload_optimizer": {
                 "device": "cpu",
-                "pin_memory": True
+                "pin_memory": True,
+                "buffer_count": 4,
+                "fast_init": False,
             },
             "overlap_comm": True,
             "contiguous_gradients": True,
             "sub_group_size": 1e9,
-            "reduce_bucket_size": 5e8,
-            "stage3_prefetch_bucket_size": 5e8,
+            "reduce_bucket_size": reduce_bucket,
+            "stage3_prefetch_bucket_size": prefetch_bucket,
             "stage3_param_persistence_threshold": 1e6,
-            "stage3_max_live_parameters": 1e9,
-            "stage3_max_reuse_distance": 1e9,
-            "gather_16bit_weights_on_model_save": True
+            "stage3_max_live_parameters": max_live_params,
+            "stage3_max_reuse_distance": max_reuse_distance,
+            "stage3_gather_16bit_weights_on_model_save": True,
+            "memory_efficient_linear": True,
         },
-        # Concrete values required for deepspeed.zero.Init()
-        # batch_size = micro_batch * grad_accum * num_gpus = 1 * 16 * 1 = 16
-        "gradient_accumulation_steps": 16,
+        # Batch size scales with GPU count
+        "gradient_accumulation_steps": grad_accum,
         "gradient_clipping": 1.0,
-        "train_batch_size": 16,
-        "train_micro_batch_size_per_gpu": 1,
+        "train_batch_size": train_batch_size,
+        "train_micro_batch_size_per_gpu": micro_batch,
         "wall_clock_breakdown": False,
         "fp16": {
             "enabled": True,
@@ -315,6 +469,9 @@ def create_deepspeed_config(output_dir: Path) -> Path:
             "min_loss_scale": 1
         }
     }
+    
+    log.info(f"DeepSpeed config: {num_gpus} GPU(s), train_batch_size={train_batch_size}")
+    log.info(f"  (micro_batch={micro_batch} * grad_accum={grad_accum} * num_gpus={num_gpus})")
     
     config_path = output_dir / "deepspeed_config.json"
     with open(config_path, 'w') as f:
@@ -542,11 +699,11 @@ log.info("Tokenizing...")
 tokenized = dataset.map(tokenize_fn, batched=True, remove_columns=dataset["train"].column_names)
 tokenized.set_format("torch", columns=["input_ids", "attention_mask", "labels"])
 
-# When resuming, disable shuffle to maintain consistent data order
-# Shuffle=True with different random states would make resumption unreliable
+# Shuffle strategy: disable on initial resume epoch, re-enable for subsequent epochs
+# This maintains consistency when resuming but improves training on new epochs
 use_shuffle = global_step == 0  # Only shuffle if starting fresh
 if not use_shuffle:
-    log.info("Shuffle disabled (resuming from checkpoint - maintaining data order)")
+    log.info("Shuffle disabled for resume (will re-enable after completing resumed epoch)")
 
 dataloader = DataLoader(tokenized["train"], batch_size=1, shuffle=use_shuffle, num_workers=0)
 
@@ -603,21 +760,43 @@ for epoch in range(start_epoch, effective_epochs):
     num_batches = 0
     
     # Recreate dataloader each epoch with appropriate shuffle setting
-    epoch_shuffle = use_shuffle and (epoch > start_epoch or start_step_in_epoch == 0)
+    # After completing the resumed epoch, re-enable shuffling for better training
     if epoch == start_epoch and start_step_in_epoch > 0:
-        # Recreate dataloader without shuffle for resumption
+        # Resuming mid-epoch - no shuffle to maintain consistency
+        epoch_shuffle = False
         dataloader = DataLoader(tokenized["train"], batch_size=1, shuffle=False, num_workers=0)
+    elif epoch > start_epoch:
+        # Subsequent epochs after resume - re-enable shuffle
+        epoch_shuffle = True
+        dataloader = DataLoader(tokenized["train"], batch_size=1, shuffle=True, num_workers=0)
+        if epoch == start_epoch + 1:
+            log.info("Shuffle re-enabled for improved training dynamics")
     else:
-        # Normal epoch - use shuffle setting
+        # Normal start - use initial shuffle setting
+        epoch_shuffle = use_shuffle
         dataloader = DataLoader(tokenized["train"], batch_size=1, shuffle=epoch_shuffle, num_workers=0)
     
     if epoch == start_epoch and start_step_in_epoch > 0:
-        # When resuming mid-epoch, skip batches using islice
-        log.info(f"Resuming mid-epoch: skipping first {{start_step_in_epoch}} batches")
-        remaining_batches = islice(dataloader, start_step_in_epoch, None)
-        progress = tqdm(remaining_batches, total=steps_per_epoch - start_step_in_epoch, initial=0, desc=f"Epoch {{epoch+1}}", leave=True)
+        # When resuming mid-epoch, skip batches with progress feedback
+        log.info(f"Resuming mid-epoch: skipping first {{start_step_in_epoch}} batches...")
+        skip_progress = tqdm(total=start_step_in_epoch, desc="Skipping to checkpoint", unit="batch")
+        train_progress = None
         
-        for batch in progress:
+        for idx, batch in enumerate(dataloader):
+            # Skip phase with visual feedback
+            if idx < start_step_in_epoch:
+                skip_progress.update(1)
+                continue
+            
+            # Close skip progress and create training progress
+            if idx == start_step_in_epoch:
+                skip_progress.close()
+                train_progress = tqdm(total=steps_per_epoch - start_step_in_epoch, desc=f"Epoch {{epoch+1}}", leave=True)
+                log.info(f"Skipping complete. Resuming training at batch {{start_step_in_epoch}}...")
+            
+            # Ensure we have a progress bar (shouldn't be None here, but safety check)
+            if train_progress is None:
+                train_progress = tqdm(total=steps_per_epoch - start_step_in_epoch, desc=f"Epoch {{epoch+1}}", leave=True)
             # Move batch to device
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
@@ -636,7 +815,7 @@ for epoch in range(start_epoch, effective_epochs):
             global_step += 1
             
             # Update progress bar
-            progress.set_postfix({{"loss": f"{{loss.item():.4f}}", "step": global_step}})
+            train_progress.set_postfix({{"loss": f"{{loss.item():.4f}}", "step": global_step}})
             
             # Checkpoint every 500 steps
             if global_step % 500 == 0:
@@ -652,6 +831,10 @@ for epoch in range(start_epoch, effective_epochs):
                     'epoch_loss': epoch_loss,
                 }}, os.path.join(ckpt_dir, 'training_state.pt'))
                 log.info(f"\\nCheckpoint saved: {{global_step}}")
+        
+        # Close progress bar after epoch
+        if train_progress:
+            train_progress.close()
     else:
         # Normal epoch (not resuming mid-epoch)
         progress = tqdm(dataloader, total=steps_per_epoch, desc=f"Epoch {{epoch+1}}", leave=True)
@@ -713,7 +896,9 @@ def create_training_script(
     max_length: int = 256,
     cpu_only: bool = False,
     resume_from_checkpoint: Optional[str] = None,
-    use_deepspeed: bool = True
+    use_deepspeed: bool = True,
+    max_vram_per_gpu: str = "20",
+    cpu_offload: bool = True
 ) -> Path:
     """Create the training script."""
     model_id = get_huggingface_model_id(model_name)
@@ -812,6 +997,8 @@ HF_TOKEN = {repr(hf_token) if hf_token else "None"}
 RESUME_CHECKPOINT = {repr(resume_from_checkpoint) if resume_from_checkpoint else "None"}
 USE_DEEPSPEED = {needs_deepspeed}
 DEEPSPEED_CONFIG = {repr(str(deepspeed_config_path)) if deepspeed_config_path else "None"}
+MAX_VRAM_PER_GPU = {repr(max_vram_per_gpu)}
+CPU_OFFLOAD = {cpu_offload}
 
 if HF_TOKEN:
     os.environ["HF_TOKEN"] = HF_TOKEN
@@ -822,6 +1009,11 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 # Initialize logging
 log, log_file = setup_logging(OUTPUT_DIR)
 
+# Detect GPU configuration
+num_gpus = torch.cuda.device_count()
+num_processes = int(os.environ.get("WORLD_SIZE", 1))
+local_rank = int(os.environ.get("LOCAL_RANK", -1))
+
 # Check DeepSpeed availability
 ds_config = None
 if USE_DEEPSPEED and DEEPSPEED_CONFIG and os.path.exists(DEEPSPEED_CONFIG):
@@ -829,8 +1021,7 @@ if USE_DEEPSPEED and DEEPSPEED_CONFIG and os.path.exists(DEEPSPEED_CONFIG):
         import deepspeed
         with open(DEEPSPEED_CONFIG, 'r') as f:
             ds_config = json.load(f)
-        num_gpus = torch.cuda.device_count()
-        log.info(f"DeepSpeed ZeRO-3 enabled ({{num_gpus}} GPU(s))")
+        log.info(f"DeepSpeed ZeRO-3 enabled ({{num_gpus}} GPU(s), {{num_processes}} process(es))")
     except Exception as e:
         log.info(f"DeepSpeed not available: {{e}}")
         USE_DEEPSPEED = False
@@ -844,10 +1035,26 @@ log.info(f"Model: {{MODEL_NAME}}")
 log.info(f"Dataset: {{DATASET_PATH}}")
 log.info(f"Output: {{OUTPUT_DIR}}")
 log.info(f"Epochs: {{EPOCHS}} | LR: {{LEARNING_RATE}} | Max Length: {{MAX_LENGTH}}")
+log.info(f"GPUs: {{num_gpus}} | Processes: {{num_processes}}")
 log.info(f"Mode: GPU" + (" + DeepSpeed ZeRO-3" if USE_DEEPSPEED else ""))
 log.info(f"Log file: {{log_file}}")
 log.info(f"Random seed: {{SEED}}")
 log.info("="*70)
+
+# Multi-GPU warnings
+if num_gpus > 1 and num_processes == 1 and not USE_DEEPSPEED:
+    log.info("")
+    log.info("⚠️  WARNING: Multiple GPUs detected but running single process!")
+    log.info("   For multi-GPU training, use one of these commands:")
+    log.info(f"   accelerate launch --num_processes {{num_gpus}} {{sys.argv[0]}}")
+    log.info(f"   torchrun --nproc_per_node={{num_gpus}} {{sys.argv[0]}}")
+    log.info("   or enable DeepSpeed (automatic multi-GPU)")
+    log.info("")
+elif num_gpus > 1 and USE_DEEPSPEED:
+    log.info("")
+    log.info(f"✅ Multi-GPU Setup: {{num_gpus}} P40s detected with DeepSpeed ZeRO-3")
+    log.info(f"   Expected speedup: ~{{num_gpus * 0.85:.1f}}x ({{int(85 * num_gpus)}}% efficiency)")
+    log.info("")
 
 # Patch torch.xpu to avoid AttributeError in MXFP4 quantizer validation
 original_xpu = getattr(torch, 'xpu', None)
@@ -886,24 +1093,73 @@ model_kwargs = {{
 
 if USE_DEEPSPEED and ds_config is not None:
     # DeepSpeed mode - load to CPU, DeepSpeed handles GPU distribution
-    log.info("  Mode: DeepSpeed ZeRO-3")
+    log.info("  Mode: DeepSpeed ZeRO-3 (optimal for multi-GPU)")
     model_kwargs["device_map"] = "cpu"
     model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, **model_kwargs)
-    log.info("  Model loaded to CPU (DeepSpeed will handle GPU sharding)")
+    log.info("  Model loaded to CPU (DeepSpeed will shard across GPUs)")
 else:
-    # Single GPU - use device_map with memory limits
-    log.info("  Mode: Single GPU with CPU offloading")
-    max_memory = {{0: "14GiB", "cpu": "100GiB"}}
-    if {max_length} >= 2048:
-        max_memory[0] = "10GiB"
-    elif {max_length} >= 1024:
-        max_memory[0] = "12GiB"
+    # Single/Multi-GPU without DeepSpeed - use device_map with memory limits
+    if num_gpus == 0:
+        # CPU only
+        log.info("  Mode: CPU only (no CUDA)")
+        max_memory = {{"cpu": "100GiB"}}
+        model_kwargs["device_map"] = "cpu"
+    else:
+        # GPU mode - apply VRAM limits if specified
+        vram_setting = {repr(max_vram_per_gpu)}
+        
+        if vram_setting.lower() == "auto":
+            # No GPU limits - configure CPU offload
+            log.info(f"  Mode: {{num_gpus}} GPU(s) with auto memory management (no GPU limits)")
+            model_kwargs["device_map"] = "auto"
+            
+            if CPU_OFFLOAD:
+                model_kwargs["max_memory"] = {{"cpu": "100GiB"}}
+                model_kwargs["offload_buffers"] = True
+                log.info(f"  CPU offload: ✅ enabled (100GB)")
+            else:
+                log.info(f"  CPU offload: ❌ disabled (GPU-only)")
+        else:
+            # User-specified VRAM limit per GPU
+            try:
+                vram_gb = int(vram_setting)
+                vram_limit = f"{{vram_gb}}GiB"
+                
+                if num_gpus == 1:
+                    log.info(f"  Mode: Single GPU with {{vram_limit}} VRAM limit")
+                else:
+                    log.info(f"  Mode: {{num_gpus}} GPUs with {{vram_limit}} per GPU")
+                    total_vram = num_gpus * vram_gb
+                    log.info(f"  Total VRAM available: {{total_vram}}GB")
+                
+                # Build memory config
+                if CPU_OFFLOAD:
+                    if num_gpus == 1:
+                        max_memory = {{0: vram_limit, "cpu": "100GiB"}}
+                    else:
+                        max_memory = {{i: vram_limit for i in range(num_gpus)}}
+                        max_memory["cpu"] = "100GiB"
+                    log.info(f"  CPU offload: ✅ enabled (100GB)")
+                else:
+                    if num_gpus == 1:
+                        max_memory = {{0: vram_limit}}
+                    else:
+                        max_memory = {{i: vram_limit for i in range(num_gpus)}}
+                    log.info(f"  CPU offload: ❌ disabled (GPU-only)")
+                
+                model_kwargs["device_map"] = "auto"
+                model_kwargs["max_memory"] = max_memory
+                if CPU_OFFLOAD:
+                    model_kwargs["offload_buffers"] = True
+            except ValueError:
+                log.warning(f"Invalid --max_vram_per_gpu value: {{vram_setting}}, using auto")
+                model_kwargs["device_map"] = "auto"
+                if CPU_OFFLOAD:
+                    model_kwargs["max_memory"] = {{"cpu": "100GiB"}}
+                    model_kwargs["offload_buffers"] = True
     
-    model_kwargs["device_map"] = "auto"
-    model_kwargs["max_memory"] = max_memory
-    model_kwargs["offload_buffers"] = True
     model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, **model_kwargs)
-    log.info("  Model loaded successfully")
+    log.info("  ✅ Model loaded successfully")
 
 # Restore torch.xpu
 if original_xpu is None:
@@ -954,11 +1210,13 @@ if hasattr(model.config, 'use_cache'):
 
 if hasattr(model, 'enable_input_require_grads'):
     model.enable_input_require_grads()
+    log.info("✅ Input gradients enabled for gradient checkpointing")
 else:
     def make_inputs_require_grad(module, input, output):
         output.requires_grad_(True)
     if hasattr(model, 'get_input_embeddings'):
         model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
+        log.info("✅ Input gradients enabled via forward hook")
 
 # Load and tokenize dataset
 log.info("\\nLoading and tokenizing dataset...")
@@ -985,8 +1243,8 @@ training_args = TrainingArguments(
     per_device_train_batch_size=1,
     gradient_accumulation_steps=16,
     learning_rate=LEARNING_RATE,
-    bf16=False,  # P40 doesn't support bf16
-    fp16=torch.cuda.is_available(),  # Use fp16 for P40 (Pascal architecture)
+    bf16=False,  # P40 doesn't support bf16 (Pascal architecture)
+    fp16=torch.cuda.is_available(),  # Use fp16 for P40
     gradient_checkpointing=True,
     dataloader_pin_memory=False,
     dataloader_num_workers=0,
@@ -1001,6 +1259,15 @@ training_args = TrainingArguments(
     remove_unused_columns=False,
     deepspeed=DEEPSPEED_CONFIG if USE_DEEPSPEED and DEEPSPEED_CONFIG else None,
 )
+
+# Verify gradient checkpointing is enabled
+if training_args.gradient_checkpointing:
+    if hasattr(model, 'gradient_checkpointing_enable'):
+        model.gradient_checkpointing_enable()
+        log.info("✅ Gradient checkpointing enabled (saves VRAM)")
+    else:
+        log.info("⚠️  Model may not support gradient_checkpointing_enable()")
+        log.info("   Trainer will attempt to enable it automatically")
 
 # Create trainer
 data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
@@ -1246,6 +1513,10 @@ Examples:
                        help='Resume from checkpoint (e.g., checkpoint-1500)')
     parser.add_argument('--no_deepspeed', action='store_true',
                        help='Disable DeepSpeed (not recommended for large models)')
+    parser.add_argument('--max_vram_per_gpu', type=str, default='20',
+                       help='Max VRAM per GPU in GB (e.g., "20", "22", "auto" for no limit). Default: 20')
+    parser.add_argument('--no_cpu_offload', action='store_true',
+                       help='Disable CPU offloading (not recommended for large models)')
     
     args = parser.parse_args()
     
@@ -1314,7 +1585,9 @@ Examples:
         max_length=args.max_length,
         cpu_only=args.cpu_only,
         resume_from_checkpoint=args.resume_from_checkpoint,
-        use_deepspeed=not args.no_deepspeed
+        use_deepspeed=not args.no_deepspeed,
+        max_vram_per_gpu=args.max_vram_per_gpu,
+        cpu_offload=not args.no_cpu_offload
     )
     log.info("")
     

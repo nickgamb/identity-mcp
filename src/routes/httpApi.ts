@@ -29,9 +29,13 @@ import {
   handleFileGet,
   handleFileSearch,
   handleFileGetNumbered,
+  handleFileUpload,
+  handleFileDelete,
   FileListRequest,
   FileGetRequest,
   FileSearchRequest,
+  FileUploadRequest,
+  FileDeleteRequest,
 } from "../mcp/fileTools";
 import {
   MemoryAppendRequest,
@@ -60,6 +64,8 @@ import {
   handleExportConversations,
 } from "../mcp/exportTools";
 import {
+  handleFinetuneStart,
+  handleFinetuneStatus,
   handleFinetuneList,
   handleFinetuneCancel,
   handleFinetuneExportDataset,
@@ -68,6 +74,8 @@ import {
   handlePipelineList,
   handlePipelineRun,
   handlePipelineRunAll,
+  handlePipelineStatus,
+  handlePipelineListRunning,
 } from "../mcp/pipelineTools";
 import {
   handleIdentityAnalysisSummary,
@@ -89,6 +97,18 @@ import {
   handleIdentityVerifyConversation,
   handleIdentityProfileSummary,
 } from "../mcp/identityVerificationTools";
+import {
+  handleDataStatus,
+  handleDataUploadConversations,
+  handleDataUploadMemories,
+  handleDataClean,
+  handleDataConversationsList,
+  handleDataConversationGet,
+  handleDataConversationUpdate,
+  handleDataMemoriesList,
+  handleDataMemoryFileGet,
+  handleDataMemoryFileUpdate,
+} from "../mcp/dataManagementTools";
 
 export const mcpRouter = Router();
 
@@ -104,7 +124,7 @@ const memoryGetSchema = z.object({
       tags: z.array(z.string()).optional(),
     })
     .optional(),
-  limit: z.number().int().positive().optional(),
+  limit: z.number().int().positive().nullish(),
 });
 
 const memoryAppendSchema = z.object({
@@ -241,10 +261,37 @@ mcpRouter.post("/mcp/file.numbered", async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       folder: z.string().optional(),
-      maxNumber: z.number().optional(),
+      maxNumber: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleFileGetNumbered(parsed);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.post("/mcp/file.upload", async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      filename: z.string(),
+      content: z.string(),
+    });
+    const parsed = schema.parse(req.body);
+    const result = await handleFileUpload(parsed);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.post("/mcp/file.delete", async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      filepath: z.string(),
+    });
+    const parsed = schema.parse(req.body);
+    const result = await handleFileDelete(parsed);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -257,7 +304,7 @@ mcpRouter.post("/mcp/memory.search", async (req: Request, res: Response) => {
     const schema = z.object({
       query: z.string(),
       files: z.array(z.string()).optional(),
-      limit: z.number().optional(),
+      limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleMemorySearch(parsed);
@@ -271,8 +318,8 @@ mcpRouter.post("/mcp/memory.search", async (req: Request, res: Response) => {
 mcpRouter.post("/mcp/conversation.list", async (req: Request, res: Response) => {
   try {
     const schema = z.object({
-      limit: z.number().optional(),
-      offset: z.number().optional(),
+      limit: z.number().nullish(),
+      offset: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleConversationList(parsed);
@@ -299,7 +346,7 @@ mcpRouter.post("/mcp/conversation.search", async (req: Request, res: Response) =
   try {
     const schema = z.object({
       query: z.string(),
-      limit: z.number().optional(),
+      limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleConversationSearch(parsed);
@@ -314,7 +361,7 @@ mcpRouter.post("/mcp/conversation.by_date_range", async (req: Request, res: Resp
     const schema = z.object({
       startDate: z.string().optional(),
       endDate: z.string().optional(),
-      limit: z.number().optional(),
+      limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleConversationByDateRange(parsed);
@@ -353,7 +400,7 @@ mcpRouter.post("/mcp/search.all", async (req: Request, res: Response) => {
     const schema = z.object({
       query: z.string(),
       sources: z.array(z.enum(["memories", "files", "conversations"])).optional(),
-      limit: z.number().optional(),
+      limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleUnifiedSearch(parsed);
@@ -384,7 +431,7 @@ mcpRouter.post("/mcp/export.conversations", async (req: Request, res: Response) 
     const schema = z.object({
       outputPath: z.string().optional(),
       format: z.enum(["jsonl", "json"]).optional(),
-      limit: z.number().optional(),
+      limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleExportConversations(parsed);
@@ -395,6 +442,36 @@ mcpRouter.post("/mcp/export.conversations", async (req: Request, res: Response) 
 });
 
 // Enhanced Fine-tuning endpoints
+mcpRouter.post("/mcp/finetune.start", async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      model_name: z.string().optional(),
+      dataset_source: z.enum(["conversations", "memories", "files", "all"]).optional(),
+      epochs: z.number().nullish(),
+      learning_rate: z.number().nullish(),
+      output_name: z.string().optional(),
+    });
+    const parsed = schema.parse(req.body);
+    const result = await handleFinetuneStart(parsed);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.post("/mcp/finetune.status", async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      job_id: z.string(),
+    });
+    const parsed = schema.parse(req.body);
+    const result = await handleFinetuneStatus(parsed);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 mcpRouter.get("/mcp/finetune.list", async (_req: Request, res: Response) => {
   try {
     const result = await handleFinetuneList({});
@@ -453,7 +530,7 @@ mcpRouter.get("/mcp/identity.momentum", async (_req: Request, res: Response) => 
 mcpRouter.post("/mcp/identity.naming_events", async (req: Request, res: Response) => {
   try {
     const schema = z.object({
-      limit: z.number().optional(),
+      limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleIdentityGetNamingEvents(parsed);
@@ -466,7 +543,7 @@ mcpRouter.post("/mcp/identity.naming_events", async (req: Request, res: Response
 mcpRouter.post("/mcp/identity.clusters", async (req: Request, res: Response) => {
   try {
     const schema = z.object({
-      min_count: z.number().optional(),
+      min_count: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleIdentityGetClusters(parsed);
@@ -499,7 +576,7 @@ mcpRouter.post("/mcp/emergence.events", async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       event_type: z.string().optional(),
-      limit: z.number().optional(),
+      limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleEmergenceGetEvents(parsed);
@@ -513,7 +590,7 @@ mcpRouter.post("/mcp/emergence.search", async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       query: z.string(),
-      limit: z.number().optional(),
+      limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleEmergenceSearch(parsed);
@@ -526,7 +603,7 @@ mcpRouter.post("/mcp/emergence.search", async (req: Request, res: Response) => {
 mcpRouter.post("/mcp/emergence.symbolic_conversations", async (req: Request, res: Response) => {
   try {
     const schema = z.object({
-      limit: z.number().optional(),
+      limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
     const result = await handleEmergenceGetSymbolicConversations(parsed);
@@ -622,6 +699,182 @@ mcpRouter.post("/mcp/pipeline.run", async (req: Request, res: Response) => {
 mcpRouter.post("/mcp/pipeline.run_all", async (_req: Request, res: Response) => {
   try {
     const result = await handlePipelineRunAll();
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ============================================================================
+// Data Management Endpoints
+// ============================================================================
+
+// Check data status
+mcpRouter.get("/mcp/data.status", async (_req: Request, res: Response) => {
+  try {
+    const result = await handleDataStatus();
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Upload conversations.json
+mcpRouter.post("/mcp/data.upload_conversations", async (req: Request, res: Response) => {
+  try {
+    const { data } = req.body;
+    if (!data) {
+      res.status(400).json({ error: "No data provided" });
+      return;
+    }
+    
+    const result = await handleDataUploadConversations({ data });
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Upload memories.json
+mcpRouter.post("/mcp/data.upload_memories", async (req: Request, res: Response) => {
+  try {
+    const { data } = req.body;
+    if (!data) {
+      res.status(400).json({ error: "No data provided" });
+      return;
+    }
+    
+    const result = await handleDataUploadMemories({ data });
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Clean directory
+mcpRouter.post("/mcp/data.clean", async (req: Request, res: Response) => {
+  try {
+    const { directory } = req.body;
+    const allowedDirs = ["conversations", "memory", "models", "training_data", "adapters"];
+    
+    if (!directory || !allowedDirs.includes(directory)) {
+      res.status(400).json({ error: "Invalid directory" });
+      return;
+    }
+    
+    const result = await handleDataClean({ directory });
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// List conversations
+mcpRouter.get("/mcp/data.conversations", async (_req: Request, res: Response) => {
+  try {
+    const result = await handleDataConversationsList();
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Get specific conversation
+mcpRouter.get("/mcp/data.conversation/:id", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const result = await handleDataConversationGet({ id });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof Error && err.message === "Conversation not found") {
+      res.status(404).json({ error: err.message });
+    } else {
+      handleError(res, err);
+    }
+  }
+});
+
+// Update conversation
+mcpRouter.post("/mcp/data.conversation/:id", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { content } = req.body;
+    
+    if (!content) {
+      res.status(400).json({ error: "No content provided" });
+      return;
+    }
+    
+    const result = await handleDataConversationUpdate({ id, content });
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// List memory records
+mcpRouter.get("/mcp/data.memories_list", async (_req: Request, res: Response) => {
+  try {
+    const result = await handleDataMemoriesList();
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Get memory file content
+mcpRouter.get("/mcp/data.memory_file/:filename", async (req: Request, res: Response) => {
+  try {
+    const { filename } = req.params;
+    const result = await handleDataMemoryFileGet({ filename });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof Error && (err.message === "Invalid filename" || err.message === "File not found")) {
+      res.status(err.message === "Invalid filename" ? 400 : 404).json({ error: err.message });
+    } else {
+      handleError(res, err);
+    }
+  }
+});
+
+// Update memory file
+mcpRouter.post("/mcp/data.memory_file/:filename", async (req: Request, res: Response) => {
+  try {
+    const { filename } = req.params;
+    const { content } = req.body;
+    
+    if (!content) {
+      res.status(400).json({ error: "No content provided" });
+      return;
+    }
+    
+    const result = await handleDataMemoryFileUpdate({ filename, content });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof Error && err.message === "Invalid filename") {
+      res.status(400).json({ error: err.message });
+    } else {
+      handleError(res, err);
+    }
+  }
+});
+
+mcpRouter.post("/mcp/pipeline.status", async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({
+      script: z.string(),
+    });
+    const parsed = schema.parse(req.body);
+    const result = await handlePipelineStatus(parsed);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.get("/mcp/pipeline.running", async (_req: Request, res: Response) => {
+  try {
+    const result = await handlePipelineListRunning();
     res.json(result);
   } catch (err) {
     handleError(res, err);

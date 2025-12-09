@@ -29,7 +29,7 @@ export async function handleMemorySearch(
     const targetFiles: MemoryFileName[] = req.files && req.files.length > 0 
       ? req.files 
       : listMemoryFiles();
-    const limit = req.limit || 50;
+    const limit = req.limit ?? 50;
     
     const results: Array<{
       file: MemoryFileName;

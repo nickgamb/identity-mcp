@@ -96,7 +96,7 @@ export async function handleExportConversations(
 ): Promise<ExportConversationsResponse> {
   try {
     const format = req.format || "jsonl";
-    const limit = req.limit;
+    const limit = req.limit ?? undefined;
     const outputPath = req.outputPath || join(process.cwd(), "exports", `conversations-${Date.now()}.${format}`);
     
     // Ensure output directory exists
@@ -108,7 +108,7 @@ export async function handleExportConversations(
     const loader = new ConversationLoader();
     let conversations = await loader.loadAllConversations();
     
-    if (limit && limit > 0) {
+    if (limit != null && limit > 0) {
       conversations = conversations.slice(0, limit);
     }
     

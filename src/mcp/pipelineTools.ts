@@ -5,10 +5,34 @@
  * Can be triggered by dashboard UI or by AI via MCP tools.
  */
 
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
 import path from "path";
 import { config } from "../config";
 import { logger } from "../utils/logger";
+
+/**
+ * Find available Python executable
+ * Tries python3, python, py in order
+ */
+function getPythonCommand(): string {
+  const commands = ["python3", "python", "py"];
+  
+  for (const cmd of commands) {
+    try {
+      execSync(`${cmd} --version`, { stdio: "ignore" });
+      return cmd;
+    } catch (error) {
+      // Command not found, try next
+    }
+  }
+  
+  // Default to python3 (will fail later with clear error)
+  return "python3";
+}
+
+// Detect Python command once at module load
+const PYTHON_CMD = getPythonCommand();
+logger.info(`Using Python command: ${PYTHON_CMD}`);
 
 // Whitelisted scripts that can be run
 const ALLOWED_SCRIPTS: Record<string, { path: string; description: string }> = {
@@ -46,6 +70,16 @@ interface ScriptResult {
   duration: number;
   error?: string;
 }
+
+interface RunningScript {
+  script: string;
+  startTime: number;
+  args: string[];
+  process: any;
+}
+
+// Track currently running scripts
+const runningScripts = new Map<string, RunningScript>();
 
 /**
  * List available pipeline scripts
@@ -92,12 +126,20 @@ export async function handlePipelineRun({
 
   return new Promise((resolve) => {
     const output: string[] = [];
-    output.push(`$ python ${scriptInfo.path} ${args.join(" ")}`);
+    output.push(`$ ${PYTHON_CMD} ${scriptInfo.path} ${args.join(" ")}`);
     output.push("");
 
-    const proc = spawn("python", [scriptPath, ...args], {
+    const proc = spawn(PYTHON_CMD, [scriptPath, ...args], {
       cwd: config.PROJECT_ROOT,
       env: { ...process.env },
+    });
+
+    // Track running script
+    runningScripts.set(script, {
+      script,
+      startTime,
+      args,
+      process: proc,
     });
 
     proc.stdout.on("data", (data) => {
@@ -113,6 +155,10 @@ export async function handlePipelineRun({
     proc.on("error", (error) => {
       const duration = Date.now() - startTime;
       output.push(`[error] Failed to start: ${error.message}`);
+      
+      // Remove from running scripts on error
+      runningScripts.delete(script);
+      
       resolve({
         success: false,
         script,
@@ -130,6 +176,9 @@ export async function handlePipelineRun({
 
       logger.info("Pipeline script completed", { script, exitCode: code, duration });
 
+      // Remove from running scripts
+      runningScripts.delete(script);
+
       resolve({
         success: code === 0,
         script,
@@ -142,18 +191,56 @@ export async function handlePipelineRun({
 }
 
 /**
- * Get status of a running script (placeholder for future)
+ * Get status of a running script
  */
 export async function handlePipelineStatus({
   script,
 }: {
   script: string;
-}): Promise<{ running: boolean; script: string }> {
-  // TODO: Track running scripts and their status
+}): Promise<{ 
+  running: boolean; 
+  script: string;
+  startTime?: number;
+  duration?: number;
+  args?: string[];
+}> {
+  const runningScript = runningScripts.get(script);
+  
+  if (!runningScript) {
+    return {
+      running: false,
+      script,
+    };
+  }
+
   return {
-    running: false,
+    running: true,
     script,
+    startTime: runningScript.startTime,
+    duration: Date.now() - runningScript.startTime,
+    args: runningScript.args,
   };
+}
+
+/**
+ * Get all running scripts
+ */
+export async function handlePipelineListRunning(): Promise<{
+  running: Array<{
+    script: string;
+    startTime: number;
+    duration: number;
+    args: string[];
+  }>;
+}> {
+  const running = Array.from(runningScripts.values()).map(s => ({
+    script: s.script,
+    startTime: s.startTime,
+    duration: Date.now() - s.startTime,
+    args: s.args,
+  }));
+
+  return { running };
 }
 
 /**
@@ -168,8 +255,8 @@ export async function handlePipelineRunAll(): Promise<{
   const results: ScriptResult[] = [];
   const order = [
     "parse_conversations",
-    "analyze_patterns",
     "parse_memories",
+    "analyze_patterns",
     "analyze_identity",
     "build_emergence_map",
   ];

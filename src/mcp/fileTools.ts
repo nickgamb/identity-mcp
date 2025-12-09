@@ -103,3 +103,89 @@ export async function handleFileGetNumbered(
     count: files.length,
   };
 }
+
+export interface FileUploadRequest {
+  filename: string;
+  content: string;
+}
+
+export interface FileUploadResponse {
+  success: boolean;
+  message: string;
+  filepath: string;
+}
+
+export interface FileDeleteRequest {
+  filepath: string;
+}
+
+export interface FileDeleteResponse {
+  success: boolean;
+  message: string;
+}
+
+export async function handleFileUpload(
+  req: FileUploadRequest
+): Promise<FileUploadResponse> {
+  const fs = require("fs");
+  const path = require("path");
+  const config = require("../config").config;
+  
+  try {
+    const filesDir = path.join(config.PROJECT_ROOT, "files");
+    fs.mkdirSync(filesDir, { recursive: true });
+    
+    const filepath = path.join(filesDir, req.filename);
+    fs.writeFileSync(filepath, req.content, "utf8");
+    
+    return {
+      success: true,
+      message: "File uploaded successfully",
+      filepath: `files/${req.filename}`,
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || "Failed to upload file",
+      filepath: "",
+    };
+  }
+}
+
+export async function handleFileDelete(
+  req: FileDeleteRequest
+): Promise<FileDeleteResponse> {
+  const fs = require("fs");
+  const path = require("path");
+  const config = require("../config").config;
+  
+  try {
+    const filepath = path.join(config.PROJECT_ROOT, req.filepath);
+    
+    // Make sure it's in the files directory for safety
+    if (!filepath.includes(path.join(config.PROJECT_ROOT, "files"))) {
+      return {
+        success: false,
+        message: "Can only delete files in the files directory",
+      };
+    }
+    
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+      return {
+        success: true,
+        message: "File deleted successfully",
+      };
+    } else {
+      return {
+        success: false,
+        message: "File not found",
+      };
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || "Failed to delete file",
+    };
+  }
+}

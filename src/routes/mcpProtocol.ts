@@ -79,7 +79,21 @@ import {
   handlePipelineList,
   handlePipelineRun,
   handlePipelineRunAll,
+  handlePipelineStatus,
+  handlePipelineListRunning,
 } from "../mcp/pipelineTools";
+import {
+  handleDataStatus,
+  handleDataUploadConversations,
+  handleDataUploadMemories,
+  handleDataClean,
+  handleDataConversationsList,
+  handleDataConversationGet,
+  handleDataConversationUpdate,
+  handleDataMemoriesList,
+  handleDataMemoryFileGet,
+  handleDataMemoryFileUpdate,
+} from "../mcp/dataManagementTools";
 
 export const mcpProtocolRouter = Router();
 
@@ -125,7 +139,7 @@ function registerTools(server: McpServer) {
             endDate: z.string().optional(),
           })
           .optional(),
-        limit: z.number().optional(),
+        limit: z.number().nullish(),
       }),
     },
     async (payload) => toContent(await handleMemoryGet(payload)),
@@ -139,7 +153,7 @@ function registerTools(server: McpServer) {
       inputSchema: z.object({
         query: z.string(),
         files: z.array(z.string()).optional(),
-        limit: z.number().optional(),
+        limit: z.number().nullish(),
       }),
     },
     async (payload) => toContent(await handleMemorySearch(payload)),
@@ -225,7 +239,7 @@ function registerTools(server: McpServer) {
       title: "Get Naming Events",
       description: "Get moments where names/identities were established in conversations.",
       inputSchema: z.object({
-        limit: z.number().optional().describe("Maximum events to return"),
+        limit: z.number().nullish().describe("Maximum events to return"),
       }),
     },
     async ({ limit }) => toContent(await handleIdentityGetNamingEvents({ limit })),
@@ -237,7 +251,7 @@ function registerTools(server: McpServer) {
       title: "Get Co-occurrence Clusters",
       description: "Get concepts that frequently appear together, revealing associative patterns.",
       inputSchema: z.object({
-        min_count: z.number().optional().describe("Minimum co-occurrence count"),
+        min_count: z.number().nullish().describe("Minimum co-occurrence count"), 
       }),
     },
     async ({ min_count }) => toContent(await handleIdentityGetClusters({ min_count })),
@@ -274,7 +288,7 @@ function registerTools(server: McpServer) {
       description: "Get key events (naming, emotional, identity prompts) from conversation history.",
       inputSchema: z.object({
         event_type: z.string().optional().describe("Filter by event type (e.g., naming_event, emotional_peak)"),
-        limit: z.number().optional().describe("Maximum events to return"),
+        limit: z.number().nullish().describe("Maximum events to return"),
       }),
     },
     async ({ event_type, limit }) => toContent(await handleEmergenceGetEvents({ event_type, limit })),
@@ -287,7 +301,7 @@ function registerTools(server: McpServer) {
       description: "Search conversations by pattern, keyword, or entity.",
       inputSchema: z.object({
         query: z.string().describe("Search query (keyword, pattern, or entity name)"),
-        limit: z.number().optional().describe("Maximum results to return"),
+        limit: z.number().nullish().describe("Maximum results to return"),
       }),
     },
     async ({ query, limit }) => toContent(await handleEmergenceSearch({ query, limit })),
@@ -299,7 +313,7 @@ function registerTools(server: McpServer) {
       title: "Get Symbolic Conversations",
       description: "Get conversations with highest symbolic language density.",
       inputSchema: z.object({
-        limit: z.number().optional().describe("Maximum conversations to return"),
+        limit: z.number().nullish().describe("Maximum conversations to return"),
       }),
     },
     async ({ limit }) => toContent(await handleEmergenceGetSymbolicConversations({ limit })),
@@ -404,6 +418,28 @@ function registerTools(server: McpServer) {
   );
 
   server.registerTool(
+    "pipeline_status",
+    {
+      title: "Check Pipeline Script Status",
+      description: "Check if a specific script is currently running and get its status.",
+      inputSchema: z.object({
+        script: z.string().describe("Script ID to check status for"),
+      }),
+    },
+    async ({ script }) => toContent(await handlePipelineStatus({ script })),
+  );
+
+  server.registerTool(
+    "pipeline_list_running",
+    {
+      title: "List Running Scripts",
+      description: "List all currently running pipeline scripts.",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(await handlePipelineListRunning()),
+  );
+
+  server.registerTool(
     "file_list",
     {
       title: "List Files",
@@ -448,7 +484,7 @@ function registerTools(server: McpServer) {
       description: "Get files numbered 001-N from files directory. Useful for core/foundation documents.",
       inputSchema: z.object({
         folder: z.string().optional(),
-        maxNumber: z.number().optional(),
+        maxNumber: z.number().nullish(),
       }),
     },
     async ({ folder, maxNumber }) => toContent(await handleFileGetNumbered({ folder, maxNumber })),
@@ -463,8 +499,8 @@ function registerTools(server: McpServer) {
       inputSchema: z.object({
         model_name: z.string().optional(),
         dataset_source: z.enum(["conversations", "memories", "files", "all"]).optional(),
-        epochs: z.number().optional(),
-        learning_rate: z.number().optional(),
+        epochs: z.number().nullish(),
+        learning_rate: z.number().nullish(),
         output_name: z.string().optional(),
       }),
     },
@@ -529,8 +565,8 @@ function registerTools(server: McpServer) {
       title: "List Conversations",
       description: "List all conversations with metadata (message count, date range).",
       inputSchema: z.object({
-        limit: z.number().optional(),
-        offset: z.number().optional(),
+        limit: z.number().nullish(),
+        offset: z.number().nullish(),
       }),
     },
     async (payload) => toContent(await handleConversationList(payload)),
@@ -555,7 +591,7 @@ function registerTools(server: McpServer) {
       description: "Search conversations by content. Returns conversations containing the query text.",
       inputSchema: z.object({
         query: z.string(),
-        limit: z.number().optional(),
+        limit: z.number().nullish(),
       }),
     },
     async (payload) => toContent(await handleConversationSearch(payload)),
@@ -569,7 +605,7 @@ function registerTools(server: McpServer) {
       inputSchema: z.object({
         startDate: z.string().optional(),
         endDate: z.string().optional(),
-        limit: z.number().optional(),
+        limit: z.number().nullish(),
       }),
     },
     async (payload) => toContent(await handleConversationByDateRange(payload)),
@@ -607,7 +643,7 @@ function registerTools(server: McpServer) {
       inputSchema: z.object({
         query: z.string(),
         sources: z.array(z.enum(["memories", "files", "conversations"])).optional(),
-        limit: z.number().optional(),
+        limit: z.number().nullish(),
       }),
     },
     async (payload) => toContent(await handleUnifiedSearch(payload)),
@@ -636,10 +672,130 @@ function registerTools(server: McpServer) {
       inputSchema: z.object({
         outputPath: z.string().optional(),
         format: z.enum(["jsonl", "json"]).optional(),
-        limit: z.number().optional(),
+        limit: z.number().nullish(),
       }),
     },
     async (payload) => toContent(await handleExportConversations(payload)),
+  );
+
+  // ============================================================================
+  // Data Management Tools
+  // ============================================================================
+
+  server.registerTool(
+    "data_status",
+    {
+      title: "Data Status",
+      description: "Check presence of source files (conversations.json, memories.json) and generated data.",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(await handleDataStatus()),
+  );
+
+  server.registerTool(
+    "data_upload_conversations",
+    {
+      title: "Upload Conversations",
+      description: "Upload conversations.json file. Overwrites existing file if present.",
+      inputSchema: z.object({
+        data: z.union([z.string(), z.any()]).describe("JSON content as string or object"),
+      }),
+    },
+    async ({ data }) => toContent(await handleDataUploadConversations({ data })),
+  );
+
+  server.registerTool(
+    "data_upload_memories",
+    {
+      title: "Upload Memories",
+      description: "Upload memories.json file. Overwrites existing file if present.",
+      inputSchema: z.object({
+        data: z.union([z.string(), z.any()]).describe("JSON content as string or object"),
+      }),
+    },
+    async ({ data }) => toContent(await handleDataUploadMemories({ data })),
+  );
+
+  server.registerTool(
+    "data_clean",
+    {
+      title: "Clean Directory",
+      description: "Clean generated data from a directory. Keeps source files (conversations.json, memories.json). Allowed: conversations, memory, models, training_data, adapters.",
+      inputSchema: z.object({
+        directory: z.enum(["conversations", "memory", "models", "training_data", "adapters"]),
+      }),
+    },
+    async ({ directory }) => toContent(await handleDataClean({ directory })),
+  );
+
+  server.registerTool(
+    "data_conversations_list",
+    {
+      title: "List Conversations",
+      description: "List all parsed conversation files with metadata (ID, title, message count, date range).",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(await handleDataConversationsList()),
+  );
+
+  server.registerTool(
+    "data_conversation_get",
+    {
+      title: "Get Conversation",
+      description: "Get specific conversation file content by ID.",
+      inputSchema: z.object({
+        id: z.string().describe("Conversation ID"),
+      }),
+    },
+    async ({ id }) => toContent(await handleDataConversationGet({ id })),
+  );
+
+  server.registerTool(
+    "data_conversation_update",
+    {
+      title: "Update Conversation",
+      description: "Update conversation file content by ID.",
+      inputSchema: z.object({
+        id: z.string().describe("Conversation ID"),
+        content: z.string().describe("New JSONL content"),
+      }),
+    },
+    async ({ id, content }) => toContent(await handleDataConversationUpdate({ id, content })),
+  );
+
+  server.registerTool(
+    "data_memories_list",
+    {
+      title: "List All Memory Records",
+      description: "List all memory records from all JSONL files in memory directory.",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(await handleDataMemoriesList()),
+  );
+
+  server.registerTool(
+    "data_memory_file_get",
+    {
+      title: "Get Memory File",
+      description: "Get specific memory JSONL file content by filename.",
+      inputSchema: z.object({
+        filename: z.string().describe("Memory filename (e.g., 'identity.jsonl')"),
+      }),
+    },
+    async ({ filename }) => toContent(await handleDataMemoryFileGet({ filename })),
+  );
+
+  server.registerTool(
+    "data_memory_file_update",
+    {
+      title: "Update Memory File",
+      description: "Update memory JSONL file content by filename.",
+      inputSchema: z.object({
+        filename: z.string().describe("Memory filename (e.g., 'identity.jsonl')"),
+        content: z.string().describe("New JSONL content"),
+      }),
+    },
+    async ({ filename, content }) => toContent(await handleDataMemoryFileUpdate({ filename, content })),
   );
 }
 
@@ -647,37 +803,11 @@ mcpProtocolRouter.post("/", async (req: Request, res: Response) => {
   const requestId = req.body?.id ?? "unknown";
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
   
-  // Extract user information from multiple possible sources
-  // Check headers first (common patterns)
-  let userId = req.headers["x-user-id"] as string | undefined || 
-               req.headers["user-id"] as string | undefined ||
-               req.headers["x-user"] as string | undefined ||
-               req.headers["x-librechat-user-id"] as string | undefined ||
-               req.headers["librechat-user-id"] as string | undefined;
-  
-  // Check initialize request params for user info
-  if (!userId && isInitializeRequest(req.body) && req.body.params) {
-    userId = req.body.params.userId || 
-             req.body.params.user_id || 
-             req.body.params.user?.id ||
-             req.body.params.metadata?.userId ||
-             req.body.params.clientInfo?.userId ||
-             req.body.params.clientInfo?.user?.id;
-  }
-  
-  // Log all headers and clientInfo for debugging (first request only)
+  // Log initialize request metadata for troubleshooting
   if (isInitializeRequest(req.body)) {
-    logger.info("MCP Protocol: Initialize request details", {
-      headers: Object.keys(req.headers).filter(h => 
-        h.toLowerCase().includes('user') || 
-        h.toLowerCase().includes('auth') ||
-        h.toLowerCase().includes('session')
-      ).reduce((acc, key) => {
-        acc[key] = req.headers[key];
-        return acc;
-      }, {} as Record<string, any>),
-      bodyParams: req.body.params ? Object.keys(req.body.params) : [],
-      clientInfo: req.body.params?.clientInfo,
+    logger.info("MCP Protocol: Initialize request", {
+      hasClientInfo: !!req.body.params?.clientInfo,
+      protocolVersion: req.body.params?.protocolVersion,
     });
   }
 
@@ -685,8 +815,6 @@ mcpProtocolRouter.post("/", async (req: Request, res: Response) => {
     hasSessionId: !!sessionId,
     sessionId: sessionId ? sessionId.substring(0, 8) + "..." : undefined,
     requestId,
-    hasUserId: !!userId,
-    userId: userId ? userId.substring(0, 8) + "..." : undefined,
   });
 
   try {

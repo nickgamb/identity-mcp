@@ -146,7 +146,7 @@ export async function handleIdentityGetNamingEvents({ limit }: { limit?: number 
   }
 
   const events = namingRecords.map((r) => r.data as NamingEvent);
-  const limitedEvents = limit ? events.slice(0, limit) : events;
+  const limitedEvents = limit != null ? events.slice(0, limit) : events;
 
   // Group by name
   const byName: Record<string, NamingEvent[]> = {};
@@ -184,7 +184,7 @@ export async function handleIdentityGetClusters({ min_count }: { min_count?: num
     };
   }
 
-  const minThreshold = min_count || 0;
+  const minThreshold = min_count ?? 0;
   const filtered = Object.entries(clusters)
     .filter(([, count]) => count >= minThreshold)
     .sort((a, b) => b[1] - a[1]);

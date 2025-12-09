@@ -90,8 +90,8 @@ export async function handleFinetuneStart(
   const jobId = `finetune-${Date.now()}`;
   const modelName = req.model_name || "gpt-oss:20b";
   const datasetSource = req.dataset_source || "all"; // Default to all sources
-  const epochs = req.epochs || 3;
-  const learningRate = req.learning_rate || 2e-5;
+  const epochs = req.epochs ?? 3;
+  const learningRate = req.learning_rate ?? 2e-5;
   const outputName = req.output_name || `lora-${modelName.replace(/[:/]/g, "-")}-${Date.now()}`;
 
   logger.info("Starting fine-tuning job", {
@@ -593,13 +593,51 @@ async function runLoRATraining(
  * Finalize adapter for Ollama
  */
 async function finalizeAdapter(adapterPath: string, outputName: string): Promise<void> {
-  // Convert adapter to Ollama format if needed
-  // This might involve creating a Modelfile that references the base model + adapter
-  logger.info("Finalizing adapter", { adapterPath, outputName });
+  logger.info("Finalizing adapter for Ollama", { adapterPath, outputName });
   
-  // TODO: Implement Ollama adapter integration
-  // This could involve:
-  // 1. Creating a Modelfile that loads base model + LoRA adapter
-  // 2. Using ollama create to register the fine-tuned model
+  try {
+    // Create a Modelfile that references the base model + LoRA adapter
+    const modelfilePath = join(adapterPath, "Modelfile");
+    const modelfileContent = `# Fine-tuned model: ${outputName}
+# LoRA adapter applied to base model
+
+FROM base_model
+ADAPTER ./adapter_model
+
+# Optional: Customize parameters
+PARAMETER temperature 0.7
+PARAMETER top_p 0.9
+
+# Model card
+TEMPLATE """{{ .System }}
+{{ .Prompt }}"""
+`;
+
+    await writeFile(modelfilePath, modelfileContent, "utf8");
+    logger.info("Created Modelfile", { modelfilePath });
+
+    // Attempt to register with Ollama if it's available
+    try {
+      const { stdout, stderr } = await execAsync(
+        `ollama create ${outputName} -f "${modelfilePath}"`,
+        { cwd: adapterPath }
+      );
+      
+      logger.info("Registered adapter with Ollama", { 
+        outputName, 
+        stdout: stdout.trim(),
+        stderr: stderr.trim()
+      });
+    } catch (ollamaError: any) {
+      // Ollama might not be installed or running - that's okay
+      logger.warn("Could not register with Ollama (this is optional)", { 
+        error: ollamaError.message,
+        note: "You can manually register later with: ollama create " + outputName + " -f " + modelfilePath
+      });
+    }
+  } catch (error: any) {
+    logger.error("Error finalizing adapter", { error: error.message });
+    // Don't throw - this is a non-critical step
+  }
 }
 

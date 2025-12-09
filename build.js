@@ -1,8 +1,15 @@
 const esbuild = require('esbuild');
 const { glob } = require('glob');
 const path = require('path');
+const fs = require('fs');
 
 async function build() {
+  // Clean dist directory before building to prevent orphaned files
+  if (fs.existsSync('dist')) {
+    console.log('Cleaning dist/ directory...');
+    fs.rmSync('dist', { recursive: true, force: true });
+  }
+  
   const entryPoints = await glob('src/**/*.ts');
   
   // Get all dependencies from package.json to mark as external

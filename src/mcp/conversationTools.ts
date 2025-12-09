@@ -60,8 +60,8 @@ export async function handleConversationList(
     const all = await loader.loadAllConversations();
     const total = all.length;
     
-    const limit = req.limit || 100;
-    const offset = req.offset || 0;
+    const limit = req.limit ?? 100;
+    const offset = req.offset ?? 0;
     const slice = all.slice(offset, offset + limit);
     
     const conversations = slice.map((conv) => ({
@@ -97,7 +97,7 @@ export async function handleConversationSearch(
   try {
     const query = req.query.toLowerCase();
     const all = await loader.loadAllConversations();
-    const limit = req.limit || 50;
+    const limit = req.limit ?? 50;
     
     const matching: ConversationSequence[] = [];
     
@@ -131,7 +131,7 @@ export async function handleConversationByDateRange(
 ): Promise<ConversationByDateRangeResponse> {
   try {
     const all = await loader.loadAllConversations();
-    const limit = req.limit || 100;
+    const limit = req.limit ?? 100;
     
     let filtered = all;
     

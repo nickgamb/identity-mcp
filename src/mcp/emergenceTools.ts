@@ -149,7 +149,7 @@ export async function handleEmergenceGetEvents({
   // Sort by timestamp (most recent first)
   filtered.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-  const limited = limit ? filtered.slice(0, limit) : filtered;
+  const limited = limit != null ? filtered.slice(0, limit) : filtered;
 
   // Get available event types
   const availableTypes = [...new Set(events.map((e) => e.event_type))];
@@ -197,7 +197,7 @@ export async function handleEmergenceSearch({
   // Sort by symbolic density (most relevant first)
   matches.sort((a, b) => b.symbolic_density - a.symbolic_density);
 
-  const limited = limit ? matches.slice(0, limit) : matches.slice(0, 20);
+  const limited = limit != null ? matches.slice(0, limit) : matches.slice(0, 20);
 
   return {
     available: true,
@@ -236,7 +236,7 @@ export async function handleEmergenceGetSymbolicConversations({
     .filter((c) => c.has_symbolic_language)
     .sort((a, b) => b.symbolic_density - a.symbolic_density);
 
-  const limited = symbolic.slice(0, limit || 10);
+  const limited = symbolic.slice(0, limit ?? 10);
 
   return {
     available: true,

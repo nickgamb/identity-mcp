@@ -64,13 +64,6 @@ modelSpecs:
         endpoint: "LocalOllama"
         model: "qwen2.5:7b"
         modelLabel: "qwen2.5:7b"
-    - name: "gpt-oss-20b"
-      label: "GPT-OSS 20B"
-      description: "GPT-OSS 20B"
-      preset:
-        endpoint: "LocalOllama"
-        model: "gpt-oss:20b"
-        modelLabel: "gpt-oss:20b"
     - name: "codellama-7b"
       label: "CodeLlama 7B"
       description: "CodeLlama 7B"
@@ -190,10 +183,10 @@ endpoints:
           - "mixtral:8x7b"
           - "phi3.5:3.8b"
         fetch: true
-      titleConvo: true
-      titleModel: "qwen3:30b-a3b"
+      titleConvo: false
+      titleModel: "gpt-oss:20b"
       summarize: false
-      summaryModel: "qwen3:30b-a3b"
+      summaryModel: "gpt-oss:20b"
       forcePrompt: false
       modelDisplayLabel: "Local Ollama"
       temperature: 0.6

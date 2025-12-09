@@ -14,8 +14,10 @@ import {
   RefreshCw,
   ChevronRight,
   Eye,
-  X
+  X,
+  LayoutDashboard
 } from 'lucide-react'
+import { DataExplorer } from './DataExplorer'
 
 // Script definitions
 const SCRIPTS = [
@@ -31,17 +33,6 @@ const SCRIPTS = [
     order: 1,
   },
   {
-    id: 'analyze_patterns',
-    name: 'Analyze Patterns',
-    file: 'analyze_patterns.py',
-    path: 'scripts/conversation_processing/',
-    description: 'Discovers distinctive terms, topics, entities, and tone patterns from your conversations.',
-    outputs: ['memory/identity.jsonl', 'memory/patterns.jsonl'],
-    icon: Sparkles,
-    color: 'accent',
-    order: 2,
-  },
-  {
     id: 'parse_memories',
     name: 'Parse Memories',
     file: 'parse_memories.py',
@@ -49,6 +40,17 @@ const SCRIPTS = [
     description: 'Converts ChatGPT memories.json into searchable context records.',
     outputs: ['memory/user.context.jsonl'],
     icon: Database,
+    color: 'accent',
+    order: 2,
+  },
+  {
+    id: 'analyze_patterns',
+    name: 'Analyze Patterns',
+    file: 'analyze_patterns.py',
+    path: 'scripts/conversation_processing/',
+    description: 'Discovers distinctive terms, topics, entities, and tone patterns from your conversations.',
+    outputs: ['memory/identity.jsonl', 'memory/patterns.jsonl'],
+    icon: Sparkles,
     color: 'accent',
     order: 3,
   },
@@ -96,11 +98,17 @@ interface ScriptState {
   endTime?: number
 }
 
+type MainView = 'pipeline' | 'data'
+
 function App() {
+  const [mainView, setMainView] = useState<MainView>('pipeline')
   const [scriptStates, setScriptStates] = useState<Record<string, ScriptState>>({})
   const [selectedScript, setSelectedScript] = useState<string | null>(null)
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string } | null>(null)
   const [mcpStatus, setMcpStatus] = useState<'checking' | 'online' | 'offline'>('checking')
+  
+  // Check if any scripts are running
+  const hasRunningScripts = Object.values(scriptStates).some(state => state.status === 'running')
 
   // Check MCP status on mount
   useEffect(() => {
@@ -206,7 +214,7 @@ function App() {
     <div className="min-h-screen bg-surface">
       {/* Header */}
       <header className="border-b border-surface-200 bg-surface-50/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-[1800px] mx-auto px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-accent-bright flex items-center justify-center">
               <Shield className="w-5 h-5 text-white" />
@@ -234,9 +242,58 @@ function App() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Pipeline Overview */}
-        <section className="mb-8">
+      <main className="max-w-[1800px] mx-auto px-8 py-8">
+        {/* View Switcher */}
+        <div className="flex items-center gap-2 mb-6">
+          <button
+            onClick={() => {
+              if (hasRunningScripts && mainView === 'pipeline') {
+                if (!confirm('Scripts are running. Switching views may lose progress output. Continue?')) {
+                  return
+                }
+              }
+              setMainView('pipeline')
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+              mainView === 'pipeline'
+                ? 'bg-accent text-white'
+                : 'bg-surface-100 text-text-secondary hover:bg-surface-200'
+            }`}
+          >
+            <Terminal className="w-4 h-4" />
+            Pipeline
+            {hasRunningScripts && mainView === 'pipeline' && (
+              <RefreshCw className="w-3 h-3 animate-spin" />
+            )}
+          </button>
+          <button
+            onClick={() => {
+              if (hasRunningScripts && mainView === 'pipeline') {
+                if (!confirm('Scripts are running. Switching views may lose progress output. Continue?')) {
+                  return
+                }
+              }
+              setMainView('data')
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+              mainView === 'data'
+                ? 'bg-accent text-white'
+                : 'bg-surface-100 text-text-secondary hover:bg-surface-200'
+            }`}
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            Data Explorer
+          </button>
+        </div>
+
+        {/* Data Explorer View */}
+        {mainView === 'data' && <DataExplorer />}
+
+        {/* Pipeline View */}
+        {mainView === 'pipeline' && (
+          <>
+            {/* Pipeline Overview */}
+            <section className="mb-8">
           <h2 className="font-display text-lg font-semibold text-text-primary mb-4">Processing Pipeline</h2>
           <p className="text-text-secondary mb-6">
             Run these scripts in order to process your ChatGPT formatted conversation export and train your identity model.
@@ -368,6 +425,8 @@ function App() {
             </div>
           </div>
         </div>
+          </>
+        )}
       </main>
 
       {/* File Viewer Modal */}

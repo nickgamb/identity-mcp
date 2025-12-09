@@ -15,8 +15,11 @@ This system preserves **patterns of continuity** from your conversations—provi
 - **Model-Agnostic**: Works with any LLM (OpenAI, Anthropic, Ollama, local models, etc.)
 - **Pattern Discovery**: Analyze your conversations to discover unique patterns and themes
 - **MCP Protocol**: Full MCP 2024-11-05 implementation with streaming support
-- **Comprehensive Access**: 39 tools for accessing memories, conversations, files, and identity verification
-- **Fine-Tuning Support**: LoRA fine-tuning tools to train models on your conversation patterns
+- **Comprehensive Access**: 50 tools for accessing memories, conversations, files, and identity verification
+- **Fine-Tuning Support**: LoRA fine-tuning with dual GPU support and CPU offloading
+- **Web Dashboard**: Upload, process, browse, and edit all data with Monaco editor
+- **Pipeline Automation**: Run processing scripts via MCP tools or dashboard
+- **Data Management**: Upload, clean, and inspect all source and generated data
 - **Filesystem-Backed**: JSONL files as canonical store for portability
 
 ## Quick Start
@@ -29,6 +32,7 @@ docker-compose up --build
 
 Services:
 - **MCP Server**: `http://localhost:4000`
+- **Dashboard**: `http://localhost:3001`
 - **Ollama**: `http://localhost:11434`
 - **LibreChat**: `http://localhost:3080`
 
@@ -57,7 +61,7 @@ identity-mcp/
 │   │   ├── health.ts         # Health check endpoint
 │   │   ├── httpApi.ts        # Direct HTTP REST API
 │   │   └── mcpProtocol.ts    # MCP protocol implementation
-│   ├── mcp/                  # MCP tool handlers
+│   ├── mcp/                  # MCP tool handlers (50 tools)
 │   │   ├── memoryTools.ts
 │   │   ├── memorySearchTools.ts
 │   │   ├── identityTools.ts
@@ -70,6 +74,8 @@ identity-mcp/
 │   │   ├── unifiedSearchTools.ts
 │   │   ├── exportTools.ts
 │   │   ├── finetuneTools.ts
+│   │   ├── pipelineTools.ts
+│   │   ├── dataManagementTools.ts
 │   │   └── memoryParserTools.ts
 │   └── services/             # Core business logic
 │       ├── fileStore.ts
@@ -101,9 +107,9 @@ identity-mcp/
 
 3. **Health Check** (`/health`): Server status and uptime
 
-## MCP Tools Reference (39 Tools)
+## MCP Tools Reference (50 Tools)
 
-### Memory Tools (5 tools)
+### Memory Tools (7 tools)
 
 - **`memory_list`**: List memory files and record counts
 - **`memory_get`**: Retrieve records from a memory file (with filters: type, tags, date range)
@@ -162,11 +168,39 @@ identity-mcp/
 
 ### Fine-Tuning Tools (5 tools)
 
-- **`finetune_start`**: Start LoRA fine-tuning job
+- **`finetune_start`**: Start LoRA fine-tuning job (supports CPU-only, single/multi-GPU)
 - **`finetune_status`**: Check fine-tuning job status
 - **`finetune_list`**: List all fine-tuning jobs
 - **`finetune_cancel`**: Cancel a running job
 - **`finetune_export_dataset`**: Export training dataset without training
+
+### Pipeline Tools (5 tools)
+
+- **`pipeline_list`**: List available processing scripts
+- **`pipeline_run`**: Run a specific processing script
+- **`pipeline_run_all`**: Run all scripts in order (stops on failure)
+- **`pipeline_status`**: Check if a specific script is running
+- **`pipeline_list_running`**: List all currently running scripts
+
+### Data Management Tools (9 tools)
+
+- **`data_status`**: Check presence of source files and generated data
+- **`data_upload_conversations`**: Upload conversations.json (overwrites existing)
+- **`data_upload_memories`**: Upload memories.json (overwrites existing)
+- **`data_clean`**: Clean generated data from a directory (keeps source files)
+- **`data_conversations_list`**: List all parsed conversation files with metadata
+- **`data_conversation_get`**: Get specific conversation content by ID
+- **`data_conversation_update`**: Update conversation content
+- **`data_memories_list`**: List all memory records from all files
+- **`data_memory_file_get`**: Get specific memory file content
+- **`data_memory_file_update`**: Update memory file content
+
+### Identity Verification Tools (4 tools)
+
+- **`identity_model_status`**: Check if identity verification model is trained
+- **`identity_verify`**: Verify a single message against identity profile
+- **`identity_verify_conversation`**: Verify multiple messages
+- **`identity_profile_summary`**: Get trained identity profile summary
 
 ## Memory Files
 

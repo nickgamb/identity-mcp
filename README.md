@@ -23,6 +23,26 @@ A behavioral identity verification system that creates an "identity fingerprint"
 
 ## Quick Start
 
+### Option 1: Dashboard (Recommended for First-Time Setup)
+
+```bash
+# 1. Start services
+npm install
+npm start                    # MCP server on :4000
+
+# In another terminal
+cd dashboard
+npm install
+npm run dev                  # Dashboard on :3001
+
+# 2. Open http://localhost:3001
+# 3. Upload your conversations.json and memories.json via UI
+# 4. Click "Run" on each pipeline script in order
+# 5. Monitor progress in real-time
+```
+
+### Option 2: Command Line
+
 ```bash
 # 1. Export your data from ChatGPT and place in project
 cp ~/Downloads/conversations.json conversations/
@@ -140,18 +160,35 @@ docker-compose --profile identity up -d           # MCP + Identity Service
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-## MCP Tools (39 total)
+## MCP Tools (50 total)
 
 The MCP server exposes tools for:
-- **Memory** - Read/write/search identity memories
-- **Conversations** - Query parsed conversation history  
-- **Identity Analysis** - Relational patterns, naming events, momentum
-- **Emergence** - Key events, symbolic density, timeline
-- **Identity Verification** - Verify messages against your fingerprint
-- **Files** - RAG over your documents
-- **Fine-tuning** - Export datasets for model training
+- **Memory** (7 tools) - Read/write/search identity memories
+- **Conversations** (4 tools) - Query parsed conversation history  
+- **Identity Analysis** (5 tools) - Relational patterns, naming events, momentum
+- **Emergence** (5 tools) - Key events, symbolic density, timeline
+- **Identity Verification** (4 tools) - Verify messages against your fingerprint
+- **Files** (4 tools) - RAG over your documents
+- **Fine-tuning** (5 tools) - LoRA training and dataset export
+- **Pipeline** (5 tools) - Run processing scripts, check status
+- **Data Management** (9 tools) - Upload, browse, edit, and clean data
+- **Statistics** (2 tools) - Memory and conversation analytics
 
 See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for full tool reference.
+
+## Dashboard Features
+
+The web dashboard provides:
+- **Upload** - Drag & drop conversations.json and memories.json
+- **Status** - Visual indicators for source files and generated data
+- **Pipeline** - Run all processing scripts with real-time output
+- **Data Explorer** - Browse, search, and edit:
+  - All conversations (with VS Code-like Monaco editor)
+  - All memory files (with full CRUD operations)
+  - Files directory (view and manage)
+- **Clean** - Safely remove generated data (keeps source files)
+
+Access at: http://localhost:3001 (after starting dashboard)
 
 ## Requirements
 

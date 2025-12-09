@@ -69,11 +69,39 @@ for model in "${MODELS[@]}"; do
     if $OLLAMA_CMD list | grep -q "^$model"; then
         echo "  ✓ $model already exists"
     else
-        echo "  → Downloading $model (this may take a while)..."
-        if $OLLAMA_CMD pull "$model"; then
-            echo "  ✓ Successfully downloaded $model"
+        # Special handling for GLM-4.5-Air (needs to be imported from HuggingFace)
+        if [ "$model" = "glm-4.5-air" ]; then
+            echo "  → GLM-4.5-Air requires import from HuggingFace (unsloth GGUF)"
+            echo "  → Checking if model exists in HF cache..."
+            
+            # Check HF cache for GLM model
+            GLM_HF_PATH="/home/nick/models/hf_models/glm-4.5-air"
+            GLM_HUB_PATH="/home/nick/models/hf_models/models--zai-org--GLM-4.5-Air"
+            
+            if [ -d "$GLM_HF_PATH" ] || [ -d "$GLM_HUB_PATH" ]; then
+                echo "  → Found GLM model in HF cache"
+                echo "  → Note: To import to Ollama, you need to:"
+                echo "     1. Convert to GGUF using unsloth or llama.cpp"
+                echo "     2. Use 'ollama create glm-4.5-air -f Modelfile' to import"
+                echo "  → For now, use the HF service endpoint for GLM-4.5-Air"
+                echo "  → Attempting direct pull (may not be available)..."
+                if $OLLAMA_CMD pull "$model" 2>/dev/null; then
+                    echo "  ✓ Successfully pulled $model from Ollama registry"
+                else
+                    echo "  ⚠ GLM-4.5-Air not in Ollama registry - use HF service endpoint"
+                fi
+            else
+                echo "  → GLM model not found in HF cache"
+                echo "  → Download from HuggingFace first using download_hf_models.sh"
+                echo "  → Then convert to GGUF and import to Ollama"
+            fi
         else
-            echo "  ✗ Failed to download $model"
+            echo "  → Downloading $model (this may take a while)..."
+            if $OLLAMA_CMD pull "$model"; then
+                echo "  ✓ Successfully downloaded $model"
+            else
+                echo "  ✗ Failed to download $model"
+            fi
         fi
     fi
 done

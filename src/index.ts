@@ -47,7 +47,7 @@ app.use((req: Request, res: Response, next) => {
   next();
 });
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "500mb" }));
 
 app.use(healthRouter);
 app.use(mcpRouter);
