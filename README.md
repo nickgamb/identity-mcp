@@ -177,4 +177,4 @@ See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for full tool reference.
 #License
 
 Apache License 2.0
-See the LICENSE.md file for full details.
+See the [LICENSE.md](LICENSE.md) file for full details.
