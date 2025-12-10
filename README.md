@@ -13,9 +13,7 @@ A behavioral identity verification system that creates an "identity fingerprint"
 ## Screenshots
 
 ### Identity Model Visualizations
-<video src="screenshots/visuals.mp4" controls width="100%" autoplay loop muted>
-  Your browser does not support the video tag.
-</video>
+![Identity Model Visualizations](screenshots/vibes_compressed.gif)
 *Interactive charts showing identity evolution, stylistic profiles, vocabulary analysis, and temporal patterns*
 
 ### Pipeline Dashboard
