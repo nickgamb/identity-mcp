@@ -225,6 +225,7 @@ function App() {
     const script = SCRIPTS.find(s => s.id === scriptId)
     if (!script) return
 
+    // Clear output only when a script actually runs (not when just viewing)
     setScriptStates(prev => ({
       ...prev,
       [scriptId]: { status: 'running', output: [`Starting ${script.file}...`], startTime: Date.now() }
@@ -399,7 +400,10 @@ function App() {
             {SCRIPTS.sort((a, b) => a.order - b.order).map((script, idx) => (
               <div key={script.id} className="flex items-center">
                 <button
-                  onClick={() => setSelectedScript(script.id)}
+                  onClick={() => {
+                    // Just change selection - don't clear output
+                    setSelectedScript(script.id)
+                  }}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
                     selectedScript === script.id 
                       ? 'bg-accent/20 text-accent border border-accent/30' 
@@ -499,9 +503,13 @@ function App() {
               {selectedScript ? (
                 <>
                   <div className="terminal max-h-[500px] overflow-y-auto">
-                    {(scriptStates[selectedScript]?.output || ['Select a script to run...']).map((line, idx) => (
-                      <div key={idx} className="terminal-line stdout">{line}</div>
-                    ))}
+                    {scriptStates[selectedScript]?.output && scriptStates[selectedScript].output.length > 0 ? (
+                      scriptStates[selectedScript].output.map((line, idx) => (
+                        <div key={idx} className="terminal-line stdout">{line}</div>
+                      ))
+                    ) : (
+                      <div className="terminal-line text-text-muted italic">No output yet. Run the script to see output.</div>
+                    )}
                     {scriptStates[selectedScript]?.status === 'running' && (
                       <div className="terminal-line text-accent animate-pulse">▋</div>
                     )}
