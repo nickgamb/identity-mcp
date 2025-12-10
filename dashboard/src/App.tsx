@@ -142,106 +142,84 @@ function App() {
 
   const checkPipelineCompletion = async () => {
     try {
+      // Get current state FIRST to preserve running scripts
+      let runningScripts: Record<string, ScriptState> = {}
+      setScriptStates(prev => {
+        runningScripts = {}
+        for (const [scriptId, state] of Object.entries(prev)) {
+          if (state.status === 'running') {
+            runningScripts[scriptId] = state
+          }
+        }
+        return prev // Don't change state yet
+      })
+      
       // Check data status to determine which scripts have completed
       const res = await fetch('/api/mcp/data.status')
       const data = await res.json()
       
-      const newStates: Record<string, ScriptState> = {}
+      // Start with running scripts - only add completed if files exist
+      const finalStates: Record<string, ScriptState> = { ...runningScripts }
       
-      // Parse Conversations - ONLY check if generated conversation JSONL files exist
-      // NOT checking if conversations.json exists - only the parsed output files
+      // Parse Conversations - check if conversation JSONL files exist
       if (data.counts?.conversationFiles > 0) {
-        // Verify at least one conversation_*.jsonl file actually exists
-        const conversationsRes = await fetch('/api/mcp/data.conversations')
-        const conversationsData = await conversationsRes.json()
-        if (conversationsData.conversations && conversationsData.conversations.length > 0) {
-          newStates['parse_conversations'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+        try {
+          const conversationsRes = await fetch('/api/mcp/data.conversations')
+          if (conversationsRes.ok) {
+            const conversationsData = await conversationsRes.json()
+            if (conversationsData.conversations && conversationsData.conversations.length > 0) {
+              finalStates['parse_conversations'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+            }
+          }
+        } catch (e) {
+          // File check failed, not complete - don't add to finalStates
         }
       }
+      // If no files or check failed, script won't be in finalStates = shows as Ready
       
-      // Analyze Patterns - check if identity.jsonl and patterns.jsonl exist
-      // These are generated files, not source files
-      const identityRes = await fetch('/api/mcp/file.get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filepath: 'memory/identity.jsonl' })
-      }).catch(() => null)
-      
-      const patternsRes = await fetch('/api/mcp/file.get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filepath: 'memory/patterns.jsonl' })
-      }).catch(() => null)
-      
-      if (identityRes?.ok && patternsRes?.ok) {
-        newStates['analyze_patterns'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-      }
-      
-      // Parse Memories - ONLY check if user.context.jsonl exists (generated file)
-      // NOT checking if memories.json exists - only the parsed output file
-      const userContextRes = await fetch('/api/mcp/file.get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filepath: 'memory/user.context.jsonl' })
-      }).catch(() => null)
-      
-      if (userContextRes?.ok) {
-        newStates['parse_memories'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-      }
-      
-      // Analyze Identity - check if identity_analysis.jsonl exists (generated file)
-      const analysisRes = await fetch('/api/mcp/file.get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filepath: 'memory/identity_analysis.jsonl' })
-      }).catch(() => null)
-      
-      if (analysisRes?.ok) {
-        newStates['analyze_identity'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-      }
-      
-      // Build Emergence Map - check if emergence_map_index.json exists (generated file)
-      const emergenceRes = await fetch('/api/mcp/file.get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filepath: 'memory/emergence_map_index.json' })
-      }).catch(() => null)
-      
-      if (emergenceRes?.ok) {
-        newStates['build_emergence_map'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-      }
-      
-      // Train Identity Model - check if model config exists (generated file)
-      const modelConfigRes = await fetch('/api/mcp/file.get', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filepath: 'models/identity/config.json' })
-      }).catch(() => null)
-      
-      if (modelConfigRes?.ok) {
-        newStates['train_identity_model'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-      }
-      
-      // Replace all states with fresh check (except currently running scripts)
-      setScriptStates(prev => {
-        const updated: Record<string, ScriptState> = {}
-        
-        // Keep running scripts
-        for (const [scriptId, state] of Object.entries(prev)) {
-          if (state.status === 'running') {
-            updated[scriptId] = state
+      // Check memory files using the same API the dashboard uses
+      try {
+        const memoryListRes = await fetch('/api/mcp/memory.list', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        })
+        if (memoryListRes.ok) {
+          const memoryListData = await memoryListRes.json()
+          const memoryFileNames = memoryListData.files?.map((f: any) => f.name) || []
+          
+          // Analyze Patterns - check if identity.jsonl and patterns.jsonl exist
+          if (memoryFileNames.includes('identity') && memoryFileNames.includes('patterns')) {
+            finalStates['analyze_patterns'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+          }
+          
+          // Parse Memories - check if user.context.jsonl exists
+          if (memoryFileNames.includes('user.context')) {
+            finalStates['parse_memories'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+          }
+          
+          // Analyze Identity - check if identity_analysis.jsonl exists
+          if (memoryFileNames.includes('identity_analysis')) {
+            finalStates['analyze_identity'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
           }
         }
-        
-        // Set completed states from file checks
-        for (const [scriptId, state] of Object.entries(newStates)) {
-          if (!updated[scriptId]) {
-            updated[scriptId] = state
-          }
-        }
-        
-        return updated
-      })
+      } catch (e) {
+        // Memory list check failed
+      }
+      
+      // Build Emergence Map - check via data.status
+      if (data.generatedData?.emergenceMap) {
+        finalStates['build_emergence_map'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      }
+      
+      // Train Identity Model - use data.status which already checks this
+      if (data.generatedData?.identityModel) {
+        finalStates['train_identity_model'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      }
+      
+      // COMPLETELY REPLACE state - only scripts with running status or completed files will be in finalStates
+      // Scripts without files won't be in finalStates, so they'll show as Ready (idle)
+      setScriptStates(finalStates)
     } catch (error) {
       console.error('Failed to check pipeline completion:', error)
     }

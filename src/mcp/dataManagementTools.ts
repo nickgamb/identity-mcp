@@ -23,6 +23,7 @@ export interface DataStatusResponse {
     conversations: boolean;
     memory: boolean;
     identityModel: boolean;
+    emergenceMap: boolean;
   };
   counts: {
     conversationFiles: number;
@@ -43,6 +44,7 @@ export async function handleDataStatus(): Promise<DataStatusResponse> {
       memory: fs.existsSync(path.join(PROJECT_ROOT, "memory")) &&
         fs.readdirSync(path.join(PROJECT_ROOT, "memory")).filter((f: string) => f.endsWith(".jsonl")).length > 0,
       identityModel: fs.existsSync(path.join(PROJECT_ROOT, "models", "identity", "config.json")),
+      emergenceMap: fs.existsSync(path.join(PROJECT_ROOT, "memory", "emergence_map_index.json")),
     },
     counts: {
       conversationFiles: fs.existsSync(path.join(PROJECT_ROOT, "conversations")) ? 
