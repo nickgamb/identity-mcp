@@ -271,22 +271,44 @@ function computeVocabularyMatch(
  * Get identity model status
  */
 export async function handleIdentityModelStatus(): Promise<{
-  available: boolean;
+  exists: boolean;
+  available?: boolean;
   config?: IdentityConfig;
+  stylistic_profile?: StylisticProfile;
+  vocabulary_profile?: VocabularyProfile;
+  identity_report?: string;
   message?: string;
 }> {
   const identityConfig = loadIdentityConfig();
+  const stylisticProfile = loadStylisticProfile();
+  const vocabularyProfile = loadVocabularyProfile();
 
   if (!identityConfig) {
     return {
+      exists: false,
       available: false,
       message: "Identity model not found. Run: python scripts/identity_model/train_identity_model.py"
     };
   }
 
+  // Try to load identity report from memory directory
+  let identityReport: string | undefined = undefined;
+  try {
+    const reportPath = path.join(config.MEMORY_DIR, "identity_report.md");
+    if (fs.existsSync(reportPath)) {
+      identityReport = fs.readFileSync(reportPath, "utf8");
+    }
+  } catch (error) {
+    logger.warn("Failed to load identity report", { error: String(error) });
+  }
+
   return {
+    exists: true,
     available: true,
-    config: identityConfig
+    config: identityConfig,
+    stylistic_profile: stylisticProfile || undefined,
+    vocabulary_profile: vocabularyProfile || undefined,
+    identity_report: identityReport
   };
 }
 

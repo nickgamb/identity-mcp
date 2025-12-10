@@ -36,9 +36,16 @@ export class FileLoader {
    */
   async listFiles(folder?: string): Promise<string[]> {
     try {
-      const targetDir = folder 
-        ? path.join(this.filesDir, folder)
-        : this.filesDir;
+      // Normalize folder - prevent duplication if folder matches filesDir base name
+      let targetDir = this.filesDir;
+      if (folder) {
+        const normalizedFolder = folder.replace(/^\/+|\/+$/g, '');
+        const filesDirBase = path.basename(this.filesDir);
+        // If folder is the same as filesDir base name, don't join (already in filesDir)
+        if (normalizedFolder !== '' && normalizedFolder !== filesDirBase) {
+          targetDir = path.join(this.filesDir, normalizedFolder);
+        }
+      }
 
       if (!fs.existsSync(targetDir)) {
         logger.warn("Files directory not found", { dir: targetDir });
@@ -48,11 +55,18 @@ export class FileLoader {
       const files: string[] = [];
 
       if (folder) {
-        const folderFiles = await fs.promises.readdir(targetDir);
-        files.push(...folderFiles
-          .filter(f => this.isValidFile(f))
-          .map(f => path.join(folder, f))
-        );
+        const normalizedFolder = folder.replace(/^\/+|\/+$/g, '');
+        const filesDirBase = path.basename(this.filesDir);
+        // If folder matches filesDir base name, list all files recursively
+        if (normalizedFolder === '' || normalizedFolder === filesDirBase) {
+          await this.listFilesRecursive(this.filesDir, "", files);
+        } else {
+          const folderFiles = await fs.promises.readdir(targetDir);
+          files.push(...folderFiles
+            .filter(f => this.isValidFile(f))
+            .map(f => path.join(normalizedFolder, f))
+          );
+        }
       } else {
         await this.listFilesRecursive(this.filesDir, "", files);
       }
@@ -147,7 +161,14 @@ export class FileLoader {
    * Loads all files from a specific folder
    */
   async loadFilesFromFolder(folder: string): Promise<FileDocument[]> {
-    const filenames = await this.listFiles(folder);
+    // Normalize folder - remove leading/trailing slashes and prevent "files" duplication
+    const normalizedFolder = folder.replace(/^\/+|\/+$/g, '');
+    if (normalizedFolder === '' || normalizedFolder === path.basename(this.filesDir)) {
+      // If folder is empty or matches the base files directory name, list all files
+      return this.loadAllFiles();
+    }
+    
+    const filenames = await this.listFiles(normalizedFolder);
     const files: FileDocument[] = [];
 
     for (const filepath of filenames) {

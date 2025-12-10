@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Search, Upload, Trash2, Save, X, FileText, Database, FolderOpen, AlertCircle, Shield, BarChart3 } from 'lucide-react'
+import { Search, Upload, Trash2, Save, X, FileText, Database, FolderOpen, AlertCircle, Shield, BarChart3, Eye } from 'lucide-react'
 import { CodeEditor } from './CodeEditor'
 
 interface DataStatus {
@@ -177,8 +177,8 @@ export function DataExplorer() {
 
   const loadIdentityModel = async () => {
     try {
-      // Check if model exists
-      const statusRes = await fetch('/api/mcp/identity_model.status')
+      // Get model status and data (includes config, profiles, and report)
+      const statusRes = await fetch('/api/mcp/identity.model_status')
       const statusData = await statusRes.json()
       
       if (!statusData.exists) {
@@ -186,41 +186,12 @@ export function DataExplorer() {
         return
       }
 
-      // Load model files
-      const [configRes, stylisticRes, vocabRes, reportRes] = await Promise.all([
-        fetch('/api/mcp/file.get', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filepath: 'models/identity/config.json' })
-        }).catch(() => null),
-        fetch('/api/mcp/file.get', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filepath: 'models/identity/stylistic_profile.json' })
-        }).catch(() => null),
-        fetch('/api/mcp/file.get', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filepath: 'models/identity/vocabulary_profile.json' })
-        }).catch(() => null),
-        fetch('/api/mcp/file.get', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filepath: 'memory/identity_report.md' })
-        }).catch(() => null),
-      ])
-
-      const config = configRes ? await configRes.json().then(d => JSON.parse(d.content)) : null
-      const stylistic = stylisticRes ? await stylisticRes.json().then(d => JSON.parse(d.content)) : null
-      const vocab = vocabRes ? await vocabRes.json().then(d => JSON.parse(d.content)) : null
-      const report = reportRes ? await reportRes.json().then(d => d.content) : null
-
       setIdentityModel({
         exists: true,
-        config,
-        stylistic_profile: stylistic,
-        vocabulary_profile: vocab,
-        identity_report: report
+        config: statusData.config || null,
+        stylistic_profile: statusData.stylistic_profile || null,
+        vocabulary_profile: statusData.vocabulary_profile || null,
+        identity_report: statusData.identity_report || null
       })
     } catch (error) {
       console.error('Failed to load identity model:', error)
@@ -766,6 +737,26 @@ export function DataExplorer() {
             </div>
           ) : (
             <>
+              {/* Delete Button */}
+              <div className="card">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-display font-semibold text-text-primary mb-1">Identity Model</h3>
+                    <p className="text-sm text-text-muted">Trained identity fingerprint for verification</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      if (confirm('Are you sure you want to delete the identity model? This will remove all model files from models/identity/')) {
+                        handleClean('models')
+                      }
+                    }}
+                    className="btn btn-ghost text-danger"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete Model
+                  </button>
+                </div>
+              </div>
               {/* Identity Report Summary */}
               {identityModel.identity_report && (
                 <div className="card">
