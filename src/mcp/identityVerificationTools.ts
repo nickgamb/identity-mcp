@@ -200,6 +200,21 @@ function loadVocabularyProfile(): VocabularyProfile | null {
   }
 }
 
+function loadTemporalAnalysis(): any | null {
+  const analysisPath = path.join(getModelsDir(), "temporal_analysis.json");
+  if (!fs.existsSync(analysisPath)) {
+    return null;
+  }
+
+  try {
+    const content = fs.readFileSync(analysisPath, "utf8");
+    return JSON.parse(content);
+  } catch (error) {
+    logger.error("Failed to load temporal analysis", { error: String(error) });
+    return null;
+  }
+}
+
 /**
  * Compute stylistic features from text (mirrors Python implementation)
  */
@@ -276,12 +291,14 @@ export async function handleIdentityModelStatus(): Promise<{
   config?: IdentityConfig;
   stylistic_profile?: StylisticProfile;
   vocabulary_profile?: VocabularyProfile;
+  temporal_analysis?: any;
   identity_report?: string;
   message?: string;
 }> {
   const identityConfig = loadIdentityConfig();
   const stylisticProfile = loadStylisticProfile();
   const vocabularyProfile = loadVocabularyProfile();
+  const temporalAnalysis = loadTemporalAnalysis();
 
   if (!identityConfig) {
     return {
@@ -308,6 +325,7 @@ export async function handleIdentityModelStatus(): Promise<{
     config: identityConfig,
     stylistic_profile: stylisticProfile || undefined,
     vocabulary_profile: vocabularyProfile || undefined,
+    temporal_analysis: temporalAnalysis || undefined,
     identity_report: identityReport
   };
 }

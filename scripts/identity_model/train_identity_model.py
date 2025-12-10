@@ -48,6 +48,7 @@ from pathlib import Path
 from datetime import datetime
 from collections import Counter
 from typing import Dict, List, Any, Tuple, Optional
+from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -454,6 +455,107 @@ def compute_identity_centroid(embeddings: np.ndarray) -> np.ndarray:
     return np.mean(embeddings, axis=0)
 
 
+def parse_timestamp(ts: str) -> Optional[datetime]:
+    """Parse timestamp string to datetime."""
+    if not ts or ts == "Unknown":
+        return None
+    formats = [
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(ts[:26], fmt)
+        except:
+            continue
+    return None
+
+
+def compute_temporal_analysis(
+    messages: List[Dict],
+    embeddings: np.ndarray,
+    centroid: np.ndarray
+) -> Dict[str, Any]:
+    """Compute temporal evolution of identity metrics."""
+    if not messages or len(messages) < 2:
+        return {}
+    
+    # Parse timestamps and sort
+    message_data = []
+    for i, msg in enumerate(messages):
+        ts = parse_timestamp(msg.get("timestamp", ""))
+        if ts:
+            similarity = float(np.dot(embeddings[i], centroid) / (
+                np.linalg.norm(embeddings[i]) * np.linalg.norm(centroid) + 1e-8
+            ))
+            message_data.append({
+                "timestamp": ts,
+                "similarity": similarity,
+                "distance": float(np.linalg.norm(embeddings[i] - centroid)),
+                "content": msg.get("content", "")
+            })
+    
+    if len(message_data) < 2:
+        return {}
+    
+    message_data.sort(key=lambda x: x["timestamp"])
+    
+    # Time windows (split into 5 equal periods)
+    total_span = (message_data[-1]["timestamp"] - message_data[0]["timestamp"]).total_seconds()
+    if total_span < 3600:  # Less than 1 hour, use message count instead
+        window_size = max(1, len(message_data) // 5)
+        windows = []
+        for i in range(0, len(message_data), window_size):
+            windows.append(message_data[i:i+window_size])
+    else:
+        window_duration = total_span / 5
+        windows = [[]]
+        current_window_start = message_data[0]["timestamp"]
+        
+        for msg in message_data:
+            if (msg["timestamp"] - current_window_start).total_seconds() > window_duration:
+                windows.append([])
+                current_window_start = msg["timestamp"]
+            windows[-1].append(msg)
+    
+    # Compute metrics per window
+    window_metrics = []
+    for window in windows:
+        if not window:
+            continue
+        window_metrics.append({
+            "start_time": window[0]["timestamp"].isoformat(),
+            "end_time": window[-1]["timestamp"].isoformat(),
+            "message_count": len(window),
+            "mean_similarity": float(np.mean([m["similarity"] for m in window])),
+            "std_similarity": float(np.std([m["similarity"] for m in window])),
+            "mean_distance": float(np.mean([m["distance"] for m in window])),
+        })
+    
+    # Overall temporal stats
+    similarities = [m["similarity"] for m in message_data]
+    first_half = similarities[:len(similarities)//2]
+    second_half = similarities[len(similarities)//2:]
+    
+    return {
+        "time_span_days": total_span / 86400 if total_span > 0 else 0,
+        "first_message": message_data[0]["timestamp"].isoformat(),
+        "last_message": message_data[-1]["timestamp"].isoformat(),
+        "windows": window_metrics,
+        "evolution": {
+            "early_mean_similarity": float(np.mean(first_half)) if first_half else None,
+            "late_mean_similarity": float(np.mean(second_half)) if second_half else None,
+            "similarity_trend": float(np.mean(second_half) - np.mean(first_half)) if first_half and second_half else None,
+        },
+        "stability": {
+            "similarity_std": float(np.std(similarities)),
+            "similarity_range": float(np.max(similarities) - np.min(similarities)),
+        }
+    }
+
+
 def compute_identity_statistics(embeddings: np.ndarray, centroid: np.ndarray) -> Dict[str, float]:
     """Compute statistics about the identity embedding space."""
     # Distances from centroid
@@ -462,6 +564,16 @@ def compute_identity_statistics(embeddings: np.ndarray, centroid: np.ndarray) ->
     # Cosine similarities to centroid
     norms = np.linalg.norm(embeddings, axis=1) * np.linalg.norm(centroid)
     similarities = np.dot(embeddings, centroid) / (norms + 1e-8)
+    
+    # Percentiles
+    sorted_sims = np.sort(similarities)
+    percentiles = {
+        "p25": float(np.percentile(similarities, 25)),
+        "p50": float(np.percentile(similarities, 50)),
+        "p75": float(np.percentile(similarities, 75)),
+        "p90": float(np.percentile(similarities, 90)),
+        "p95": float(np.percentile(similarities, 95)),
+    }
     
     return {
         "num_samples": len(embeddings),
@@ -472,10 +584,13 @@ def compute_identity_statistics(embeddings: np.ndarray, centroid: np.ndarray) ->
         "max_distance": float(np.max(distances)),
         "mean_similarity": float(np.mean(similarities)),
         "std_similarity": float(np.std(similarities)),
+        "min_similarity": float(np.min(similarities)),
+        "max_similarity": float(np.max(similarities)),
         "threshold_1std": float(np.mean(distances) + np.std(distances)),
         "threshold_2std": float(np.mean(distances) + 2 * np.std(distances)),
         "similarity_threshold_1std": float(np.mean(similarities) - np.std(similarities)),
         "similarity_threshold_2std": float(np.mean(similarities) - 2 * np.std(similarities)),
+        "percentiles": percentiles,
     }
 
 
@@ -485,7 +600,8 @@ def save_identity_model(
     vocabulary_profile: Dict,
     statistics: Dict,
     config: Dict,
-    output_dir: Path
+    output_dir: Path,
+    temporal_analysis: Optional[Dict] = None
 ):
     """Save the trained identity model."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -499,6 +615,11 @@ def save_identity_model(
     
     with open(output_dir / "vocabulary_profile.json", 'w') as f:
         json.dump(vocabulary_profile, f, indent=2)
+    
+    # Save temporal analysis if available
+    if temporal_analysis:
+        with open(output_dir / "temporal_analysis.json", 'w') as f:
+            json.dump(temporal_analysis, f, indent=2, default=str)
     
     # Save config and statistics
     config_data = {
@@ -667,6 +788,18 @@ def main():
     print(f"   Mean similarity to centroid: {statistics['mean_similarity']:.4f}")
     print(f"   Std similarity: {statistics['std_similarity']:.4f}")
     
+    # Compute temporal analysis
+    print("\n📅 Computing temporal evolution...")
+    temporal_analysis = compute_temporal_analysis(user_messages, embeddings, centroid)
+    if temporal_analysis:
+        print(f"   Time span: {temporal_analysis.get('time_span_days', 0):.1f} days")
+        print(f"   Time windows: {len(temporal_analysis.get('windows', []))}")
+        if temporal_analysis.get('evolution', {}).get('similarity_trend'):
+            trend = temporal_analysis['evolution']['similarity_trend']
+            print(f"   Similarity trend: {trend:+.4f} (early → late)")
+    else:
+        print("   ⚠️  Insufficient temporal data for evolution analysis")
+    
     # Compute stylistic profile
     print("\n✍️  Computing stylistic profile...")
     stylistic_profile = compute_stylistic_profile(user_messages)
@@ -703,7 +836,8 @@ def main():
         vocabulary_profile=vocabulary_profile,
         statistics=statistics,
         config=config,
-        output_dir=MODELS_DIR
+        output_dir=MODELS_DIR,
+        temporal_analysis=temporal_analysis if temporal_analysis else None
     )
     
     # Test verification

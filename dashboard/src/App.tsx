@@ -179,27 +179,23 @@ function App() {
       
       // Check memory files using the same API the dashboard uses
       try {
-        const memoryListRes = await fetch('/api/mcp/memory.list', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({})
-        })
+        const memoryListRes = await fetch('/api/mcp/data.memories_list')
         if (memoryListRes.ok) {
           const memoryListData = await memoryListRes.json()
-          const memoryFileNames = memoryListData.files?.map((f: any) => f.name) || []
+          const memoryFileNames = memoryListData.memories?.map((f: any) => f._file) || []
           
           // Analyze Patterns - check if identity.jsonl and patterns.jsonl exist
-          if (memoryFileNames.includes('identity') && memoryFileNames.includes('patterns')) {
+          if (memoryFileNames.includes('identity.jsonl') && memoryFileNames.includes('patterns.jsonl')) {
             finalStates['analyze_patterns'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
           }
           
           // Parse Memories - check if user.context.jsonl exists
-          if (memoryFileNames.includes('user.context')) {
+          if (memoryFileNames.includes('user.context.jsonl')) {
             finalStates['parse_memories'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
           }
           
           // Analyze Identity - check if identity_analysis.jsonl exists
-          if (memoryFileNames.includes('identity_analysis')) {
+          if (memoryFileNames.includes('identity_analysis.jsonl')) {
             finalStates['analyze_identity'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
           }
         }
@@ -501,24 +497,40 @@ function App() {
               </div>
               
               {selectedScript ? (
-                <div className="terminal max-h-[500px]">
-                  {(scriptStates[selectedScript]?.output || ['Select a script to run...']).map((line, idx) => (
-                    <div key={idx} className="terminal-line stdout">{line}</div>
-                  ))}
-                  {scriptStates[selectedScript]?.status === 'running' && (
-                    <div className="terminal-line text-accent animate-pulse">▋</div>
+                <>
+                  <div className="terminal max-h-[500px] overflow-y-auto">
+                    {(scriptStates[selectedScript]?.output || ['Select a script to run...']).map((line, idx) => (
+                      <div key={idx} className="terminal-line stdout">{line}</div>
+                    ))}
+                    {scriptStates[selectedScript]?.status === 'running' && (
+                      <div className="terminal-line text-accent animate-pulse">▋</div>
+                    )}
+                  </div>
+                  {selectedScript && scriptStates[selectedScript]?.status === 'running' && (
+                    <div className="mt-2 text-xs text-text-muted flex items-center gap-2">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      Running... {scriptStates[selectedScript]?.startTime && (
+                        <span>
+                          ({Math.floor((Date.now() - scriptStates[selectedScript].startTime!) / 1000)}s elapsed)
+                        </span>
+                      )}
+                    </div>
                   )}
-                </div>
+                  {selectedScript && scriptStates[selectedScript]?.endTime && (
+                    <div className="mt-2 text-xs text-text-muted">
+                      {scriptStates[selectedScript].status === 'success' ? (
+                        <span className="text-success">✓ Completed</span>
+                      ) : scriptStates[selectedScript].status === 'error' ? (
+                        <span className="text-danger">✗ Failed</span>
+                      ) : null}
+                      {' '}in {((scriptStates[selectedScript].endTime! - scriptStates[selectedScript].startTime!) / 1000).toFixed(1)}s
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="text-center py-12 text-text-muted">
                   <Terminal className="w-12 h-12 mx-auto mb-3 opacity-30" />
                   <p>Select a script to see output</p>
-                </div>
-              )}
-              
-              {selectedScript && scriptStates[selectedScript]?.endTime && (
-                <div className="mt-4 text-xs text-text-muted">
-                  Completed in {((scriptStates[selectedScript].endTime! - scriptStates[selectedScript].startTime!) / 1000).toFixed(1)}s
                 </div>
               )}
             </div>
