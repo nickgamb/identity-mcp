@@ -53,6 +53,7 @@ import sys
 import json
 import re
 import argparse
+import hashlib
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict, Counter
@@ -545,46 +546,63 @@ def generate_identity_report(analysis: Dict[str, Any], output_path: Path):
 
 def save_identity_analysis(analysis: Dict[str, Any], output_path: Path):
     """Save analysis as JSONL for MCP consumption."""
+    def make_id(prefix: str, data: Any) -> str:
+        """Create deterministic ID from prefix and data hash."""
+        data_str = json.dumps(data, sort_keys=True)
+        data_hash = hashlib.md5(data_str.encode()).hexdigest()[:8]
+        return f"{prefix}-{data_hash}"
+    
     with open(output_path, 'w', encoding='utf-8') as f:
-        # Summary record
+        # Summary record - deterministic ID based on content
         f.write(json.dumps({
+            "id": make_id("identity-summary", analysis["summary"]),
             "type": "identity.summary",
             "data": analysis["summary"]
         }) + "\n")
         
-        # Relational patterns
+        # Relational patterns - deterministic ID based on content
         f.write(json.dumps({
+            "id": make_id("identity-relational", analysis["relational_identity"]),
             "type": "identity.relational",
             "data": analysis["relational_identity"]
         }) + "\n")
         
-        # Self-referential patterns
+        # Self-referential patterns - deterministic ID based on content
         f.write(json.dumps({
+            "id": make_id("identity-self-ref", analysis["self_referential_identity"]),
             "type": "identity.self_referential",
             "data": analysis["self_referential_identity"]
         }) + "\n")
         
-        # Stylistic patterns
+        # Stylistic patterns - deterministic ID based on content
         f.write(json.dumps({
+            "id": make_id("identity-stylistic", analysis["stylistic_identity"]),
             "type": "identity.stylistic",
             "data": analysis["stylistic_identity"]
         }) + "\n")
         
-        # Momentum analysis
+        # Momentum analysis - deterministic ID based on content
         f.write(json.dumps({
+            "id": make_id("identity-momentum", analysis["momentum_analysis"]),
             "type": "identity.momentum",
             "data": analysis["momentum_analysis"]
         }) + "\n")
         
-        # Co-occurrence clusters
+        # Co-occurrence clusters - deterministic ID based on content
         f.write(json.dumps({
+            "id": make_id("identity-clusters", analysis["co_occurrence_clusters"]),
             "type": "identity.clusters",
             "data": analysis["co_occurrence_clusters"]
         }) + "\n")
         
-        # Naming events
+        # Naming events - deterministic ID from conversation_id + name
         for event in analysis.get("naming_events", []):
+            # Use conversation_id + name for deterministic ID
+            conv_id = event.get("conversation_id", "")
+            name = event.get("name", "")
+            event_id = f"identity-naming-{hashlib.md5(f'{conv_id}:{name}'.encode()).hexdigest()[:12]}"
             f.write(json.dumps({
+                "id": event_id,
                 "type": "identity.naming_event",
                 "data": event
             }) + "\n")
