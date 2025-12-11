@@ -1,0 +1,141 @@
+# Docker Compose configuration for OIDC/OAuth security stack
+# This extends the base docker-compose.yml with Keycloak and Strata Orchestrator
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.security.yml up -d
+#
+# This will start:
+#   - Keycloak (Identity Provider)
+#   - Strata Orchestrator (Identity Fabric Hub)
+#   - All existing services (MCP, Dashboard, LibreChat, etc.)
+
+version: '3.8'
+
+services:
+  # Keycloak - Identity Provider
+  # Provides OIDC/OAuth2 authentication and user management
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    command: start-dev
+    ports:
+      - "8080:8080"
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KC_DB=dev-file  # Use file-based H2 database for development
+      # For production, use PostgreSQL:
+      # - KC_DB=postgres
+      # - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
+      # - KC_DB_USERNAME=keycloak
+      # - KC_DB_PASSWORD=keycloak
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+
+  # Strata Orchestrator - Identity Fabric Hub
+  # Acts as OIDC provider for apps and OIDC client to Keycloak
+  # Handles token downscoping and policy enforcement via OPA
+  #
+  # NOTE: This is a placeholder configuration.
+  # Actual Strata Orchestrator image and configuration will depend on:
+  # - Official Strata Orchestrator Docker image
+  # - Configuration file format
+  # - OPA policy location
+  #
+  # For now, this shows the intended structure.
+  strata-orchestrator:
+    # TODO: Replace with actual Strata Orchestrator image
+    # image: strata/orchestrator:latest
+    image: nginx:alpine  # Placeholder - replace with actual image
+    container_name: strata-orchestrator
+    ports:
+      - "8081:8080"  # OIDC provider endpoint
+    environment:
+      # OIDC Client configuration (to Keycloak)
+      - OIDC_ISSUER=http://keycloak:8080/realms/mcp
+      - OIDC_CLIENT_ID=strata-orchestrator
+      - OIDC_CLIENT_SECRET=change-me-in-production
+      
+      # OIDC Provider configuration (for apps)
+      - OIDC_PROVIDER_ISSUER=http://localhost:8081
+      - OIDC_PROVIDER_AUDIENCE=mcp-server,librechat,dashboard
+      
+      # Backend configuration (Identity MCP)
+      - BACKEND_URL=http://mcp-server:4000
+      
+      # OPA policy location
+      - OPA_POLICY_PATH=/app/policies
+    networks:
+      - mcp-network
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      mcp-server:
+        condition: service_healthy
+    volumes:
+      # OPA policies directory
+      - ./policies:/app/policies:ro
+      # Orchestrator configuration
+      - ./strata-config:/app/config:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Update MCP server to use OIDC (optional - can be enabled via environment)
+  mcp-server:
+    environment:
+      # Enable OIDC authentication
+      - OIDC_ENABLED=${OIDC_ENABLED:-false}
+      - OIDC_ISSUER=${OIDC_ISSUER:-http://keycloak:8080/realms/mcp}
+      - OIDC_AUDIENCE=${OIDC_AUDIENCE:-mcp-server}
+      - OIDC_REQUIRE_AUTH=${OIDC_REQUIRE_AUTH:-false}  # Set to true to require auth
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      strata-orchestrator:
+        condition: service_healthy
+
+  # Update Dashboard to use OIDC (optional - can be enabled via environment)
+  dashboard:
+    environment:
+      # OIDC configuration for dashboard
+      - VITE_OIDC_ENABLED=${VITE_OIDC_ENABLED:-false}
+      - VITE_OIDC_ISSUER=${VITE_OIDC_ISSUER:-http://localhost:8081}
+      - VITE_OIDC_CLIENT_ID=${VITE_OIDC_CLIENT_ID:-dashboard}
+      - VITE_OIDC_REDIRECT_URI=${VITE_OIDC_REDIRECT_URI:-http://localhost:3001}
+    depends_on:
+      strata-orchestrator:
+        condition: service_healthy
+
+  # LibreChat already supports OIDC - configure via environment
+  librechat-api:
+    environment:
+      # LibreChat OIDC configuration (if supported)
+      # Check LibreChat documentation for exact variable names
+      - OIDC_ENABLED=${LIBRECHAT_OIDC_ENABLED:-false}
+      - OIDC_ISSUER=${LIBRECHAT_OIDC_ISSUER:-http://localhost:8081}
+      - OIDC_CLIENT_ID=${LIBRECHAT_OIDC_CLIENT_ID:-librechat}
+      - OIDC_CLIENT_SECRET=${LIBRECHAT_OIDC_CLIENT_SECRET:-change-me}
+    depends_on:
+      strata-orchestrator:
+        condition: service_healthy
+
+volumes:
+  keycloak-data:
+    driver: local
+
+networks:
+  mcp-network:
+    external: true  # Use existing network from base docker-compose.yml
+

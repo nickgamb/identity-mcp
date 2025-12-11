@@ -36,9 +36,18 @@ import random
 # Project paths
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
-CONVERSATIONS_DIR = PROJECT_ROOT / "conversations"
-FILES_DIR = PROJECT_ROOT / "files"
-MEMORY_DIR = PROJECT_ROOT / "memory"
+
+# Support multi-user: read USER_ID from environment
+USER_ID = os.environ.get("USER_ID")
+def get_user_dir(base_dir: Path, user_id: Optional[str] = None) -> Path:
+    """Get user-specific directory if user_id is provided, otherwise base directory."""
+    if user_id:
+        return base_dir / user_id
+    return base_dir
+
+CONVERSATIONS_DIR = get_user_dir(PROJECT_ROOT / "conversations", USER_ID)
+FILES_DIR = get_user_dir(PROJECT_ROOT / "files", USER_ID)
+MEMORY_DIR = get_user_dir(PROJECT_ROOT / "memory", USER_ID)
 
 # Common English stopwords
 STOPWORDS = {

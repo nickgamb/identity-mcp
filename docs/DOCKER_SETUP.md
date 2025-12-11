@@ -177,7 +177,14 @@ Ensure NVIDIA Container Toolkit is installed on your host.
 3. **Query your memories** with memory_search
 4. **Try unified search** with search_all
 
-## Documentation
+## Related Documentation
+
+- **[Getting Started](./GETTING_STARTED.md)** - End-to-end setup with your ChatGPT data
+- **[MCP Protocol Reference](./MCP_README.md)** - Complete API reference for all 50 MCP tools
+- **[Identity Verification](./IDENTITY_VERIFICATION.md)** - How the verification system works
+- **[Multi-User & OIDC Support](./MULTI_USER_OIDC.md)** - Multi-user data isolation and OIDC authentication
+- **[Environment Variables](./ENVIRONMENT_VARIABLES.md)** - Complete reference for all configuration options
+- **[Blog: Securing Identity MCP](./BLOG_SECURING_IDENTITY_MCP.md)** - Tutorial on adding OAuth/OIDC and policy-based access control
 - **[GETTING_STARTED.md](./GETTING_STARTED.md)** - End-to-end setup with your ChatGPT data
 - **[MCP Readme](./MCP_README.md)** - Full MCP documentation
 - **[Identity Verification](./IDENTITY_VERIFICATION.md)** - Full Identity Verification documentation

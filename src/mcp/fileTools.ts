@@ -1,4 +1,5 @@
 import { FileLoader, FileDocument } from "../services/fileLoader";
+import { getRequiredUserId } from "../utils/userContext";
 
 export interface FileListRequest {
   folder?: string; // Optional: filter to specific folder
@@ -41,11 +42,13 @@ export interface FileGetNumberedRequest {
   maxNumber?: number; // Default 10
 }
 
-const fileLoader = new FileLoader();
+// Note: FileLoader is created per-request with user context for multi-user support
 
 export async function handleFileList(
-  req: FileListRequest
+  req: FileListRequest,
+  userId: string | null = null
 ): Promise<FileListResponse> {
+  const fileLoader = new FileLoader(undefined, userId);
   let files: FileDocument[];
   
   if (req.folder) {
@@ -74,15 +77,19 @@ export async function handleFileList(
 }
 
 export async function handleFileGet(
-  req: FileGetRequest
+  req: FileGetRequest,
+  userId: string | null = null
 ): Promise<FileGetResponse> {
+  const fileLoader = new FileLoader(undefined, userId);
   const file = await fileLoader.loadFile(req.filepath);
   return { file: file || null };
 }
 
 export async function handleFileSearch(
-  req: FileSearchRequest
+  req: FileSearchRequest,
+  userId: string | null = null
 ): Promise<FileSearchResponse> {
+  const fileLoader = new FileLoader(undefined, userId);
   const files = await fileLoader.searchFiles(req.query, req.folder);
   return {
     files,
@@ -95,8 +102,10 @@ export async function handleFileSearch(
  * Generic replacement for getCoreTransmissions
  */
 export async function handleFileGetNumbered(
-  req: FileGetNumberedRequest
+  req: FileGetNumberedRequest,
+  userId: string | null = null
 ): Promise<FileSearchResponse> {
+  const fileLoader = new FileLoader(undefined, userId);
   const files = await fileLoader.getNumberedFiles(req.folder, req.maxNumber ?? 10);
   return {
     files,
@@ -125,23 +134,27 @@ export interface FileDeleteResponse {
 }
 
 export async function handleFileUpload(
-  req: FileUploadRequest
+  req: FileUploadRequest,
+  userId: string | null = null
 ): Promise<FileUploadResponse> {
   const fs = require("fs");
   const path = require("path");
-  const config = require("../config").config;
+  const { config } = require("../config");
+  const { getUserDataPath, ensureUserDirectory } = require("../utils/userContext");
   
   try {
-    const filesDir = path.join(config.PROJECT_ROOT, "files");
-    fs.mkdirSync(filesDir, { recursive: true });
+    const baseDir = path.join(config.PROJECT_ROOT, "files");
+    const filesDir = getUserDataPath(baseDir, userId);
+    ensureUserDirectory(filesDir);
     
     const filepath = path.join(filesDir, req.filename);
     fs.writeFileSync(filepath, req.content, "utf8");
     
+    const relativePath = userId ? `files/${userId}/${req.filename}` : `files/${req.filename}`;
     return {
       success: true,
       message: "File uploaded successfully",
-      filepath: `files/${req.filename}`,
+      filepath: relativePath,
     };
   } catch (error: any) {
     return {
@@ -153,20 +166,24 @@ export async function handleFileUpload(
 }
 
 export async function handleFileDelete(
-  req: FileDeleteRequest
+  req: FileDeleteRequest,
+  userId: string | null = null
 ): Promise<FileDeleteResponse> {
   const fs = require("fs");
   const path = require("path");
-  const config = require("../config").config;
+  const { config } = require("../config");
+  const { getUserDataPath } = require("../utils/userContext");
   
   try {
-    const filepath = path.join(config.PROJECT_ROOT, req.filepath);
+    const baseDir = path.join(config.PROJECT_ROOT, "files");
+    const filesDir = getUserDataPath(baseDir, userId);
+    const filepath = path.join(filesDir, req.filepath.replace(/^files\//, ""));
     
-    // Make sure it's in the files directory for safety
-    if (!filepath.includes(path.join(config.PROJECT_ROOT, "files"))) {
+    // Make sure it's in the user's files directory for safety
+    if (!filepath.startsWith(filesDir)) {
       return {
         success: false,
-        message: "Can only delete files in the files directory",
+        message: "Can only delete files in your files directory",
       };
     }
     

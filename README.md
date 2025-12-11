@@ -9,6 +9,7 @@ A behavioral identity verification system that creates an "identity fingerprint"
 - **Trains** an embedding model on your communication patterns
 - **Verifies** new messages against your identity fingerprint
 - **Serves** identity data via MCP protocol (for LibreChat, etc.)
+- **Multi-user and OIDC**: Supports OIDC authentication with complete data isolation per user.
 
 ## Screenshots
 
@@ -98,8 +99,12 @@ docker-compose --profile identity up -d           # MCP + Identity Service
 | Doc | Description |
 |-----|-------------|
 | [Getting Started](docs/GETTING_STARTED.md) | Full setup guide with all options |
+| [MCP Protocol Reference](docs/MCP_README.md) | Complete API reference for all 50 MCP tools |
 | [Identity Verification](docs/IDENTITY_VERIFICATION.md) | How the verification system works |
+| [Multi-User & OIDC Support](docs/MULTI_USER_OIDC.md) | Multi-user data isolation and OIDC authentication |
 | [Docker Setup](docs/DOCKER_SETUP.md) | Container deployment guide |
+| [Environment Variables](docs/ENVIRONMENT_VARIABLES.md) | Complete reference for all configuration options |
+| [Blog: Securing Identity MCP](docs/BLOG_SECURING_IDENTITY_MCP.md) | Tutorial on adding OAuth/OIDC and policy-based access control |
 
 ## Architecture
 
@@ -232,7 +237,7 @@ Access at: http://localhost:3001 (after starting dashboard)
 | ✅ | Train semantic embedding model |
 | ✅ | Identity verification via MCP tools |
 | ✅ | Memory files enhance training (boosts distinctive terms) |
-| 🔲 | Add authentication and authorization for human and agent identity across the entire project using Strata Maverics (learn more at [maverics.ai](https://maverics.ai))  |
+| ✅ | Multi-user support with OIDC authentication and data isolation |
 | 🔲 | **Non-conversational data support** - Train on essays, journals, emails, blog posts, social media |
 | 🔲 | Multiple identity profiles (compare/switch between identities) |
 | 🔲 | Identity drift detection (alert when patterns change over time) |

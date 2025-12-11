@@ -324,8 +324,11 @@ See script header comments for more examples and configuration options.
 - Conversations might be too short
 - Try `--min-freq 3` for lower threshold
 
-## Documentation
+## Related Documentation
 
-- **[MCP Readme](./MCP_README.md)** - Full MCP documentation
-- **[Identity Verification](./IDENTITY_VERIFICATION.md)** - Full Identity Verification documentation
-- **[DOCKER_SETUP.md](./DOCKER_SETUP.md)** - Docker deployment guide
+- **[MCP Protocol Reference](./MCP_README.md)** - Complete API reference for all 50 MCP tools
+- **[Identity Verification](./IDENTITY_VERIFICATION.md)** - How the verification system works
+- **[Multi-User & OIDC Support](./MULTI_USER_OIDC.md)** - Multi-user data isolation and OIDC authentication
+- **[Docker Setup](./DOCKER_SETUP.md)** - Container deployment guide
+- **[Environment Variables](./ENVIRONMENT_VARIABLES.md)** - Complete reference for all configuration options
+- **[Blog: Securing Identity MCP](./BLOG_SECURING_IDENTITY_MCP.md)** - Tutorial on adding OAuth/OIDC and policy-based access control

@@ -55,25 +55,35 @@ except ImportError:
 # Paths
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
-MODELS_DIR = PROJECT_ROOT / "models" / "identity"
+BASE_MODELS_DIR = PROJECT_ROOT / "models" / "identity"
 
-# Global model storage
-model: Optional[SentenceTransformer] = None
-centroid: Optional[np.ndarray] = None
-config: Optional[Dict] = None
-stylistic_profile: Optional[Dict] = None
+# Global model storage (per-user cache)
+models_cache: Dict[str, Dict] = {}  # userId -> {model, centroid, config, stylistic_profile}
 
+def get_models_dir(user_id: Optional[str] = None) -> Path:
+    """Get models directory for a user."""
+    if user_id:
+        return BASE_MODELS_DIR / user_id
+    return BASE_MODELS_DIR
 
-def load_model():
-    """Load the trained identity model."""
-    global model, centroid, config, stylistic_profile
+def load_model(user_id: Optional[str] = None):
+    """Load the trained identity model for a user."""
+    global models_cache
     
-    config_path = MODELS_DIR / "config.json"
-    centroid_path = MODELS_DIR / "identity_centroid.npy"
-    stylistic_path = MODELS_DIR / "stylistic_profile.json"
+    # Check cache first
+    cache_key = user_id or "default"
+    if cache_key in models_cache:
+        cached = models_cache[cache_key]
+        return True, f"Model loaded from cache (user: {user_id or 'default'})"
+    
+    models_dir = get_models_dir(user_id)
+    
+    config_path = models_dir / "config.json"
+    centroid_path = models_dir / "identity_centroid.npy"
+    stylistic_path = models_dir / "stylistic_profile.json"
     
     if not config_path.exists():
-        return False, "Model not found. Run train_identity_model.py first."
+        return False, f"Model not found for user {user_id or 'default'}. Run train_identity_model.py first."
     
     # Load config
     with open(config_path, 'r') as f:
@@ -90,7 +100,15 @@ def load_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = SentenceTransformer(config["model_name"], device=device)
     
-    return True, f"Model loaded on {device}"
+    # Cache the loaded model
+    models_cache[cache_key] = {
+        "model": model,
+        "centroid": centroid,
+        "config": config,
+        "stylistic_profile": stylistic_profile
+    }
+    
+    return True, f"Model loaded on {device} (user: {user_id or 'default'})"
 
 
 def compute_stylistic_features(text: str) -> Dict[str, float]:
@@ -113,12 +131,18 @@ def compute_stylistic_features(text: str) -> Dict[str, float]:
     }
 
 
-def verify_message(message: str) -> Dict[str, Any]:
+def verify_message(message: str, user_id: Optional[str] = None) -> Dict[str, Any]:
     """Verify a message against the identity profile."""
-    global model, centroid, config, stylistic_profile
+    cache_key = user_id or "default"
     
-    if model is None or centroid is None:
-        return {"error": "Model not loaded"}
+    if cache_key not in models_cache:
+        return {"error": f"Model not loaded for user {user_id or 'default'}"}
+    
+    cached = models_cache[cache_key]
+    model = cached["model"]
+    centroid = cached["centroid"]
+    config = cached["config"]
+    stylistic_profile = cached["stylistic_profile"]
     
     # Compute semantic embedding
     embedding = model.encode([message], convert_to_numpy=True)[0]
@@ -190,22 +214,32 @@ def create_app():
     
     @app.route('/health', methods=['GET'])
     def health():
+        user_id = request.args.get('user_id') or request.headers.get('X-User-Id')
+        cache_key = user_id or "default"
+        model_loaded = cache_key in models_cache
+        
         return jsonify({
             "status": "healthy",
-            "model_loaded": model is not None,
+            "model_loaded": model_loaded,
+            "user_id": user_id,
             "timestamp": datetime.now().isoformat()
         })
     
     @app.route('/status', methods=['GET'])
     def status():
-        if config is None:
+        user_id = request.args.get('user_id') or request.headers.get('X-User-Id')
+        cache_key = user_id or "default"
+        
+        if cache_key not in models_cache:
             return jsonify({
                 "available": False,
-                "message": "Model not loaded"
+                "message": f"Model not loaded for user {user_id or 'default'}"
             })
         
+        config = models_cache[cache_key]["config"]
         return jsonify({
             "available": True,
+            "user_id": user_id,
             "model": config.get("model_name"),
             "model_size": config.get("model_size"),
             "messages_trained_on": config.get("num_messages"),
@@ -221,13 +255,20 @@ def create_app():
         if not data or 'message' not in data:
             return jsonify({"success": False, "message": "Missing 'message' field"}), 400
         
-        if model is None:
-            return jsonify({
-                "success": False,
-                "message": "Model not loaded"
-            }), 503
+        # Get user_id from request (query param, header, or body)
+        user_id = data.get('user_id') or request.args.get('user_id') or request.headers.get('X-User-Id')
+        cache_key = user_id or "default"
         
-        result = verify_message(data['message'])
+        if cache_key not in models_cache:
+            # Try to load model if not cached
+            success, message = load_model(user_id)
+            if not success:
+                return jsonify({
+                    "success": False,
+                    "message": message
+                }), 503
+        
+        result = verify_message(data['message'], user_id)
         
         # Format response for MCP integration
         return jsonify({
@@ -247,18 +288,25 @@ def create_app():
         if not data or 'messages' not in data:
             return jsonify({"error": "Missing 'messages' field"}), 400
         
-        if model is None:
-            return jsonify({
-                "available": False,
-                "error": "Model not loaded"
-            }), 503
+        # Get user_id from request
+        user_id = data.get('user_id') or request.args.get('user_id') or request.headers.get('X-User-Id')
+        cache_key = user_id or "default"
+        
+        if cache_key not in models_cache:
+            # Try to load model if not cached
+            success, message = load_model(user_id)
+            if not success:
+                return jsonify({
+                    "available": False,
+                    "error": message
+                }), 503
         
         messages = data['messages']
         results = []
         total_score = 0
         
         for msg in messages:
-            result = verify_message(msg)
+            result = verify_message(msg, user_id)
             results.append({
                 "message_preview": msg[:50] + ("..." if len(msg) > 50 else ""),
                 **result
@@ -307,19 +355,9 @@ def main():
     print("=" * 60)
     print("IDENTITY VERIFICATION SERVICE")
     print("=" * 60)
-    
-    # Load model
-    print("\n🔄 Loading identity model...")
-    success, message = load_model()
-    
-    if not success:
-        print(f"❌ {message}")
-        sys.exit(1)
-    
-    print(f"✅ {message}")
-    print(f"\n📊 Model Info:")
-    print(f"   • Trained on: {config.get('num_messages', 'N/A')} messages")
-    print(f"   • Model: {config.get('model_name', 'N/A')}")
+    print("\n💡 Note: Models are loaded on-demand per user.")
+    print("   Use ?user_id=<id> query param or X-User-Id header to specify user.")
+    print("   Default user model will be loaded if no user_id provided.\n")
     
     # Start server
     app = create_app()

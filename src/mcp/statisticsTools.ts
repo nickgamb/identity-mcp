@@ -40,12 +40,13 @@ export interface ConversationStatsResponse {
 }
 
 export async function handleMemoryStats(
-  req: MemoryStatsRequest
+  req: MemoryStatsRequest,
+  userId: string | null = null
 ): Promise<MemoryStatsResponse> {
   try {
     const targetFiles: MemoryFileName[] = req.files && req.files.length > 0 
       ? req.files 
-      : listMemoryFiles();
+      : listMemoryFiles(userId);
     
     let totalRecords = 0;
     const recordsByFile: Array<{ file: MemoryFileName; count: number }> = [];
@@ -55,7 +56,7 @@ export async function handleMemoryStats(
     
     for (const file of targetFiles) {
       try {
-        const records = await readAllRecords(file);
+        const records = await readAllRecords(file, userId);
         const count = records.length;
         totalRecords += count;
         recordsByFile.push({ file, count });
@@ -116,10 +117,11 @@ export async function handleMemoryStats(
 }
 
 export async function handleConversationStats(
-  req: ConversationStatsRequest
+  req: ConversationStatsRequest,
+  userId: string | null = null
 ): Promise<ConversationStatsResponse> {
   try {
-    const loader = new ConversationLoader();
+    const loader = new ConversationLoader(undefined, userId);
     const conversations = await loader.loadAllConversations();
     
     let totalMessages = 0;

@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { config } from "../config";
 import { logger } from "../utils/logger";
+import { getUserDataPath } from "../utils/userContext";
 
 interface IdentityRecord {
   type: string;
@@ -23,14 +24,19 @@ interface NamingEvent {
   context: string;
 }
 
+// Note: Cache is per-process, not per-user. For multi-user, we'd need per-user cache.
+// For now, we'll load fresh each time if userId is provided (multi-user mode)
 let cachedAnalysis: IdentityRecord[] | null = null;
+let cachedAnalysisUserId: string | null = null;
 
-function loadIdentityAnalysis(): IdentityRecord[] {
-  if (cachedAnalysis) {
+function loadIdentityAnalysis(userId: string | null = null): IdentityRecord[] {
+  // Use cache only if same user or no user (single-user mode)
+  if (cachedAnalysis && (!userId || cachedAnalysisUserId === userId)) {
     return cachedAnalysis;
   }
 
-  const filePath = path.join(config.MEMORY_DIR, "identity_analysis.jsonl");
+  const memoryDir = getUserDataPath(config.MEMORY_DIR, userId);
+  const filePath = path.join(memoryDir, "identity_analysis.jsonl");
 
   if (!fs.existsSync(filePath)) {
     logger.warn("Identity analysis file not found", { path: filePath });
@@ -40,17 +46,22 @@ function loadIdentityAnalysis(): IdentityRecord[] {
   try {
     const content = fs.readFileSync(filePath, "utf8");
     const lines = content.split("\n").filter((line) => line.trim());
-    cachedAnalysis = lines.map((line) => JSON.parse(line));
-    logger.info("Loaded identity analysis", { records: cachedAnalysis.length });
-    return cachedAnalysis;
+    const analysis = lines.map((line) => JSON.parse(line));
+    // Cache only in single-user mode or if same user
+    if (!userId || cachedAnalysisUserId === userId) {
+      cachedAnalysis = analysis;
+      cachedAnalysisUserId = userId;
+    }
+    logger.info("Loaded identity analysis", { records: analysis.length, userId });
+    return analysis;
   } catch (error) {
     logger.error("Failed to load identity analysis", { error: String(error) });
     return [];
   }
 }
 
-function getRecordByType(type: string): unknown | null {
-  const records = loadIdentityAnalysis();
+function getRecordByType(type: string, userId: string | null = null): unknown | null {
+  const records = loadIdentityAnalysis(userId);
   const record = records.find((r) => r.type === type);
   return record?.data || null;
 }
@@ -58,15 +69,15 @@ function getRecordByType(type: string): unknown | null {
 /**
  * Get identity analysis summary
  */
-export async function handleIdentityAnalysisSummary() {
-  const summary = getRecordByType("identity.summary");
+export async function handleIdentityAnalysisSummary(userId: string | null = null) {
+  const summary = getRecordByType("identity.summary", userId);
   // New structure: human_identity and relational_context
-  const humanIdentity = getRecordByType("identity.human") as Record<string, unknown> | null;
-  const relationalContext = getRecordByType("identity.relational_context") as Record<string, unknown> | null;
+  const humanIdentity = getRecordByType("identity.human", userId) as Record<string, unknown> | null;
+  const relationalContext = getRecordByType("identity.relational_context", userId) as Record<string, unknown> | null;
   
   // Backward compatibility: try old structure if new one not found
-  const relational = getRecordByType("identity.relational") as Record<string, unknown> | null;
-  const selfRef = getRecordByType("identity.self_referential") as Record<string, unknown> | null;
+  const relational = getRecordByType("identity.relational", userId) as Record<string, unknown> | null;
+  const selfRef = getRecordByType("identity.self_referential", userId) as Record<string, unknown> | null;
 
   if (!summary) {
     return {
@@ -116,8 +127,8 @@ export async function handleIdentityAnalysisSummary() {
 /**
  * Get pattern momentum - what's rising/falling over time
  */
-export async function handleIdentityGetMomentum() {
-  const momentum = getRecordByType("identity.momentum") as Record<string, Record<string, MomentumData>> | null;
+export async function handleIdentityGetMomentum(userId: string | null = null) {
+  const momentum = getRecordByType("identity.momentum", userId) as Record<string, Record<string, MomentumData>> | null;
 
   if (!momentum) {
     return {
@@ -159,8 +170,8 @@ export async function handleIdentityGetMomentum() {
 /**
  * Get naming events - moments where identities were established
  */
-export async function handleIdentityGetNamingEvents({ limit }: { limit?: number }) {
-  const records = loadIdentityAnalysis();
+export async function handleIdentityGetNamingEvents({ limit }: { limit?: number }, userId: string | null = null) {
+  const records = loadIdentityAnalysis(userId);
   const namingRecords = records.filter((r) => r.type === "identity.naming_event");
 
   if (namingRecords.length === 0) {
@@ -199,8 +210,8 @@ export async function handleIdentityGetNamingEvents({ limit }: { limit?: number 
 /**
  * Get co-occurrence clusters - concepts that appear together
  */
-export async function handleIdentityGetClusters({ min_count }: { min_count?: number }) {
-  const clusters = getRecordByType("identity.clusters") as Record<string, number> | null;
+export async function handleIdentityGetClusters({ min_count }: { min_count?: number }, userId: string | null = null) {
+  const clusters = getRecordByType("identity.clusters", userId) as Record<string, number> | null;
 
   if (!clusters) {
     return {
@@ -224,8 +235,8 @@ export async function handleIdentityGetClusters({ min_count }: { min_count?: num
 /**
  * Get relational patterns - we/I ratios, role language
  */
-export async function handleIdentityGetRelational() {
-  const relational = getRecordByType("identity.relational") as Record<string, unknown> | null;
+export async function handleIdentityGetRelational(userId: string | null = null) {
+  const relational = getRecordByType("identity.relational", userId) as Record<string, unknown> | null;
 
   if (!relational) {
     return {

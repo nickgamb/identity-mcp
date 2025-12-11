@@ -9,6 +9,7 @@ import { promisify } from "util";
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
+import { getUserDataPath, ensureUserDirectory } from "../utils/userContext";
 
 const execAsync = promisify(exec);
 
@@ -85,7 +86,8 @@ const activeJobs = new Map<string, {
  * Start a LoRA fine-tuning job
  */
 export async function handleFinetuneStart(
-  req: FinetuneStartRequest
+  req: FinetuneStartRequest,
+  userId: string | null = null
 ): Promise<FinetuneStartResponse> {
   const jobId = `finetune-${Date.now()}`;
   const modelName = req.model_name || "gpt-oss:20b";
@@ -117,6 +119,7 @@ export async function handleFinetuneStart(
     epochs,
     learningRate,
     outputName,
+    userId,
   }).catch((error) => {
     logger.error("Fine-tuning job failed", { jobId, error: String(error) });
     const job = activeJobs.get(jobId);
@@ -138,7 +141,8 @@ export async function handleFinetuneStart(
  * Check status of a fine-tuning job
  */
 export async function handleFinetuneStatus(
-  req: FinetuneStatusRequest
+  req: FinetuneStatusRequest,
+  userId: string | null = null
 ): Promise<FinetuneStatusResponse> {
   const job = activeJobs.get(req.job_id);
   
@@ -155,7 +159,8 @@ export async function handleFinetuneStatus(
 }
 
 export async function handleFinetuneList(
-  req: FinetuneListRequest
+  req: FinetuneListRequest,
+  userId: string | null = null
 ): Promise<FinetuneListResponse> {
   const jobs = Array.from(activeJobs.entries()).map(([job_id, job]) => ({
     job_id,
@@ -169,7 +174,8 @@ export async function handleFinetuneList(
 }
 
 export async function handleFinetuneCancel(
-  req: FinetuneCancelRequest
+  req: FinetuneCancelRequest,
+  userId: string | null = null
 ): Promise<FinetuneCancelResponse> {
   const job = activeJobs.get(req.job_id);
   
@@ -211,14 +217,19 @@ export async function handleFinetuneCancel(
 }
 
 export async function handleFinetuneExportDataset(
-  req: FinetuneExportDatasetRequest
+  req: FinetuneExportDatasetRequest,
+  userId: string | null = null
 ): Promise<FinetuneExportDatasetResponse> {
   const datasetSource = req.dataset_source || "all";
-  const outputPath = req.output_path || join(process.cwd(), "training_data", `training-dataset-${Date.now()}.jsonl`);
+  const baseDir = join(process.cwd(), "training_data");
+  const trainingDir = getUserDataPath(baseDir, userId);
+  ensureUserDirectory(trainingDir);
+  const outputPath = req.output_path || join(trainingDir, `training-dataset-${Date.now()}.jsonl`);
 
   try {
     const datasetPath = await exportComprehensiveTrainingData(
-      datasetSource as "conversations" | "memories" | "files" | "all"
+      datasetSource as "conversations" | "memories" | "files" | "all",
+      userId
     );
 
     // Count examples in the dataset
@@ -249,6 +260,7 @@ async function startFinetuneProcess(
     epochs: number;
     learningRate: number;
     outputName: string;
+    userId: string | null;
   }
 ) {
   const job = activeJobs.get(jobId);
@@ -261,7 +273,8 @@ async function startFinetuneProcess(
 
     // Step 1: Export all data sources to training format
     const datasetPath = await exportComprehensiveTrainingData(
-      config.datasetSource as "conversations" | "memories" | "files" | "all"
+      config.datasetSource as "conversations" | "memories" | "files" | "all",
+      config.userId
     );
     
     job.progress = 30;
@@ -274,7 +287,7 @@ async function startFinetuneProcess(
     job.message = "Starting LoRA training (this will take several hours)...";
 
     // Step 3: Run training (this is a long-running process)
-    const adapterPath = await runLoRATraining(scriptPath, config.outputName, (progress, message) => {
+    const adapterPath = await runLoRATraining(scriptPath, config.outputName, config.userId, (progress, message) => {
       if (job) {
         job.progress = 40 + Math.floor(progress * 0.5); // 40-90% for training
         job.message = message;
@@ -306,9 +319,12 @@ async function startFinetuneProcess(
  * Export comprehensive training data from conversations, files, and memory
  */
 async function exportComprehensiveTrainingData(
-  source: "conversations" | "memories" | "files" | "all"
+  source: "conversations" | "memories" | "files" | "all",
+  userId: string | null = null
 ): Promise<string> {
-  const outputDir = join(process.cwd(), "training_data");
+  const baseDir = join(process.cwd(), "training_data");
+  const outputDir = getUserDataPath(baseDir, userId);
+  ensureUserDirectory(outputDir);
   await mkdir(outputDir, { recursive: true });
 
   const outputPath = join(outputDir, `training-dataset-${Date.now()}.jsonl`);
@@ -318,7 +334,7 @@ async function exportComprehensiveTrainingData(
   // 1. Load conversations if needed
   if (source === "conversations" || source === "all") {
     const { ConversationLoader } = await import("../services/conversationLoader");
-    const loader = new ConversationLoader();
+    const loader = new ConversationLoader(undefined, userId);
     const conversations = await loader.loadAllConversations();
     
     logger.info("Processing conversations for training", { 
@@ -347,7 +363,7 @@ async function exportComprehensiveTrainingData(
   // 2. Load files from RAG storage if needed
   if (source === "files" || source === "all") {
     const { FileLoader } = await import("../services/fileLoader");
-    const fileLoader = new FileLoader();
+    const fileLoader = new FileLoader(undefined, userId);
     const files = await fileLoader.listFiles();
     
     logger.info("Processing files for training", { count: files.length });
@@ -376,7 +392,7 @@ async function exportComprehensiveTrainingData(
     const conversationExamplesCount = source === "all" ? 
       (await (async () => {
         const { ConversationLoader } = await import("../services/conversationLoader");
-        const loader = new ConversationLoader();
+        const loader = new ConversationLoader(undefined, userId);
         const convs = await loader.loadAllConversations();
         let count = 0;
         for (const conv of convs) {
@@ -398,12 +414,12 @@ async function exportComprehensiveTrainingData(
     const { readAllRecords } = await import("../services/fileStore");
     const { listMemoryFiles } = await import("../services/fileStore");
     
-    const memoryFiles = listMemoryFiles();
+    const memoryFiles = listMemoryFiles(userId);
     logger.info("Processing memory records for training", { files: memoryFiles.length });
     
     for (const memoryFile of memoryFiles) {
       try {
-        const records = await readAllRecords(memoryFile);
+        const records = await readAllRecords(memoryFile, userId);
         
         for (const record of records) {
           if (record.content) {
@@ -455,6 +471,7 @@ async function createTrainingScript(
     epochs: number;
     learningRate: number;
     outputName: string;
+    userId: string | null;
   },
   datasetPath: string
 ): Promise<string> {
@@ -482,7 +499,7 @@ from peft import LoraConfig, get_peft_model, TaskType
 # Configuration
 MODEL_NAME = "${config.modelName.replace(/:/g, "/")}"
 DATASET_PATH = "${datasetPath}"
-OUTPUT_DIR = "${join(process.cwd(), "adapters", config.outputName)}"
+OUTPUT_DIR = "${getUserDataPath(join(process.cwd(), "adapters"), config.userId).replace(/\\/g, "/")}/${config.outputName.replace(/\\/g, "/")}"
 EPOCHS = ${config.epochs}
 LEARNING_RATE = ${config.learningRate}
 
@@ -572,9 +589,12 @@ print("Training complete!")
 async function runLoRATraining(
   scriptPath: string,
   outputName: string,
+  userId: string | null,
   progressCallback: (progress: number, message: string) => void
 ): Promise<string> {
-  const adaptersDir = join(process.cwd(), "adapters", outputName);
+  const baseDir = join(process.cwd(), "adapters");
+  const adaptersDir = join(getUserDataPath(baseDir, userId), outputName);
+  ensureUserDirectory(adaptersDir);
   await mkdir(adaptersDir, { recursive: true });
 
   // Run training script

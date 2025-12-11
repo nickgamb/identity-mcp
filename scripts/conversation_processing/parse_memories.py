@@ -27,9 +27,11 @@ Output format (user.context.jsonl):
 """
 
 import json
+import os
 import sys
 import argparse
 from pathlib import Path
+from typing import Optional
 
 
 def load_keywords(patterns_path: Path) -> list:
@@ -86,7 +88,16 @@ def main():
     # Paths
     script_dir = Path(__file__).parent
     project_root = script_dir.parent.parent
-    memory_dir = project_root / 'memory'
+    
+    # Support multi-user: read USER_ID from environment
+    USER_ID = os.environ.get("USER_ID")
+    def get_user_dir(base_dir: Path, user_id: Optional[str] = None) -> Path:
+        """Get user-specific directory if user_id is provided, otherwise base directory."""
+        if user_id:
+            return base_dir / user_id
+        return base_dir
+    
+    memory_dir = get_user_dir(project_root / 'memory', USER_ID)
     
     memories_path = Path(args.input) if args.input else memory_dir / 'memories.json'
     output_path = Path(args.output) if args.output else memory_dir / 'user.context.jsonl'

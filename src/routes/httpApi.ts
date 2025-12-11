@@ -12,6 +12,8 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { logger } from "../utils/logger";
+import { optionalAuth } from "../middleware/auth";
+import { getUserContext } from "../utils/userContext";
 import {
   handleMemoryAppend,
   handleMemoryGet,
@@ -113,6 +115,10 @@ import {
 
 export const mcpRouter = Router();
 
+// Apply optional authentication middleware to all routes
+// This allows backward compatibility (anonymous access) while supporting OIDC when enabled
+mcpRouter.use(optionalAuth);
+
 const memoryListSchema = z.object({
   files: z.array(z.string()).optional(),
 });
@@ -143,11 +149,12 @@ function handleError(res: Response, error: unknown) {
 
 mcpRouter.post("/mcp/memory.list", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const parsed = memoryListSchema.parse(req.body);
     const payload: MemoryListRequest = {
       files: parsed.files as MemoryFileName[] | undefined,
     };
-    const result = await handleMemoryList(payload);
+    const result = await handleMemoryList(payload, userContext.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -156,9 +163,10 @@ mcpRouter.post("/mcp/memory.list", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/memory.get", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const parsed = memoryGetSchema.parse(req.body);
     const payload: MemoryGetRequest = parsed as MemoryGetRequest;
-    const result = await handleMemoryGet(payload);
+    const result = await handleMemoryGet(payload, userContext.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -169,25 +177,28 @@ mcpRouter.post("/mcp/memory.append", async (req: Request, res: Response) => {
   try {
     const parsed = memoryAppendSchema.parse(req.body);
     const payload: MemoryAppendRequest = parsed as MemoryAppendRequest;
-    const result = await handleMemoryAppend(payload);
+    const userContext = getUserContext(req);
+    const result = await handleMemoryAppend(payload, userContext.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.post("/mcp/identity.get_core", async (_req: Request, res: Response) => {
+mcpRouter.post("/mcp/identity.get_core", async (req: Request, res: Response) => {
   try {
-    const result = await handleIdentityGetCore();
+    const userContext = getUserContext(req);
+    const result = await handleIdentityGetCore(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.post("/mcp/identity.get_full", async (_req: Request, res: Response) => {
+mcpRouter.post("/mcp/identity.get_full", async (req: Request, res: Response) => {
   try {
-    const result = await handleIdentityGetFull();
+    const userContext = getUserContext(req);
+    const result = await handleIdentityGetFull(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -202,8 +213,9 @@ const memoryParseSchema = z.object({
 
 mcpRouter.post("/mcp/memory.parse", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const parsed = memoryParseSchema.parse(req.body);
-    const result = await handleMemoryParse(parsed);
+    const result = await handleMemoryParse(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -227,9 +239,10 @@ const fileSearchSchema = z.object({
 
 mcpRouter.post("/mcp/file.list", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const parsed = fileListSchema.parse(req.body);
     const payload: FileListRequest = parsed;
-    const result = await handleFileList(payload);
+    const result = await handleFileList(payload, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -238,9 +251,10 @@ mcpRouter.post("/mcp/file.list", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/file.get", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const parsed = fileGetSchema.parse(req.body);
     const payload: FileGetRequest = parsed;
-    const result = await handleFileGet(payload);
+    const result = await handleFileGet(payload, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -249,9 +263,10 @@ mcpRouter.post("/mcp/file.get", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/file.search", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const parsed = fileSearchSchema.parse(req.body);
     const payload: FileSearchRequest = parsed;
-    const result = await handleFileSearch(payload);
+    const result = await handleFileSearch(payload, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -260,12 +275,13 @@ mcpRouter.post("/mcp/file.search", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/file.numbered", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       folder: z.string().optional(),
       maxNumber: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleFileGetNumbered(parsed);
+    const result = await handleFileGetNumbered({ ...parsed, maxNumber: parsed.maxNumber ?? undefined }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -274,12 +290,13 @@ mcpRouter.post("/mcp/file.numbered", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/file.upload", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       filename: z.string(),
       content: z.string(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleFileUpload(parsed);
+    const result = await handleFileUpload(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -288,11 +305,12 @@ mcpRouter.post("/mcp/file.upload", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/file.delete", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       filepath: z.string(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleFileDelete(parsed);
+    const result = await handleFileDelete(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -302,13 +320,14 @@ mcpRouter.post("/mcp/file.delete", async (req: Request, res: Response) => {
 // Memory Search
 mcpRouter.post("/mcp/memory.search", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       query: z.string(),
       files: z.array(z.string()).optional(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleMemorySearch(parsed);
+    const result = await handleMemorySearch({ ...parsed, limit: parsed.limit ?? undefined }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -322,8 +341,9 @@ mcpRouter.post("/mcp/conversation.list", async (req: Request, res: Response) => 
       limit: z.number().nullish(),
       offset: z.number().nullish(),
     });
+    const userContext = getUserContext(req);
     const parsed = schema.parse(req.body);
-    const result = await handleConversationList(parsed);
+    const result = await handleConversationList({ ...parsed, limit: parsed.limit ?? undefined, offset: parsed.offset ?? undefined }, userContext.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -332,11 +352,12 @@ mcpRouter.post("/mcp/conversation.list", async (req: Request, res: Response) => 
 
 mcpRouter.post("/mcp/conversation.get", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       conversationId: z.string(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleConversationGet(parsed);
+    const result = await handleConversationGet(parsed, userContext.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -345,12 +366,13 @@ mcpRouter.post("/mcp/conversation.get", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/conversation.search", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       query: z.string(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleConversationSearch(parsed);
+    const result = await handleConversationSearch({ ...parsed, limit: parsed.limit ?? undefined }, userContext.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -359,13 +381,14 @@ mcpRouter.post("/mcp/conversation.search", async (req: Request, res: Response) =
 
 mcpRouter.post("/mcp/conversation.by_date_range", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       startDate: z.string().optional(),
       endDate: z.string().optional(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleConversationByDateRange(parsed);
+    const result = await handleConversationByDateRange({ ...parsed, limit: parsed.limit ?? undefined }, userContext.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -375,20 +398,22 @@ mcpRouter.post("/mcp/conversation.by_date_range", async (req: Request, res: Resp
 // Statistics endpoints
 mcpRouter.post("/mcp/memory.stats", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       files: z.array(z.string()).optional(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleMemoryStats(parsed);
+    const result = await handleMemoryStats(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.get("/mcp/conversation.stats", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/conversation.stats", async (req: Request, res: Response) => {
   try {
-    const result = await handleConversationStats({});
+    const userContext = getUserContext(req);
+    const result = await handleConversationStats({}, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -398,13 +423,14 @@ mcpRouter.get("/mcp/conversation.stats", async (_req: Request, res: Response) =>
 // Unified Search
 mcpRouter.post("/mcp/search.all", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       query: z.string(),
       sources: z.array(z.enum(["memories", "files", "conversations"])).optional(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleUnifiedSearch(parsed);
+    const result = await handleUnifiedSearch({ ...parsed, limit: parsed.limit ?? undefined }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -414,13 +440,14 @@ mcpRouter.post("/mcp/search.all", async (req: Request, res: Response) => {
 // Export endpoints
 mcpRouter.post("/mcp/export.memories", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       files: z.array(z.string()).optional(),
       outputPath: z.string().optional(),
       format: z.enum(["jsonl", "json"]).optional(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleExportMemories(parsed);
+    const result = await handleExportMemories(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -429,13 +456,14 @@ mcpRouter.post("/mcp/export.memories", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/export.conversations", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       outputPath: z.string().optional(),
       format: z.enum(["jsonl", "json"]).optional(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleExportConversations(parsed);
+    const result = await handleExportConversations({ ...parsed, limit: parsed.limit ?? undefined }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -445,6 +473,7 @@ mcpRouter.post("/mcp/export.conversations", async (req: Request, res: Response) 
 // Enhanced Fine-tuning endpoints
 mcpRouter.post("/mcp/finetune.start", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       model_name: z.string().optional(),
       dataset_source: z.enum(["conversations", "memories", "files", "all"]).optional(),
@@ -453,7 +482,7 @@ mcpRouter.post("/mcp/finetune.start", async (req: Request, res: Response) => {
       output_name: z.string().optional(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleFinetuneStart(parsed);
+    const result = await handleFinetuneStart({ ...parsed, epochs: parsed.epochs ?? undefined, learning_rate: parsed.learning_rate ?? undefined }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -462,20 +491,22 @@ mcpRouter.post("/mcp/finetune.start", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/finetune.status", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       job_id: z.string(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleFinetuneStatus(parsed);
+    const result = await handleFinetuneStatus(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.get("/mcp/finetune.list", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/finetune.list", async (req: Request, res: Response) => {
   try {
-    const result = await handleFinetuneList({});
+    const userContext = getUserContext(req);
+    const result = await handleFinetuneList({}, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -484,11 +515,12 @@ mcpRouter.get("/mcp/finetune.list", async (_req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/finetune.cancel", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       job_id: z.string(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleFinetuneCancel(parsed);
+    const result = await handleFinetuneCancel(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -497,12 +529,13 @@ mcpRouter.post("/mcp/finetune.cancel", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/finetune.export_dataset", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       dataset_source: z.enum(["conversations", "memories", "files", "all"]).optional(),
       output_path: z.string().optional(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleFinetuneExportDataset(parsed);
+    const result = await handleFinetuneExportDataset(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -510,18 +543,20 @@ mcpRouter.post("/mcp/finetune.export_dataset", async (req: Request, res: Respons
 });
 
 // Identity Analysis endpoints
-mcpRouter.get("/mcp/identity.analysis_summary", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/identity.analysis_summary", async (req: Request, res: Response) => {
   try {
-    const result = await handleIdentityAnalysisSummary();
+    const userContext = getUserContext(req);
+    const result = await handleIdentityAnalysisSummary(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.get("/mcp/identity.momentum", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/identity.momentum", async (req: Request, res: Response) => {
   try {
-    const result = await handleIdentityGetMomentum();
+    const userContext = getUserContext(req);
+    const result = await handleIdentityGetMomentum(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -530,11 +565,12 @@ mcpRouter.get("/mcp/identity.momentum", async (_req: Request, res: Response) => 
 
 mcpRouter.post("/mcp/identity.naming_events", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleIdentityGetNamingEvents(parsed);
+    const result = await handleIdentityGetNamingEvents({ ...parsed, limit: parsed.limit ?? undefined }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -543,20 +579,22 @@ mcpRouter.post("/mcp/identity.naming_events", async (req: Request, res: Response
 
 mcpRouter.post("/mcp/identity.clusters", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       min_count: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleIdentityGetClusters(parsed);
+    const result = await handleIdentityGetClusters({ ...parsed, min_count: parsed.min_count ?? undefined }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.get("/mcp/identity.relational", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/identity.relational", async (req: Request, res: Response) => {
   try {
-    const result = await handleIdentityGetRelational();
+    const userContext = getUserContext(req);
+    const result = await handleIdentityGetRelational(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -564,9 +602,10 @@ mcpRouter.get("/mcp/identity.relational", async (_req: Request, res: Response) =
 });
 
 // Interaction Map endpoints (human communication patterns)
-mcpRouter.get("/mcp/interaction.summary", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/interaction.summary", async (req: Request, res: Response) => {
   try {
-    const result = await handleInteractionGetSummary();
+    const userContext = getUserContext(req);
+    const result = await handleInteractionGetSummary(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -575,12 +614,13 @@ mcpRouter.get("/mcp/interaction.summary", async (_req: Request, res: Response) =
 
 mcpRouter.post("/mcp/interaction.events", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       event_type: z.string().optional(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleInteractionGetEvents(parsed);
+    const result = await handleInteractionGetEvents({ ...parsed, limit: parsed.limit ?? undefined }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -589,12 +629,13 @@ mcpRouter.post("/mcp/interaction.events", async (req: Request, res: Response) =>
 
 mcpRouter.post("/mcp/interaction.search", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       query: z.string(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleInteractionSearch(parsed);
+    const result = await handleInteractionSearch({ ...parsed, limit: parsed.limit ?? undefined }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -603,12 +644,13 @@ mcpRouter.post("/mcp/interaction.search", async (req: Request, res: Response) =>
 
 mcpRouter.post("/mcp/interaction.by_topic", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       topic: z.string(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleInteractionGetByTopic(parsed);
+    const result = await handleInteractionGetByTopic({ ...parsed, limit: parsed.limit ?? undefined }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -617,12 +659,13 @@ mcpRouter.post("/mcp/interaction.by_topic", async (req: Request, res: Response) 
 
 mcpRouter.post("/mcp/interaction.timeline", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       start_date: z.string().optional(),
       end_date: z.string().optional(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleInteractionGetTimeline(parsed);
+    const result = await handleInteractionGetTimeline(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -630,9 +673,10 @@ mcpRouter.post("/mcp/interaction.timeline", async (req: Request, res: Response) 
 });
 
 // Identity Verification endpoints
-mcpRouter.get("/mcp/identity.model_status", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/identity.model_status", async (req: Request, res: Response) => {
   try {
-    const result = await handleIdentityModelStatus();
+    const userContext = getUserContext(req);
+    const result = await handleIdentityModelStatus(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -641,11 +685,12 @@ mcpRouter.get("/mcp/identity.model_status", async (_req: Request, res: Response)
 
 mcpRouter.post("/mcp/identity.verify", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       message: z.string(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleIdentityVerify(parsed);
+    const result = await handleIdentityVerify(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -654,20 +699,22 @@ mcpRouter.post("/mcp/identity.verify", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/identity.verify_conversation", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       messages: z.array(z.string()),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleIdentityVerifyConversation(parsed);
+    const result = await handleIdentityVerifyConversation(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.get("/mcp/identity.profile_summary", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/identity.profile_summary", async (req: Request, res: Response) => {
   try {
-    const result = await handleIdentityProfileSummary();
+    const userContext = getUserContext(req);
+    const result = await handleIdentityProfileSummary(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -675,9 +722,10 @@ mcpRouter.get("/mcp/identity.profile_summary", async (_req: Request, res: Respon
 });
 
 // Pipeline endpoints - for running processing scripts
-mcpRouter.get("/mcp/pipeline.list", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/pipeline.list", async (req: Request, res: Response) => {
   try {
-    const result = await handlePipelineList();
+    const userContext = getUserContext(req);
+    const result = await handlePipelineList(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -686,21 +734,23 @@ mcpRouter.get("/mcp/pipeline.list", async (_req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/pipeline.run", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       script: z.string(),
       args: z.array(z.string()).optional(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handlePipelineRun(parsed);
+    const result = await handlePipelineRun(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.post("/mcp/pipeline.run_all", async (_req: Request, res: Response) => {
+mcpRouter.post("/mcp/pipeline.run_all", async (req: Request, res: Response) => {
   try {
-    const result = await handlePipelineRunAll();
+    const userContext = getUserContext(req);
+    const result = await handlePipelineRunAll(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -712,9 +762,10 @@ mcpRouter.post("/mcp/pipeline.run_all", async (_req: Request, res: Response) => 
 // ============================================================================
 
 // Check data status
-mcpRouter.get("/mcp/data.status", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/data.status", async (req: Request, res: Response) => {
   try {
-    const result = await handleDataStatus();
+    const userContext = getUserContext(req);
+    const result = await handleDataStatus(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -724,13 +775,14 @@ mcpRouter.get("/mcp/data.status", async (_req: Request, res: Response) => {
 // Upload conversations.json
 mcpRouter.post("/mcp/data.upload_conversations", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const { data } = req.body;
     if (!data) {
       res.status(400).json({ error: "No data provided" });
       return;
     }
     
-    const result = await handleDataUploadConversations({ data });
+    const result = await handleDataUploadConversations({ data }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -740,13 +792,14 @@ mcpRouter.post("/mcp/data.upload_conversations", async (req: Request, res: Respo
 // Upload memories.json
 mcpRouter.post("/mcp/data.upload_memories", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const { data } = req.body;
     if (!data) {
       res.status(400).json({ error: "No data provided" });
       return;
     }
     
-    const result = await handleDataUploadMemories({ data });
+    const result = await handleDataUploadMemories({ data }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -756,6 +809,7 @@ mcpRouter.post("/mcp/data.upload_memories", async (req: Request, res: Response) 
 // Clean directory
 mcpRouter.post("/mcp/data.clean", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const { directory } = req.body;
     const allowedDirs = ["conversations", "memory", "models", "training_data", "adapters"];
     
@@ -764,7 +818,7 @@ mcpRouter.post("/mcp/data.clean", async (req: Request, res: Response) => {
       return;
     }
     
-    const result = await handleDataClean({ directory });
+    const result = await handleDataClean({ directory }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -773,8 +827,9 @@ mcpRouter.post("/mcp/data.clean", async (req: Request, res: Response) => {
 
 mcpRouter.post("/mcp/data.delete_source", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const { type } = req.body;
-    const result = await handleDataDeleteSource({ type });
+    const result = await handleDataDeleteSource({ type }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -782,9 +837,10 @@ mcpRouter.post("/mcp/data.delete_source", async (req: Request, res: Response) =>
 });
 
 // List conversations
-mcpRouter.get("/mcp/data.conversations", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/data.conversations", async (req: Request, res: Response) => {
   try {
-    const result = await handleDataConversationsList();
+    const userContext = getUserContext(req);
+    const result = await handleDataConversationsList(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -794,8 +850,9 @@ mcpRouter.get("/mcp/data.conversations", async (_req: Request, res: Response) =>
 // Get specific conversation
 mcpRouter.get("/mcp/data.conversation/:id", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const { id } = req.params;
-    const result = await handleDataConversationGet({ id });
+    const result = await handleDataConversationGet({ id }, userContext?.userId);
     res.json(result);
   } catch (err) {
     if (err instanceof Error && err.message === "Conversation not found") {
@@ -809,6 +866,7 @@ mcpRouter.get("/mcp/data.conversation/:id", async (req: Request, res: Response) 
 // Update conversation
 mcpRouter.post("/mcp/data.conversation/:id", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const { id } = req.params;
     const { content } = req.body;
     
@@ -817,7 +875,7 @@ mcpRouter.post("/mcp/data.conversation/:id", async (req: Request, res: Response)
       return;
     }
     
-    const result = await handleDataConversationUpdate({ id, content });
+    const result = await handleDataConversationUpdate({ id, content }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -825,9 +883,10 @@ mcpRouter.post("/mcp/data.conversation/:id", async (req: Request, res: Response)
 });
 
 // List memory records
-mcpRouter.get("/mcp/data.memories_list", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/data.memories_list", async (req: Request, res: Response) => {
   try {
-    const result = await handleDataMemoriesList();
+    const userContext = getUserContext(req);
+    const result = await handleDataMemoriesList(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -837,8 +896,9 @@ mcpRouter.get("/mcp/data.memories_list", async (_req: Request, res: Response) =>
 // Get memory file content
 mcpRouter.get("/mcp/data.memory_file/:filename", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const { filename } = req.params;
-    const result = await handleDataMemoryFileGet({ filename });
+    const result = await handleDataMemoryFileGet({ filename }, userContext?.userId);
     res.json(result);
   } catch (err) {
     if (err instanceof Error && (err.message === "Invalid filename" || err.message === "File not found")) {
@@ -852,6 +912,7 @@ mcpRouter.get("/mcp/data.memory_file/:filename", async (req: Request, res: Respo
 // Update memory file
 mcpRouter.post("/mcp/data.memory_file/:filename", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const { filename } = req.params;
     const { content } = req.body;
     
@@ -860,7 +921,7 @@ mcpRouter.post("/mcp/data.memory_file/:filename", async (req: Request, res: Resp
       return;
     }
     
-    const result = await handleDataMemoryFileUpdate({ filename, content });
+    const result = await handleDataMemoryFileUpdate({ filename, content }, userContext?.userId);
     res.json(result);
   } catch (err) {
     if (err instanceof Error && err.message === "Invalid filename") {
@@ -873,20 +934,22 @@ mcpRouter.post("/mcp/data.memory_file/:filename", async (req: Request, res: Resp
 
 mcpRouter.post("/mcp/pipeline.status", async (req: Request, res: Response) => {
   try {
+    const userContext = getUserContext(req);
     const schema = z.object({
       script: z.string(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handlePipelineStatus(parsed);
+    const result = await handlePipelineStatus(parsed, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.get("/mcp/pipeline.running", async (_req: Request, res: Response) => {
+mcpRouter.get("/mcp/pipeline.running", async (req: Request, res: Response) => {
   try {
-    const result = await handlePipelineListRunning();
+    const userContext = getUserContext(req);
+    const result = await handlePipelineListRunning(userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);

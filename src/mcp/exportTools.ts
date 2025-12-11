@@ -35,12 +35,13 @@ export interface ExportConversationsResponse {
 }
 
 export async function handleExportMemories(
-  req: ExportMemoriesRequest
+  req: ExportMemoriesRequest,
+  userId: string | null = null
 ): Promise<ExportMemoriesResponse> {
   try {
     const targetFiles: MemoryFileName[] = req.files && req.files.length > 0 
       ? req.files 
-      : listMemoryFiles();
+      : listMemoryFiles(userId);
     const format = req.format || "jsonl";
     const outputPath = req.outputPath || join(process.cwd(), "exports", `memories-${Date.now()}.${format}`);
     
@@ -55,7 +56,7 @@ export async function handleExportMemories(
     
     for (const file of targetFiles) {
       try {
-        const records = await readAllRecords(file);
+        const records = await readAllRecords(file, userId);
         totalRecords += records.length;
         
         for (const record of records) {
@@ -92,7 +93,8 @@ export async function handleExportMemories(
 }
 
 export async function handleExportConversations(
-  req: ExportConversationsRequest
+  req: ExportConversationsRequest,
+  userId: string | null = null
 ): Promise<ExportConversationsResponse> {
   try {
     const format = req.format || "jsonl";
@@ -105,7 +107,7 @@ export async function handleExportConversations(
       await mkdir(outputDir, { recursive: true });
     }
     
-    const loader = new ConversationLoader();
+    const loader = new ConversationLoader(undefined, userId);
     let conversations = await loader.loadAllConversations();
     
     if (limit != null && limit > 0) {

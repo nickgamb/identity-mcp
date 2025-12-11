@@ -66,9 +66,18 @@ except ImportError as e:
 # Paths
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
-CONVERSATIONS_DIR = PROJECT_ROOT / "conversations"
-MEMORY_DIR = PROJECT_ROOT / "memory"
-MODELS_DIR = PROJECT_ROOT / "models" / "identity"
+
+# Support multi-user: read USER_ID from environment
+USER_ID = os.environ.get("USER_ID")
+def get_user_dir(base_dir: Path, user_id: Optional[str] = None) -> Path:
+    """Get user-specific directory if user_id is provided, otherwise base directory."""
+    if user_id:
+        return base_dir / user_id
+    return base_dir
+
+CONVERSATIONS_DIR = get_user_dir(PROJECT_ROOT / "conversations", USER_ID)
+MEMORY_DIR = get_user_dir(PROJECT_ROOT / "memory", USER_ID)
+MODELS_DIR = get_user_dir(PROJECT_ROOT / "models" / "identity", USER_ID)
 
 # Model configuration
 DEFAULT_MODEL = "sentence-transformers/all-mpnet-base-v2"  # 110M params, good balance

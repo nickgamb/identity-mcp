@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { logger } from "../utils/logger";
 import { config } from "../config";
+import { getUserDataPath, ensureUserDirectory } from "../utils/userContext";
 
 export interface ConversationMessage {
   timestamp: string;
@@ -30,14 +31,25 @@ export interface ConversationSequence {
  * - .md files in conversations directory
  * 
  * Loads in chronological order to preserve conversation sequence
+ * Supports per-user directories for multi-user mode
  */
 export class ConversationLoader {
   private conversationsDir: string;
+  private userId: string | null;
 
-  constructor(conversationsDir?: string) {
-    // Default to conversations directory if not specified
-    this.conversationsDir = conversationsDir || 
-      path.join(process.cwd(), "conversations");
+  constructor(conversationsDir?: string, userId: string | null = null) {
+    // If conversationsDir is provided, use it directly
+    // Otherwise, use per-user path if userId is provided, or default path
+    if (conversationsDir) {
+      this.conversationsDir = conversationsDir;
+    } else {
+      const baseDir = path.join(process.cwd(), "conversations");
+      this.conversationsDir = getUserDataPath(baseDir, userId);
+    }
+    this.userId = userId;
+    
+    // Ensure directory exists
+    ensureUserDirectory(this.conversationsDir);
   }
 
   /**

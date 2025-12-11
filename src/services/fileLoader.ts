@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { logger } from "../utils/logger";
 import { config } from "../config";
+import { getUserDataPath, ensureUserDirectory } from "../utils/userContext";
 
 export interface FileDocument {
   filename: string;
@@ -26,9 +27,13 @@ export interface FileDocument {
  */
 export class FileLoader {
   private filesDir: string;
+  private userId: string | null;
 
-  constructor(filesDir?: string) {
-    this.filesDir = filesDir || config.FILES_DIR;
+  constructor(filesDir?: string, userId: string | null = null) {
+    const baseDir = filesDir || config.FILES_DIR;
+    this.filesDir = getUserDataPath(baseDir, userId);
+    this.userId = userId;
+    ensureUserDirectory(this.filesDir);
   }
 
   /**

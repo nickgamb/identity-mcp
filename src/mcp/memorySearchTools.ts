@@ -22,13 +22,14 @@ export interface MemorySearchResponse {
 }
 
 export async function handleMemorySearch(
-  req: MemorySearchRequest
+  req: MemorySearchRequest,
+  userId: string | null = null
 ): Promise<MemorySearchResponse> {
   try {
     const query = req.query.toLowerCase();
     const targetFiles: MemoryFileName[] = req.files && req.files.length > 0 
       ? req.files 
-      : listMemoryFiles();
+      : listMemoryFiles(userId);
     const limit = req.limit ?? 50;
     
     const results: Array<{
@@ -39,7 +40,7 @@ export async function handleMemorySearch(
     
     for (const file of targetFiles) {
       try {
-        const records = await readAllRecords(file);
+        const records = await readAllRecords(file, userId);
         
         for (const record of records) {
           let relevance = 0;

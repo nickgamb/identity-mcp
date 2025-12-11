@@ -1,6 +1,7 @@
 /**
  * Conversation access tools for MCP
  * Provides read-only access to conversation history
+ * Supports per-user conversation directories for multi-user mode
  */
 
 import { ConversationLoader, ConversationSequence } from "../services/conversationLoader";
@@ -51,12 +52,15 @@ export interface ConversationByDateRangeResponse {
   count: number;
 }
 
-const loader = new ConversationLoader();
+// Note: Loader is created per-request with user context for multi-user support
+// For backward compatibility, userId can be null (single-user mode)
 
 export async function handleConversationList(
-  req: ConversationListRequest
+  req: ConversationListRequest,
+  userId: string | null = null
 ): Promise<ConversationListResponse> {
   try {
+    const loader = new ConversationLoader(undefined, userId);
     const all = await loader.loadAllConversations();
     const total = all.length;
     
@@ -80,9 +84,11 @@ export async function handleConversationList(
 }
 
 export async function handleConversationGet(
-  req: ConversationGetRequest
+  req: ConversationGetRequest,
+  userId: string | null = null
 ): Promise<ConversationGetResponse> {
   try {
+    const loader = new ConversationLoader(undefined, userId);
     const conversation = await loader.loadConversationById(req.conversationId);
     return { conversation };
   } catch (error) {
@@ -92,9 +98,11 @@ export async function handleConversationGet(
 }
 
 export async function handleConversationSearch(
-  req: ConversationSearchRequest
+  req: ConversationSearchRequest,
+  userId: string | null = null
 ): Promise<ConversationSearchResponse> {
   try {
+    const loader = new ConversationLoader(undefined, userId);
     const query = req.query.toLowerCase();
     const all = await loader.loadAllConversations();
     const limit = req.limit ?? 50;
@@ -127,9 +135,11 @@ export async function handleConversationSearch(
 }
 
 export async function handleConversationByDateRange(
-  req: ConversationByDateRangeRequest
+  req: ConversationByDateRangeRequest,
+  userId: string | null = null
 ): Promise<ConversationByDateRangeResponse> {
   try {
+    const loader = new ConversationLoader(undefined, userId);
     const all = await loader.loadAllConversations();
     const limit = req.limit ?? 100;
     

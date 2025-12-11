@@ -24,6 +24,7 @@ Output:
 """
 
 import json
+import os
 import re
 from pathlib import Path
 from datetime import datetime
@@ -32,7 +33,17 @@ from collections import defaultdict
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-PATTERNS_PATH = PROJECT_ROOT / "memory" / "patterns.jsonl"
+
+# Support multi-user: read USER_ID from environment
+USER_ID = os.environ.get("USER_ID")
+def get_user_dir(base_dir: Path, user_id: Optional[str] = None) -> Path:
+    """Get user-specific directory if user_id is provided, otherwise base directory."""
+    if user_id:
+        return base_dir / user_id
+    return base_dir
+
+MEMORY_DIR = get_user_dir(PROJECT_ROOT / "memory", USER_ID)
+PATTERNS_PATH = MEMORY_DIR / "patterns.jsonl"
 
 
 def load_patterns() -> Dict:
@@ -390,8 +401,8 @@ def process_conversations(conversations_dir: Path) -> Tuple[List[Dict], List[Dic
 
 def main():
     """Main function."""
-    conversations_dir = PROJECT_ROOT / 'conversations'
-    memory_dir = PROJECT_ROOT / 'memory'
+    conversations_dir = get_user_dir(PROJECT_ROOT / 'conversations', USER_ID)
+    memory_dir = MEMORY_DIR
     
     print("=" * 60)
     print("Building Interaction Map")

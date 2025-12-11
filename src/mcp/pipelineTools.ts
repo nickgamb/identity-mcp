@@ -84,7 +84,7 @@ const runningScripts = new Map<string, RunningScript>();
 /**
  * List available pipeline scripts
  */
-export async function handlePipelineList(): Promise<{
+export async function handlePipelineList(userId: string | null = null): Promise<{
   scripts: Array<{ id: string; path: string; description: string }>;
 }> {
   return {
@@ -105,7 +105,7 @@ export async function handlePipelineRun({
 }: {
   script: string;
   args?: string[];
-}): Promise<ScriptResult> {
+}, userId: string | null = null): Promise<ScriptResult> {
   const startTime = Date.now();
 
   // Validate script is allowed
@@ -129,9 +129,15 @@ export async function handlePipelineRun({
     output.push(`$ ${PYTHON_CMD} ${scriptInfo.path} ${args.join(" ")}`);
     output.push("");
 
+    // Pass userId as environment variable for scripts that support it
+    const env = { ...process.env };
+    if (userId) {
+      env.USER_ID = userId;
+    }
+    
     const proc = spawn(PYTHON_CMD, [scriptPath, ...args], {
       cwd: config.PROJECT_ROOT,
-      env: { ...process.env },
+      env,
     });
 
     // Track running script
@@ -197,7 +203,7 @@ export async function handlePipelineStatus({
   script,
 }: {
   script: string;
-}): Promise<{ 
+}, userId: string | null = null): Promise<{ 
   running: boolean; 
   script: string;
   startTime?: number;
@@ -225,7 +231,7 @@ export async function handlePipelineStatus({
 /**
  * Get all running scripts
  */
-export async function handlePipelineListRunning(): Promise<{
+export async function handlePipelineListRunning(userId: string | null = null): Promise<{
   running: Array<{
     script: string;
     startTime: number;
@@ -246,7 +252,7 @@ export async function handlePipelineListRunning(): Promise<{
 /**
  * Run all pipeline scripts in order
  */
-export async function handlePipelineRunAll(): Promise<{
+export async function handlePipelineRunAll(userId: string | null = null): Promise<{
   success: boolean;
   results: ScriptResult[];
   totalDuration: number;
@@ -262,7 +268,7 @@ export async function handlePipelineRunAll(): Promise<{
   ];
 
   for (const script of order) {
-    const result = await handlePipelineRun({ script });
+    const result = await handlePipelineRun({ script }, userId);
     results.push(result);
 
     // Stop on first failure

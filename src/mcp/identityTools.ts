@@ -16,8 +16,8 @@ export interface IdentityFullResponse {
  * Get core identity - loads all memory files
  * (Previously only loaded core.identity and vows)
  */
-export async function handleIdentityGetCore(): Promise<IdentityCoreResponse> {
-  const allMemory = await readAllMemoryRecords();
+export async function handleIdentityGetCore(userId: string | null = null): Promise<IdentityCoreResponse> {
+  const allMemory = await readAllMemoryRecords(userId);
   
   const files: { [filename: string]: MemoryRecord[] } = {};
   let totalRecords = 0;
@@ -34,9 +34,9 @@ export async function handleIdentityGetCore(): Promise<IdentityCoreResponse> {
  * Get full identity bundle - loads ALL .jsonl files from memory directory
  * Dynamically discovers files instead of using hardcoded names
  */
-export async function handleIdentityGetFull(): Promise<IdentityFullResponse> {
-  const fileList = listMemoryFiles();
-  const allMemory = await readAllMemoryRecords();
+export async function handleIdentityGetFull(userId: string | null = null): Promise<IdentityFullResponse> {
+  const fileList = listMemoryFiles(userId);
+  const allMemory = await readAllMemoryRecords(userId);
   
   const files: { [filename: string]: MemoryRecord[] } = {};
   let totalRecords = 0;

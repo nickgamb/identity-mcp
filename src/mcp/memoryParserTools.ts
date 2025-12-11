@@ -10,12 +10,14 @@ export interface MemoryParseResponse {
   message: string;
 }
 
-const parser = new MemoryParser();
+// Note: Parser is created per-request with user context for multi-user support
 
 export async function handleMemoryParse(
-  req: MemoryParseRequest
+  req: MemoryParseRequest,
+  userId: string | null = null
 ): Promise<MemoryParseResponse> {
   try {
+    const parser = new MemoryParser(userId);
     const converted = await parser.parseChatGPTMemories();
     
     return {

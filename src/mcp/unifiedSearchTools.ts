@@ -45,7 +45,8 @@ export interface UnifiedSearchResponse {
 }
 
 export async function handleUnifiedSearch(
-  req: UnifiedSearchRequest
+  req: UnifiedSearchRequest,
+  userId: string | null = null
 ): Promise<UnifiedSearchResponse> {
   try {
     const sources = req.sources || ["memories", "files", "conversations"];
@@ -64,7 +65,7 @@ export async function handleUnifiedSearch(
         const memoryResults = await handleMemorySearch({
           query: req.query,
           limit,
-        });
+        }, userId);
         results.memories = {
           results: memoryResults.results.map((r) => ({
             file: r.file,
@@ -83,7 +84,7 @@ export async function handleUnifiedSearch(
       try {
         const fileResults = await handleFileSearch({
           query: req.query,
-        });
+        }, userId);
         results.files = {
           results: (fileResults.results || []).slice(0, limit).map((r: any) => ({
             filepath: r.filepath,
@@ -103,7 +104,7 @@ export async function handleUnifiedSearch(
         const convResults = await handleConversationSearch({
           query: req.query,
           limit,
-        });
+        }, userId);
         results.conversations = {
           conversations: convResults.conversations.map((c) => ({
             conversationId: c.conversationId,

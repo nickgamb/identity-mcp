@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { logger } from "../utils/logger";
 import { config } from "../config";
+import { getUserDataPath, ensureUserDirectory } from "../utils/userContext";
 
 export interface ChatGPTMemory {
   id: string;
@@ -30,9 +31,13 @@ interface MemoryTagConfig {
 export class MemoryParser {
   private memoriesDir: string;
   private tagConfig: MemoryTagConfig | null = null;
+  private userId: string | null;
 
-  constructor(memoriesDir?: string) {
-    this.memoriesDir = memoriesDir || config.MEMORY_DIR;
+  constructor(memoriesDir?: string, userId: string | null = null) {
+    const baseDir = memoriesDir || config.MEMORY_DIR;
+    this.memoriesDir = getUserDataPath(baseDir, userId);
+    this.userId = userId;
+    ensureUserDirectory(this.memoriesDir);
     this.loadTagConfig();
   }
 

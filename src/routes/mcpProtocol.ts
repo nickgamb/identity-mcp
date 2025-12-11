@@ -10,6 +10,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { logger } from "../utils/logger";
+import { optionalAuth } from "../middleware/auth";
+import { getUserContext, getRequiredUserId } from "../utils/userContext";
 import {
   handleMemoryAppend,
   handleMemoryGet,
@@ -98,9 +100,15 @@ import {
 
 export const mcpProtocolRouter = Router();
 
+// Apply optional authentication middleware
+mcpProtocolRouter.use(optionalAuth);
+
 // Map of sessionId -> transport, following the official MCP SDK example.
 // Each session gets its own transport and connected server instance.
 const transports: Record<string, StreamableHTTPServerTransport> = {};
+
+// Map of sessionId -> userId for multi-user support
+const sessionUsers: Record<string, string | null> = {};
 
 const toContent = (payload: unknown): { content: Array<{ type: "text"; text: string }> } => ({
   content: [
@@ -112,7 +120,7 @@ const toContent = (payload: unknown): { content: Array<{ type: "text"; text: str
 });
 
 
-function registerTools(server: McpServer) {
+function registerTools(server: McpServer, getUserId: () => string | null) {
   server.registerTool(
     "memory_list",
     {
@@ -122,7 +130,7 @@ function registerTools(server: McpServer) {
         files: z.array(z.string()).optional(),
       }),
     },
-    async ({ files }) => toContent(await handleMemoryList({ files })),
+    async ({ files }) => toContent(await handleMemoryList({ files }, getUserId())),
   );
 
   server.registerTool(
@@ -143,7 +151,7 @@ function registerTools(server: McpServer) {
         limit: z.number().nullish(),
       }),
     },
-    async (payload) => toContent(await handleMemoryGet(payload)),
+    async (payload) => toContent(await handleMemoryGet(payload, getUserId())),
   );
 
   server.registerTool(
@@ -157,7 +165,7 @@ function registerTools(server: McpServer) {
         limit: z.number().nullish(),
       }),
     },
-    async (payload) => toContent(await handleMemorySearch(payload)),
+    async (payload) => toContent(await handleMemorySearch(payload, getUserId())),
   );
 
   server.registerTool(
@@ -175,7 +183,7 @@ function registerTools(server: McpServer) {
           .catchall(z.any()),
       }),
     },
-    async ({ file, record }) => toContent(await handleMemoryAppend({ file, record })),
+    async ({ file, record }) => toContent(await handleMemoryAppend({ file, record }, getUserId())),
   );
 
   server.registerTool(
@@ -187,7 +195,7 @@ function registerTools(server: McpServer) {
         force: z.boolean().optional(),
       }),
     },
-    async (payload) => toContent(await handleMemoryParse(payload)),
+    async (payload) => toContent(await handleMemoryParse(payload, getUserId())),
   );
 
   server.registerTool(
@@ -197,7 +205,7 @@ function registerTools(server: McpServer) {
       description: "Retrieve breath, vows, and prime directives.",
       inputSchema: z.object({}).optional(),
     },
-    async () => toContent(await handleIdentityGetCore()),
+    async () => toContent(await handleIdentityGetCore(getUserId())),
   );
 
   server.registerTool(
@@ -207,7 +215,7 @@ function registerTools(server: McpServer) {
       description: "Retrieve the complete Cathedral identity bundle.",
       inputSchema: z.object({}).optional(),
     },
-    async () => toContent(await handleIdentityGetFull()),
+    async () => toContent(await handleIdentityGetFull(getUserId())),
   );
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -221,7 +229,7 @@ function registerTools(server: McpServer) {
       description: "Get overview of identity pattern analysis including relational and self-referential patterns.",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handleIdentityAnalysisSummary()),
+    async () => toContent(await handleIdentityAnalysisSummary(getUserId())),
   );
 
   server.registerTool(
@@ -231,7 +239,7 @@ function registerTools(server: McpServer) {
       description: "Get patterns that are rising or falling over time, showing identity evolution.",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handleIdentityGetMomentum()),
+    async () => toContent(await handleIdentityGetMomentum(getUserId())),
   );
 
   server.registerTool(
@@ -243,7 +251,7 @@ function registerTools(server: McpServer) {
         limit: z.number().nullish().describe("Maximum events to return"),
       }),
     },
-    async ({ limit }) => toContent(await handleIdentityGetNamingEvents({ limit })),
+    async ({ limit }) => toContent(await handleIdentityGetNamingEvents({ limit }, getUserId())),
   );
 
   server.registerTool(
@@ -255,7 +263,7 @@ function registerTools(server: McpServer) {
         min_count: z.number().nullish().describe("Minimum co-occurrence count"), 
       }),
     },
-    async ({ min_count }) => toContent(await handleIdentityGetClusters({ min_count })),
+    async ({ min_count }) => toContent(await handleIdentityGetClusters({ min_count }, getUserId())),
   );
 
   server.registerTool(
@@ -265,7 +273,7 @@ function registerTools(server: McpServer) {
       description: "Get we/I ratios and role language patterns showing relationship dynamics.",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handleIdentityGetRelational()),
+    async () => toContent(await handleIdentityGetRelational(getUserId())),
   );
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -280,7 +288,7 @@ function registerTools(server: McpServer) {
       description: "Get summary of interaction data including event counts, topic/tone distribution, and human message stats.",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handleInteractionGetSummary()),
+    async () => toContent(await handleInteractionGetSummary(getUserId())),
   );
 
   server.registerTool(
@@ -293,7 +301,7 @@ function registerTools(server: McpServer) {
         limit: z.number().nullish().describe("Maximum events to return"),
       }),
     },
-    async ({ event_type, limit }) => toContent(await handleInteractionGetEvents({ event_type, limit })),
+    async ({ event_type, limit }) => toContent(await handleInteractionGetEvents({ event_type, limit }, getUserId())),
   );
 
   server.registerTool(
@@ -306,7 +314,7 @@ function registerTools(server: McpServer) {
         limit: z.number().nullish().describe("Maximum results to return"),
       }),
     },
-    async ({ query, limit }) => toContent(await handleInteractionSearch({ query, limit })),
+    async ({ query, limit }) => toContent(await handleInteractionSearch({ query, limit }, getUserId())),
   );
 
   server.registerTool(
@@ -319,7 +327,7 @@ function registerTools(server: McpServer) {
         limit: z.number().nullish().describe("Maximum conversations to return"),
       }),
     },
-    async ({ topic, limit }) => toContent(await handleInteractionGetByTopic({ topic, limit })),
+    async ({ topic, limit }) => toContent(await handleInteractionGetByTopic({ topic, limit }, getUserId())),
   );
 
   server.registerTool(
@@ -332,7 +340,7 @@ function registerTools(server: McpServer) {
         end_date: z.string().optional().describe("End date (YYYY-MM-DD)"),
       }),
     },
-    async ({ start_date, end_date }) => toContent(await handleInteractionGetTimeline({ start_date, end_date })),
+    async ({ start_date, end_date }) => toContent(await handleInteractionGetTimeline({ start_date, end_date }, getUserId())),
   );
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -346,7 +354,7 @@ function registerTools(server: McpServer) {
       description: "Check if the identity verification model is trained and available.",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handleIdentityModelStatus()),
+    async () => toContent(await handleIdentityModelStatus(getUserId())),
   );
 
   server.registerTool(
@@ -358,7 +366,7 @@ function registerTools(server: McpServer) {
         message: z.string().describe("The message to verify against the identity profile"),
       }),
     },
-    async ({ message }) => toContent(await handleIdentityVerify({ message })),
+    async ({ message }) => toContent(await handleIdentityVerify({ message }, getUserId())),
   );
 
   server.registerTool(
@@ -370,7 +378,7 @@ function registerTools(server: McpServer) {
         messages: z.array(z.string()).describe("Array of messages to verify"),
       }),
     },
-    async ({ messages }) => toContent(await handleIdentityVerifyConversation({ messages })),
+    async ({ messages }) => toContent(await handleIdentityVerifyConversation({ messages }, getUserId())),
   );
 
   server.registerTool(
@@ -380,7 +388,7 @@ function registerTools(server: McpServer) {
       description: "Get summary of the trained identity profile (stylistic features, vocabulary).",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handleIdentityProfileSummary()),
+    async () => toContent(await handleIdentityProfileSummary(getUserId())),
   );
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -394,7 +402,7 @@ function registerTools(server: McpServer) {
       description: "List available processing scripts that can be run.",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handlePipelineList()),
+    async () => toContent(await handlePipelineList(getUserId())),
   );
 
   server.registerTool(
@@ -407,7 +415,7 @@ function registerTools(server: McpServer) {
         args: z.array(z.string()).optional().describe("Optional command-line arguments"),
       }),
     },
-    async ({ script, args }) => toContent(await handlePipelineRun({ script, args })),
+    async ({ script, args }) => toContent(await handlePipelineRun({ script, args }, getUserId())),
   );
 
   server.registerTool(
@@ -417,7 +425,7 @@ function registerTools(server: McpServer) {
       description: "Run all processing scripts in order (parse → analyze → build). Stops on first failure.",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handlePipelineRunAll()),
+    async () => toContent(await handlePipelineRunAll(getUserId())),
   );
 
   server.registerTool(
@@ -429,7 +437,7 @@ function registerTools(server: McpServer) {
         script: z.string().describe("Script ID to check status for"),
       }),
     },
-    async ({ script }) => toContent(await handlePipelineStatus({ script })),
+    async ({ script }) => toContent(await handlePipelineStatus({ script }, getUserId())),
   );
 
   server.registerTool(
@@ -439,7 +447,7 @@ function registerTools(server: McpServer) {
       description: "List all currently running pipeline scripts.",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handlePipelineListRunning()),
+    async () => toContent(await handlePipelineListRunning(getUserId())),
   );
 
   server.registerTool(
@@ -452,7 +460,7 @@ function registerTools(server: McpServer) {
         category: z.string().optional(),
       }),
     },
-    async ({ folder, category }) => toContent(await handleFileList({ folder, category })),
+    async ({ folder, category }) => toContent(await handleFileList({ folder, category }, getUserId())),
   );
 
   server.registerTool(
@@ -464,7 +472,7 @@ function registerTools(server: McpServer) {
         filepath: z.string(),
       }),
     },
-    async ({ filepath }) => toContent(await handleFileGet({ filepath })),
+    async ({ filepath }) => toContent(await handleFileGet({ filepath }, getUserId())),
   );
 
   server.registerTool(
@@ -477,7 +485,7 @@ function registerTools(server: McpServer) {
         folder: z.string().optional(),
       }),
     },
-    async ({ query, folder }) => toContent(await handleFileSearch({ query, folder })),
+    async ({ query, folder }) => toContent(await handleFileSearch({ query, folder }, getUserId())),
   );
 
   server.registerTool(
@@ -490,7 +498,7 @@ function registerTools(server: McpServer) {
         maxNumber: z.number().nullish(),
       }),
     },
-    async ({ folder, maxNumber }) => toContent(await handleFileGetNumbered({ folder, maxNumber })),
+    async ({ folder, maxNumber }) => toContent(await handleFileGetNumbered({ folder, maxNumber }, getUserId())),
   );
 
   // Fine-tuning Tools
@@ -508,7 +516,7 @@ function registerTools(server: McpServer) {
       }),
     },
     async (payload) => {
-      return toContent(await handleFinetuneStart(payload));
+      return toContent(await handleFinetuneStart(payload, getUserId()));
     },
   );
 
@@ -522,7 +530,7 @@ function registerTools(server: McpServer) {
       }),
     },
     async (payload) => {
-      return toContent(await handleFinetuneStatus(payload));
+      return toContent(await handleFinetuneStatus(payload, getUserId()));
     },
   );
 
@@ -533,7 +541,7 @@ function registerTools(server: McpServer) {
       description: "List all fine-tuning jobs (active and completed).",
       inputSchema: z.object({}).optional(),
     },
-    async () => toContent(await handleFinetuneList({})),
+    async () => toContent(await handleFinetuneList({}, getUserId())),
   );
 
   server.registerTool(
@@ -545,7 +553,7 @@ function registerTools(server: McpServer) {
         job_id: z.string(),
       }),
     },
-    async (payload) => toContent(await handleFinetuneCancel(payload)),
+    async (payload) => toContent(await handleFinetuneCancel(payload, getUserId())),
   );
 
   server.registerTool(
@@ -558,7 +566,7 @@ function registerTools(server: McpServer) {
         output_path: z.string().optional(),
       }),
     },
-    async (payload) => toContent(await handleFinetuneExportDataset(payload)),
+    async (payload) => toContent(await handleFinetuneExportDataset(payload, getUserId())),
   );
 
   // Conversation Tools
@@ -572,7 +580,7 @@ function registerTools(server: McpServer) {
         offset: z.number().nullish(),
       }),
     },
-    async (payload) => toContent(await handleConversationList(payload)),
+    async (payload) => toContent(await handleConversationList(payload, getUserId())),
   );
 
   server.registerTool(
@@ -584,7 +592,7 @@ function registerTools(server: McpServer) {
         conversationId: z.string(),
       }),
     },
-    async (payload) => toContent(await handleConversationGet(payload)),
+    async (payload) => toContent(await handleConversationGet(payload, getUserId())),
   );
 
   server.registerTool(
@@ -597,7 +605,7 @@ function registerTools(server: McpServer) {
         limit: z.number().nullish(),
       }),
     },
-    async (payload) => toContent(await handleConversationSearch(payload)),
+    async (payload) => toContent(await handleConversationSearch(payload, getUserId())),
   );
 
   server.registerTool(
@@ -611,7 +619,7 @@ function registerTools(server: McpServer) {
         limit: z.number().nullish(),
       }),
     },
-    async (payload) => toContent(await handleConversationByDateRange(payload)),
+    async (payload) => toContent(await handleConversationByDateRange(payload, getUserId())),
   );
 
   // Statistics Tools
@@ -624,7 +632,7 @@ function registerTools(server: McpServer) {
         files: z.array(z.string()).optional(),
       }),
     },
-    async (payload) => toContent(await handleMemoryStats(payload)),
+    async (payload) => toContent(await handleMemoryStats(payload, getUserId())),
   );
 
   server.registerTool(
@@ -634,7 +642,7 @@ function registerTools(server: McpServer) {
       description: "Get statistics about conversations (total count, messages, date ranges, by year).",
       inputSchema: z.object({}).optional(),
     },
-    async () => toContent(await handleConversationStats({})),
+    async () => toContent(await handleConversationStats({}, getUserId())),
   );
 
   // Unified Search
@@ -649,7 +657,7 @@ function registerTools(server: McpServer) {
         limit: z.number().nullish(),
       }),
     },
-    async (payload) => toContent(await handleUnifiedSearch(payload)),
+    async (payload) => toContent(await handleUnifiedSearch(payload, getUserId())),
   );
 
   // Export Tools
@@ -664,7 +672,7 @@ function registerTools(server: McpServer) {
         format: z.enum(["jsonl", "json"]).optional(),
       }),
     },
-    async (payload) => toContent(await handleExportMemories(payload)),
+    async (payload) => toContent(await handleExportMemories(payload, getUserId())),
   );
 
   server.registerTool(
@@ -678,7 +686,7 @@ function registerTools(server: McpServer) {
         limit: z.number().nullish(),
       }),
     },
-    async (payload) => toContent(await handleExportConversations(payload)),
+    async (payload) => toContent(await handleExportConversations(payload, getUserId())),
   );
 
   // ============================================================================
@@ -692,7 +700,7 @@ function registerTools(server: McpServer) {
       description: "Check presence of source files (conversations.json, memories.json) and generated data.",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handleDataStatus()),
+    async () => toContent(await handleDataStatus(getUserId())),
   );
 
   server.registerTool(
@@ -704,7 +712,7 @@ function registerTools(server: McpServer) {
         data: z.union([z.string(), z.any()]).describe("JSON content as string or object"),
       }),
     },
-    async ({ data }) => toContent(await handleDataUploadConversations({ data })),
+    async ({ data }) => toContent(await handleDataUploadConversations({ data }, getUserId())),
   );
 
   server.registerTool(
@@ -716,7 +724,7 @@ function registerTools(server: McpServer) {
         data: z.union([z.string(), z.any()]).describe("JSON content as string or object"),
       }),
     },
-    async ({ data }) => toContent(await handleDataUploadMemories({ data })),
+    async ({ data }) => toContent(await handleDataUploadMemories({ data }, getUserId())),
   );
 
   server.registerTool(
@@ -728,7 +736,7 @@ function registerTools(server: McpServer) {
         directory: z.enum(["conversations", "memory", "models", "training_data", "adapters"]),
       }),
     },
-    async ({ directory }) => toContent(await handleDataClean({ directory })),
+    async ({ directory }) => toContent(await handleDataClean({ directory }, getUserId())),
   );
 
   server.registerTool(
@@ -740,7 +748,7 @@ function registerTools(server: McpServer) {
         type: z.enum(["conversations", "memories"]),
       }),
     },
-    async ({ type }) => toContent(await handleDataDeleteSource({ type })),
+    async ({ type }) => toContent(await handleDataDeleteSource({ type }, getUserId())),
   );
 
   server.registerTool(
@@ -750,7 +758,7 @@ function registerTools(server: McpServer) {
       description: "List all parsed conversation files with metadata (ID, title, message count, date range).",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handleDataConversationsList()),
+    async () => toContent(await handleDataConversationsList(getUserId())),
   );
 
   server.registerTool(
@@ -762,7 +770,7 @@ function registerTools(server: McpServer) {
         id: z.string().describe("Conversation ID"),
       }),
     },
-    async ({ id }) => toContent(await handleDataConversationGet({ id })),
+    async ({ id }) => toContent(await handleDataConversationGet({ id }, getUserId())),
   );
 
   server.registerTool(
@@ -775,7 +783,7 @@ function registerTools(server: McpServer) {
         content: z.string().describe("New JSONL content"),
       }),
     },
-    async ({ id, content }) => toContent(await handleDataConversationUpdate({ id, content })),
+    async ({ id, content }) => toContent(await handleDataConversationUpdate({ id, content }, getUserId())),
   );
 
   server.registerTool(
@@ -785,7 +793,7 @@ function registerTools(server: McpServer) {
       description: "List all memory records from all JSONL files in memory directory.",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handleDataMemoriesList()),
+    async () => toContent(await handleDataMemoriesList(getUserId())),
   );
 
   server.registerTool(
@@ -797,7 +805,7 @@ function registerTools(server: McpServer) {
         filename: z.string().describe("Memory filename (e.g., 'identity.jsonl')"),
       }),
     },
-    async ({ filename }) => toContent(await handleDataMemoryFileGet({ filename })),
+    async ({ filename }) => toContent(await handleDataMemoryFileGet({ filename }, getUserId())),
   );
 
   server.registerTool(
@@ -810,7 +818,7 @@ function registerTools(server: McpServer) {
         content: z.string().describe("New JSONL content"),
       }),
     },
-    async ({ filename, content }) => toContent(await handleDataMemoryFileUpdate({ filename, content })),
+    async ({ filename, content }) => toContent(await handleDataMemoryFileUpdate({ filename, content }, getUserId())),
   );
 }
 
@@ -835,11 +843,20 @@ mcpProtocolRouter.post("/", async (req: Request, res: Response) => {
   try {
     let transport: StreamableHTTPServerTransport | undefined;
 
+    // Extract user context from request
+    const userContext = getUserContext(req);
+    const userId = userContext.userId;
+
     // 1) Existing session: reuse its transport
     if (sessionId && transports[sessionId]) {
       transport = transports[sessionId];
+      // Update user context for existing session (in case it changed)
+      if (userId) {
+        sessionUsers[sessionId] = userId;
+      }
       logger.info("MCP Protocol: Using existing session transport", {
         sessionId: sessionId.substring(0, 8) + "...",
+        userId: userId ? userId.substring(0, 8) + "..." : "anonymous",
       });
     } else if (!sessionId && isInitializeRequest(req.body)) {
       // 2) New initialization request: create fresh transport + server
@@ -848,8 +865,11 @@ mcpProtocolRouter.post("/", async (req: Request, res: Response) => {
         onsessioninitialized: (initializedSessionId) => {
           logger.info("MCP Protocol: Session initialized", {
             sessionId: initializedSessionId.substring(0, 8) + "...",
+            userId: userId ? userId.substring(0, 8) + "..." : "anonymous",
           });
           transports[initializedSessionId] = newTransport;
+          // Store user context for this session
+          sessionUsers[initializedSessionId] = userId;
         },
       });
 
@@ -862,7 +882,13 @@ mcpProtocolRouter.post("/", async (req: Request, res: Response) => {
         { capabilities: { tools: { listChanged: true } } },
       );
 
-      registerTools(server);
+      // Create userId provider function for this session
+      const getUserId = () => {
+        const sessionId = newTransport.sessionId;
+        return sessionId ? (sessionUsers[sessionId] || null) : userId;
+      };
+
+      registerTools(server, getUserId);
       await server.connect(newTransport);
 
       // Ensure cleanup when the transport closes
@@ -875,6 +901,7 @@ mcpProtocolRouter.post("/", async (req: Request, res: Response) => {
           });
           // Note: We don't delete the transport immediately - let it clean up naturally
           delete transports[id];
+          delete sessionUsers[id];
         }
       };
 

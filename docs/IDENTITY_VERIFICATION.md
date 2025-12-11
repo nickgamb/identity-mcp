@@ -342,7 +342,11 @@ python identity_service/identity_service.py --port 4001
 docker-compose --profile identity up -d identity-service
 ```
 
-## Documentation
-- **[GETTING_STARTED.md](./GETTING_STARTED.md)** - End-to-end setup with your ChatGPT data
-- **[MCP Readme](./MCP_README.md)** - Full MCP documentation
-- **[DOCKER_SETUP.md](./DOCKER_SETUP.md)** - Docker deployment guide
+## Related Documentation
+
+- **[Getting Started](./GETTING_STARTED.md)** - End-to-end setup with your ChatGPT data
+- **[MCP Protocol Reference](./MCP_README.md)** - Complete API reference for all 50 MCP tools
+- **[Multi-User & OIDC Support](./MULTI_USER_OIDC.md)** - Multi-user data isolation and OIDC authentication
+- **[Docker Setup](./DOCKER_SETUP.md)** - Container deployment guide
+- **[Environment Variables](./ENVIRONMENT_VARIABLES.md)** - Complete reference for all configuration options
+- **[Blog: Securing Identity MCP](./BLOG_SECURING_IDENTITY_MCP.md)** - Tutorial on adding OAuth/OIDC and policy-based access control

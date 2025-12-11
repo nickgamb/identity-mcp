@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { config } from "../config";
 import { logger } from "../utils/logger";
+import { getUserDataPath } from "../utils/userContext";
 
 interface InteractionEvent {
   event_type: string;
@@ -28,19 +29,23 @@ interface ConversationIndex {
   }>;
 }
 
+// Note: Cache is per-process, not per-user. For multi-user, we'd need per-user cache.
 let cachedEvents: InteractionEvent[] | null = null;
 let cachedIndex: ConversationIndex[] | null = null;
+let cachedEventsUserId: string | null = null;
+let cachedIndexUserId: string | null = null;
 
-function getMemoryDir(): string {
-  return config.MEMORY_DIR;
+function getMemoryDir(userId: string | null = null): string {
+  return getUserDataPath(config.MEMORY_DIR, userId);
 }
 
-function loadKeyEvents(): InteractionEvent[] {
-  if (cachedEvents) {
+function loadKeyEvents(userId: string | null = null): InteractionEvent[] {
+  // Use cache only if same user or no user (single-user mode)
+  if (cachedEvents && (!userId || cachedEventsUserId === userId)) {
     return cachedEvents;
   }
 
-  const filePath = path.join(getMemoryDir(), "interaction_key_events.json");
+  const filePath = path.join(getMemoryDir(userId), "interaction_key_events.json");
 
   if (!fs.existsSync(filePath)) {
     logger.warn("Interaction key events file not found", { path: filePath });
@@ -49,21 +54,27 @@ function loadKeyEvents(): InteractionEvent[] {
 
   try {
     const content = fs.readFileSync(filePath, "utf8");
-    cachedEvents = JSON.parse(content);
-    logger.info("Loaded interaction key events", { count: cachedEvents?.length });
-    return cachedEvents || [];
+    const events = JSON.parse(content);
+    // Cache only in single-user mode or if same user
+    if (!userId || cachedEventsUserId === userId) {
+      cachedEvents = events;
+      cachedEventsUserId = userId;
+    }
+    logger.info("Loaded interaction key events", { count: events?.length, userId });
+    return events || [];
   } catch (error) {
     logger.error("Failed to load interaction key events", { error: String(error) });
     return [];
   }
 }
 
-function loadIndex(): ConversationIndex[] {
-  if (cachedIndex) {
+function loadIndex(userId: string | null = null): ConversationIndex[] {
+  // Use cache only if same user or no user (single-user mode)
+  if (cachedIndex && (!userId || cachedIndexUserId === userId)) {
     return cachedIndex;
   }
 
-  const filePath = path.join(getMemoryDir(), "interaction_map_index.json");
+  const filePath = path.join(getMemoryDir(userId), "interaction_map_index.json");
 
   if (!fs.existsSync(filePath)) {
     logger.warn("Interaction map index file not found", { path: filePath });
@@ -72,9 +83,14 @@ function loadIndex(): ConversationIndex[] {
 
   try {
     const content = fs.readFileSync(filePath, "utf8");
-    cachedIndex = JSON.parse(content);
-    logger.info("Loaded interaction map index", { count: cachedIndex?.length });
-    return cachedIndex || [];
+    const index = JSON.parse(content);
+    // Cache only in single-user mode or if same user
+    if (!userId || cachedIndexUserId === userId) {
+      cachedIndex = index;
+      cachedIndexUserId = userId;
+    }
+    logger.info("Loaded interaction map index", { count: index?.length, userId });
+    return index || [];
   } catch (error) {
     logger.error("Failed to load interaction map index", { error: String(error) });
     return [];
@@ -84,9 +100,9 @@ function loadIndex(): ConversationIndex[] {
 /**
  * Get summary of interaction data
  */
-export async function handleInteractionGetSummary() {
-  const events = loadKeyEvents();
-  const index = loadIndex();
+export async function handleInteractionGetSummary(userId: string | null = null) {
+  const events = loadKeyEvents(userId);
+  const index = loadIndex(userId);
 
   if (events.length === 0 && index.length === 0) {
     return {
@@ -133,8 +149,8 @@ export async function handleInteractionGetEvents({
 }: {
   event_type?: string;
   limit?: number;
-}) {
-  const events = loadKeyEvents();
+}, userId: string | null = null) {
+  const events = loadKeyEvents(userId);
 
   if (events.length === 0) {
     return {
@@ -174,8 +190,8 @@ export async function handleInteractionSearch({
 }: {
   query: string;
   limit?: number;
-}) {
-  const index = loadIndex();
+}, userId: string | null = null) {
+  const index = loadIndex(userId);
 
   if (index.length === 0) {
     return {
@@ -229,8 +245,8 @@ export async function handleInteractionGetByTopic({
 }: {
   topic: string;
   limit?: number;
-}) {
-  const index = loadIndex();
+}, userId: string | null = null) {
+  const index = loadIndex(userId);
 
   if (index.length === 0) {
     return {
@@ -270,8 +286,8 @@ export async function handleInteractionGetTimeline({
 }: {
   start_date?: string;
   end_date?: string;
-}) {
-  const events = loadKeyEvents();
+}, userId: string | null = null) {
+  const events = loadKeyEvents(userId);
 
   if (events.length === 0) {
     return {

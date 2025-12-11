@@ -10,12 +10,12 @@ import {
   MemoryRecord,
 } from "./types";
 
-export async function handleMemoryList(req: MemoryListRequest): Promise<MemoryListResponse> {
-  const targetFiles: MemoryFileName[] = req.files && req.files.length > 0 ? req.files : listMemoryFiles();
+export async function handleMemoryList(req: MemoryListRequest, userId: string | null = null): Promise<MemoryListResponse> {
+  const targetFiles: MemoryFileName[] = req.files && req.files.length > 0 ? req.files : listMemoryFiles(userId);
 
   const filesWithCounts = await Promise.all(
     targetFiles.map(async (file) => {
-      const records = await readAllRecords(file);
+      const records = await readAllRecords(file, userId);
       return { name: file, count: records.length };
     }),
   );
@@ -23,9 +23,9 @@ export async function handleMemoryList(req: MemoryListRequest): Promise<MemoryLi
   return { files: filesWithCounts };
 }
 
-export async function handleMemoryGet(req: MemoryGetRequest): Promise<MemoryGetResponse> {
+export async function handleMemoryGet(req: MemoryGetRequest, userId: string | null = null): Promise<MemoryGetResponse> {
   const { file, filters, limit } = req;
-  let records: MemoryRecord[] = await readAllRecords(file);
+  let records: MemoryRecord[] = await readAllRecords(file, userId);
 
   if (filters?.type) {
     records = records.filter((r) => r.type === filters.type);
@@ -61,12 +61,13 @@ export async function handleMemoryGet(req: MemoryGetRequest): Promise<MemoryGetR
 }
 
 export async function handleMemoryAppend(
-  req: MemoryAppendRequest
+  req: MemoryAppendRequest,
+  userId: string | null = null
 ): Promise<MemoryAppendResponse> {
   const { file, record } = req;
   const id = record.id || `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const toStore: MemoryRecord = { ...record, id };
-  await appendRecord(file, toStore);
+  await appendRecord(file, toStore, userId);
 
   return { ok: true, id };
 }

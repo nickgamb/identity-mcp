@@ -18,6 +18,8 @@ import {
   LayoutDashboard
 } from 'lucide-react'
 import { DataExplorer } from './DataExplorer'
+import { useAuth } from './auth/AuthContext'
+import { LogIn, LogOut, User as UserIcon } from 'lucide-react'
 
 // Script definitions
 const SCRIPTS = [
@@ -101,6 +103,7 @@ interface ScriptState {
 type MainView = 'pipeline' | 'data'
 
 function App() {
+  const { user, isLoading: authLoading, isAuthenticated, login, logout } = useAuth()
   const [mainView, setMainView] = useState<MainView>('pipeline')
   const [scriptStates, setScriptStates] = useState<Record<string, ScriptState>>({})
   const [selectedScript, setSelectedScript] = useState<string | null>(null)
@@ -334,6 +337,30 @@ function App() {
             <button onClick={checkMcpStatus} className="btn btn-ghost">
               <RefreshCw className="w-4 h-4" />
             </button>
+            
+            {/* Auth UI */}
+            {!authLoading && (
+              <>
+                {isAuthenticated && user ? (
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-100">
+                      <UserIcon className="w-4 h-4 text-text-secondary" />
+                      <span className="text-sm text-text-primary">
+                        {user.profile?.preferred_username || user.profile?.email || user.profile?.sub || 'User'}
+                      </span>
+                    </div>
+                    <button onClick={logout} className="btn btn-ghost" title="Logout">
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={login} className="btn btn-primary" title="Login">
+                    <LogIn className="w-4 h-4" />
+                    <span>Login</span>
+                  </button>
+                )}
+              </>
+            )}
           </div>
         </div>
       </header>

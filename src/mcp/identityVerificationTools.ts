@@ -12,6 +12,7 @@ import fs from "fs";
 import path from "path";
 import { config } from "../config";
 import { logger } from "../utils/logger";
+import { getUserDataPath, ensureUserDirectory } from "../utils/userContext";
 
 // Identity service configuration
 let serviceAvailable: boolean | null = null; // null = not checked yet
@@ -103,7 +104,7 @@ async function checkServiceAvailable(): Promise<boolean> {
 /**
  * Call Python service for semantic verification
  */
-async function callSemanticVerification(message: string): Promise<SemanticVerificationResult | null> {
+async function callSemanticVerification(message: string, userId: string | null = null): Promise<SemanticVerificationResult | null> {
   // Check service availability (cache result for 30 seconds)
   if (serviceAvailable === null) {
     await checkServiceAvailable();
@@ -116,8 +117,14 @@ async function callSemanticVerification(message: string): Promise<SemanticVerifi
   try {
     const response = await fetch(`${config.IDENTITY_SERVICE_URL}/verify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      headers: { 
+        "Content-Type": "application/json",
+        ...(userId ? { "X-User-Id": userId } : {})
+      },
+      body: JSON.stringify({ 
+        message,
+        ...(userId ? { user_id: userId } : {})
+      }),
       signal: AbortSignal.timeout(10000) // 10 second timeout
     });
 
@@ -142,14 +149,19 @@ export function resetServiceAvailability() {
   serviceAvailable = null;
 }
 
-function getModelsDir(): string {
-  return path.join(config.PROJECT_ROOT || process.cwd(), "models", "identity");
+function getModelsDir(userId: string | null = null): string {
+  const baseDir = path.join(config.PROJECT_ROOT || process.cwd(), "models", "identity");
+  const userDir = getUserDataPath(baseDir, userId);
+  ensureUserDirectory(userDir);
+  return userDir;
 }
 
-function loadIdentityConfig(): IdentityConfig | null {
-  if (cachedConfig) return cachedConfig;
+function loadIdentityConfig(userId: string | null = null): IdentityConfig | null {
+  // Note: Cache is per-process, not per-user. For multi-user, we'd need per-user cache.
+  // For now, we'll load fresh each time if userId is provided (multi-user mode)
+  if (!userId && cachedConfig) return cachedConfig;
 
-  const configPath = path.join(getModelsDir(), "config.json");
+  const configPath = path.join(getModelsDir(userId), "config.json");
   if (!fs.existsSync(configPath)) {
     return null;
   }
@@ -164,10 +176,10 @@ function loadIdentityConfig(): IdentityConfig | null {
   }
 }
 
-function loadStylisticProfile(): StylisticProfile | null {
-  if (cachedStylisticProfile) return cachedStylisticProfile;
+function loadStylisticProfile(userId: string | null = null): StylisticProfile | null {
+  if (!userId && cachedStylisticProfile) return cachedStylisticProfile;
 
-  const profilePath = path.join(getModelsDir(), "stylistic_profile.json");
+  const profilePath = path.join(getModelsDir(userId), "stylistic_profile.json");
   if (!fs.existsSync(profilePath)) {
     return null;
   }
@@ -182,10 +194,10 @@ function loadStylisticProfile(): StylisticProfile | null {
   }
 }
 
-function loadVocabularyProfile(): VocabularyProfile | null {
-  if (cachedVocabularyProfile) return cachedVocabularyProfile;
+function loadVocabularyProfile(userId: string | null = null): VocabularyProfile | null {
+  if (!userId && cachedVocabularyProfile) return cachedVocabularyProfile;
 
-  const profilePath = path.join(getModelsDir(), "vocabulary_profile.json");
+  const profilePath = path.join(getModelsDir(userId), "vocabulary_profile.json");
   if (!fs.existsSync(profilePath)) {
     return null;
   }
@@ -200,8 +212,8 @@ function loadVocabularyProfile(): VocabularyProfile | null {
   }
 }
 
-function loadTemporalAnalysis(): any | null {
-  const analysisPath = path.join(getModelsDir(), "temporal_analysis.json");
+function loadTemporalAnalysis(userId: string | null = null): any | null {
+  const analysisPath = path.join(getModelsDir(userId), "temporal_analysis.json");
   if (!fs.existsSync(analysisPath)) {
     return null;
   }
@@ -285,7 +297,7 @@ function computeVocabularyMatch(
 /**
  * Get identity model status
  */
-export async function handleIdentityModelStatus(): Promise<{
+export async function handleIdentityModelStatus(userId: string | null = null): Promise<{
   exists: boolean;
   available?: boolean;
   config?: IdentityConfig;
@@ -295,10 +307,10 @@ export async function handleIdentityModelStatus(): Promise<{
   identity_report?: string;
   message?: string;
 }> {
-  const identityConfig = loadIdentityConfig();
-  const stylisticProfile = loadStylisticProfile();
-  const vocabularyProfile = loadVocabularyProfile();
-  const temporalAnalysis = loadTemporalAnalysis();
+  const identityConfig = loadIdentityConfig(userId);
+  const stylisticProfile = loadStylisticProfile(userId);
+  const vocabularyProfile = loadVocabularyProfile(userId);
+  const temporalAnalysis = loadTemporalAnalysis(userId);
 
   if (!identityConfig) {
     return {
@@ -308,10 +320,12 @@ export async function handleIdentityModelStatus(): Promise<{
     };
   }
 
-  // Try to load identity report from memory directory
+  // Try to load identity report from memory directory (per-user)
   let identityReport: string | undefined = undefined;
   try {
-    const reportPath = path.join(config.MEMORY_DIR, "identity_report.md");
+    const { getUserDataPath } = require("../utils/userContext");
+    const memoryDir = getUserDataPath(config.MEMORY_DIR, userId);
+    const reportPath = path.join(memoryDir, "identity_report.md");
     if (fs.existsSync(reportPath)) {
       identityReport = fs.readFileSync(reportPath, "utf8");
     }
@@ -340,10 +354,10 @@ export async function handleIdentityVerify({
   message 
 }: { 
   message: string 
-}): Promise<VerificationResult & { semantic_available?: boolean; semantic_score?: number }> {
-  const identityConfig = loadIdentityConfig();
-  const stylisticProfile = loadStylisticProfile();
-  const vocabularyProfile = loadVocabularyProfile();
+}, userId: string | null = null): Promise<VerificationResult & { semantic_available?: boolean; semantic_score?: number }> {
+  const identityConfig = loadIdentityConfig(userId);
+  const stylisticProfile = loadStylisticProfile(userId);
+  const vocabularyProfile = loadVocabularyProfile(userId);
 
   if (!identityConfig || !stylisticProfile || !vocabularyProfile) {
     return {
@@ -353,7 +367,7 @@ export async function handleIdentityVerify({
   }
 
   // Try semantic verification first (most accurate)
-  const semanticResult = await callSemanticVerification(message);
+  const semanticResult = await callSemanticVerification(message, userId);
   
   // Compute stylistic features (always do this for detailed breakdown)
   const msgFeatures = computeStylisticFeatures(message);
@@ -462,7 +476,7 @@ export async function handleIdentityVerifyConversation({
   messages
 }: {
   messages: string[]
-}): Promise<{
+}, userId: string | null = null): Promise<{
   available: boolean;
   overall_verified?: boolean;
   overall_confidence?: "high" | "medium" | "low" | "none";
@@ -486,7 +500,7 @@ export async function handleIdentityVerifyConversation({
   let totalScore = 0;
 
   for (const msg of messages) {
-    const result = await handleIdentityVerify({ message: msg });
+    const result = await handleIdentityVerify({ message: msg }, userId);
     
     if (!result.available) {
       return {
@@ -536,7 +550,7 @@ export async function handleIdentityVerifyConversation({
 /**
  * Get identity profile summary (for debugging/inspection)
  */
-export async function handleIdentityProfileSummary(): Promise<{
+export async function handleIdentityProfileSummary(userId: string | null = null): Promise<{
   available: boolean;
   stylistic_summary?: Record<string, { mean: number; std: number }>;
   vocabulary_summary?: {
@@ -551,9 +565,9 @@ export async function handleIdentityProfileSummary(): Promise<{
   };
   message?: string;
 }> {
-  const identityConfig = loadIdentityConfig();
-  const stylisticProfile = loadStylisticProfile();
-  const vocabularyProfile = loadVocabularyProfile();
+  const identityConfig = loadIdentityConfig(userId);
+  const stylisticProfile = loadStylisticProfile(userId);
+  const vocabularyProfile = loadVocabularyProfile(userId);
 
   if (!identityConfig || !stylisticProfile || !vocabularyProfile) {
     return {

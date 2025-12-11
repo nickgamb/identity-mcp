@@ -7,6 +7,7 @@
 
 import fs from "fs";
 import path from "path";
+import { getUserDataPath, ensureUserDirectory } from "../utils/userContext";
 
 const PROJECT_ROOT = process.cwd();
 
@@ -32,35 +33,42 @@ export interface DataStatusResponse {
   };
 }
 
-export async function handleDataStatus(): Promise<DataStatusResponse> {
+export async function handleDataStatus(userId: string | null = null): Promise<DataStatusResponse> {
+  const conversationsDir = getUserDataPath(path.join(PROJECT_ROOT, "conversations"), userId);
+  const memoryDir = getUserDataPath(path.join(PROJECT_ROOT, "memory"), userId);
+  const filesDir = getUserDataPath(path.join(PROJECT_ROOT, "files"), userId);
+  const modelsDir = getUserDataPath(path.join(PROJECT_ROOT, "models", "identity"), userId);
+  
   const status: DataStatusResponse = {
     sourceFiles: {
-      conversationsJson: fs.existsSync(path.join(PROJECT_ROOT, "conversations", "conversations.json")),
-      memoriesJson: fs.existsSync(path.join(PROJECT_ROOT, "memory", "memories.json")),
+      conversationsJson: fs.existsSync(path.join(conversationsDir, "conversations.json")),
+      memoriesJson: fs.existsSync(path.join(memoryDir, "memories.json")),
     },
     generatedData: {
-      conversations: fs.existsSync(path.join(PROJECT_ROOT, "conversations")) && 
-        fs.readdirSync(path.join(PROJECT_ROOT, "conversations")).filter((f: string) => f.endsWith(".jsonl")).length > 0,
-      memory: fs.existsSync(path.join(PROJECT_ROOT, "memory")) &&
-        fs.readdirSync(path.join(PROJECT_ROOT, "memory")).filter((f: string) => f.endsWith(".jsonl")).length > 0,
-      identityModel: fs.existsSync(path.join(PROJECT_ROOT, "models", "identity", "config.json")),
-      interactionMap: fs.existsSync(path.join(PROJECT_ROOT, "memory", "interaction_map_index.json")),
+      conversations: fs.existsSync(conversationsDir) && 
+        fs.readdirSync(conversationsDir).filter((f: string) => f.endsWith(".jsonl")).length > 0,
+      memory: fs.existsSync(memoryDir) &&
+        fs.readdirSync(memoryDir).filter((f: string) => f.endsWith(".jsonl")).length > 0,
+      identityModel: fs.existsSync(path.join(modelsDir, "config.json")),
+      interactionMap: fs.existsSync(path.join(memoryDir, "interaction_map_index.json")),
     },
     counts: {
-      conversationFiles: fs.existsSync(path.join(PROJECT_ROOT, "conversations")) ? 
-        fs.readdirSync(path.join(PROJECT_ROOT, "conversations")).filter((f: string) => f.endsWith(".jsonl")).length : 0,
-      memoryFiles: fs.existsSync(path.join(PROJECT_ROOT, "memory")) ?
-        fs.readdirSync(path.join(PROJECT_ROOT, "memory")).filter((f: string) => f.endsWith(".jsonl")).length : 0,
-      files: fs.existsSync(path.join(PROJECT_ROOT, "files")) ?
-        fs.readdirSync(path.join(PROJECT_ROOT, "files"), { recursive: true }).length : 0,
+      conversationFiles: fs.existsSync(conversationsDir) ? 
+        fs.readdirSync(conversationsDir).filter((f: string) => f.endsWith(".jsonl")).length : 0,
+      memoryFiles: fs.existsSync(memoryDir) ?
+        fs.readdirSync(memoryDir).filter((f: string) => f.endsWith(".jsonl")).length : 0,
+      files: fs.existsSync(filesDir) ?
+        fs.readdirSync(filesDir, { recursive: true }).length : 0,
     }
   };
   
   return status;
 }
 
-export async function handleDataUploadConversations({ data }: { data: string | any }): Promise<{ success: boolean; message: string; path: string }> {
-  const conversationsDir = path.join(PROJECT_ROOT, "conversations");
+export async function handleDataUploadConversations({ data }: { data: string | any }, userId: string | null = null): Promise<{ success: boolean; message: string; path: string }> {
+  const baseDir = path.join(PROJECT_ROOT, "conversations");
+  const conversationsDir = getUserDataPath(baseDir, userId);
+  ensureUserDirectory(conversationsDir);
   fs.mkdirSync(conversationsDir, { recursive: true });
   
   const filePath = path.join(conversationsDir, "conversations.json");
@@ -69,8 +77,10 @@ export async function handleDataUploadConversations({ data }: { data: string | a
   return { success: true, message: "conversations.json uploaded successfully", path: filePath };
 }
 
-export async function handleDataUploadMemories({ data }: { data: string | any }): Promise<{ success: boolean; message: string; path: string }> {
-  const memoryDir = path.join(PROJECT_ROOT, "memory");
+export async function handleDataUploadMemories({ data }: { data: string | any }, userId: string | null = null): Promise<{ success: boolean; message: string; path: string }> {
+  const baseDir = path.join(PROJECT_ROOT, "memory");
+  const memoryDir = getUserDataPath(baseDir, userId);
+  ensureUserDirectory(memoryDir);
   fs.mkdirSync(memoryDir, { recursive: true });
   
   const filePath = path.join(memoryDir, "memories.json");
@@ -79,14 +89,22 @@ export async function handleDataUploadMemories({ data }: { data: string | any })
   return { success: true, message: "memories.json uploaded successfully", path: filePath };
 }
 
-export async function handleDataClean({ directory }: { directory: string }): Promise<{ success: boolean; message: string; deletedCount: number }> {
+export async function handleDataClean({ directory }: { directory: string }, userId: string | null = null): Promise<{ success: boolean; message: string; deletedCount: number }> {
   const allowedDirs = ["conversations", "memory", "models", "training_data", "adapters"];
   
   if (!allowedDirs.includes(directory)) {
     throw new Error("Invalid directory");
   }
   
-  const targetDir = path.join(PROJECT_ROOT, directory);
+  // For models, training_data, and adapters, we need to handle subdirectories
+  let baseDir: string;
+  if (directory === "models") {
+    baseDir = path.join(PROJECT_ROOT, "models", "identity");
+  } else {
+    baseDir = path.join(PROJECT_ROOT, directory);
+  }
+  
+  const targetDir = getUserDataPath(baseDir, userId);
   
   if (!fs.existsSync(targetDir)) {
     return { success: true, message: `Directory ${directory} does not exist`, deletedCount: 0 };
@@ -116,14 +134,15 @@ export async function handleDataClean({ directory }: { directory: string }): Pro
   return { success: true, message: `Cleaned ${directory}: removed ${deletedCount} items`, deletedCount };
 }
 
-export async function handleDataDeleteSource({ type }: { type: string }): Promise<{ success: boolean; message: string }> {
+export async function handleDataDeleteSource({ type }: { type: string }, userId: string | null = null): Promise<{ success: boolean; message: string }> {
   if (type !== "conversations" && type !== "memories") {
     return { success: false, message: "Invalid type. Must be 'conversations' or 'memories'" };
   }
   
   const filename = type === "conversations" ? "conversations.json" : "memories.json";
-  const directory = type === "conversations" ? "conversations" : "memory";
-  const filePath = path.join(PROJECT_ROOT, directory, filename);
+  const baseDir = type === "conversations" ? path.join(PROJECT_ROOT, "conversations") : path.join(PROJECT_ROOT, "memory");
+  const directory = getUserDataPath(baseDir, userId);
+  const filePath = path.join(directory, filename);
   
   try {
     if (fs.existsSync(filePath)) {
@@ -150,8 +169,9 @@ export interface Conversation {
   title: string;
 }
 
-export async function handleDataConversationsList(): Promise<{ conversations: Conversation[] }> {
-  const conversationsDir = path.join(PROJECT_ROOT, "conversations");
+export async function handleDataConversationsList(userId: string | null = null): Promise<{ conversations: Conversation[] }> {
+  const baseDir = path.join(PROJECT_ROOT, "conversations");
+  const conversationsDir = getUserDataPath(baseDir, userId);
   
   if (!fs.existsSync(conversationsDir)) {
     return { conversations: [] };
@@ -196,8 +216,10 @@ export async function handleDataConversationsList(): Promise<{ conversations: Co
   return { conversations: files };
 }
 
-export async function handleDataConversationGet({ id }: { id: string }): Promise<{ id: string; content: string; filePath: string }> {
-  const filePath = path.join(PROJECT_ROOT, "conversations", `conversation_${id}.jsonl`);
+export async function handleDataConversationGet({ id }: { id: string }, userId: string | null = null): Promise<{ id: string; content: string; filePath: string }> {
+  const baseDir = path.join(PROJECT_ROOT, "conversations");
+  const conversationsDir = getUserDataPath(baseDir, userId);
+  const filePath = path.join(conversationsDir, `conversation_${id}.jsonl`);
   
   if (!fs.existsSync(filePath)) {
     throw new Error("Conversation not found");
@@ -207,8 +229,11 @@ export async function handleDataConversationGet({ id }: { id: string }): Promise
   return { id, content, filePath };
 }
 
-export async function handleDataConversationUpdate({ id, content }: { id: string; content: string }): Promise<{ success: boolean; message: string; id: string }> {
-  const filePath = path.join(PROJECT_ROOT, "conversations", `conversation_${id}.jsonl`);
+export async function handleDataConversationUpdate({ id, content }: { id: string; content: string }, userId: string | null = null): Promise<{ success: boolean; message: string; id: string }> {
+  const baseDir = path.join(PROJECT_ROOT, "conversations");
+  const conversationsDir = getUserDataPath(baseDir, userId);
+  ensureUserDirectory(conversationsDir);
+  const filePath = path.join(conversationsDir, `conversation_${id}.jsonl`);
   fs.writeFileSync(filePath, content, "utf8");
   
   return { success: true, message: "Conversation updated", id };
@@ -224,8 +249,9 @@ export interface MemoryRecord {
   [key: string]: any;
 }
 
-export async function handleDataMemoriesList(): Promise<{ memories: MemoryRecord[]; count: number }> {
-  const memoryDir = path.join(PROJECT_ROOT, "memory");
+export async function handleDataMemoriesList(userId: string | null = null): Promise<{ memories: MemoryRecord[]; count: number }> {
+  const baseDir = path.join(PROJECT_ROOT, "memory");
+  const memoryDir = getUserDataPath(baseDir, userId);
   
   if (!fs.existsSync(memoryDir)) {
     return { memories: [], count: 0 };
@@ -256,12 +282,14 @@ export async function handleDataMemoriesList(): Promise<{ memories: MemoryRecord
   return { memories: allRecords, count: allRecords.length };
 }
 
-export async function handleDataMemoryFileGet({ filename }: { filename: string }): Promise<{ filename: string; content: string; filePath: string }> {
+export async function handleDataMemoryFileGet({ filename }: { filename: string }, userId: string | null = null): Promise<{ filename: string; content: string; filePath: string }> {
   if (!filename.endsWith(".jsonl") || filename.includes("..") || filename.includes("/")) {
     throw new Error("Invalid filename");
   }
   
-  const filePath = path.join(PROJECT_ROOT, "memory", filename);
+  const baseDir = path.join(PROJECT_ROOT, "memory");
+  const memoryDir = getUserDataPath(baseDir, userId);
+  const filePath = path.join(memoryDir, filename);
   
   if (!fs.existsSync(filePath)) {
     throw new Error("File not found");
@@ -271,12 +299,15 @@ export async function handleDataMemoryFileGet({ filename }: { filename: string }
   return { filename, content, filePath };
 }
 
-export async function handleDataMemoryFileUpdate({ filename, content }: { filename: string; content: string }): Promise<{ success: boolean; message: string; filename: string }> {
+export async function handleDataMemoryFileUpdate({ filename, content }: { filename: string; content: string }, userId: string | null = null): Promise<{ success: boolean; message: string; filename: string }> {
   if (!filename.endsWith(".jsonl") || filename.includes("..") || filename.includes("/")) {
     throw new Error("Invalid filename");
   }
   
-  const filePath = path.join(PROJECT_ROOT, "memory", filename);
+  const baseDir = path.join(PROJECT_ROOT, "memory");
+  const memoryDir = getUserDataPath(baseDir, userId);
+  ensureUserDirectory(memoryDir);
+  const filePath = path.join(memoryDir, filename);
   fs.writeFileSync(filePath, content, "utf8");
   
   return { success: true, message: "Memory file updated", filename };
