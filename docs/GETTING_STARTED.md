@@ -79,7 +79,7 @@ npm run dev                  # Dashboard on http://localhost:3001
    - `analyze_patterns` (discover patterns)
    - `parse_memories` (if you uploaded memories.json)
    - `analyze_identity` (optional - identity analysis)
-   - `build_emergence_map` (optional - key events)
+   - `build_interaction_map` (optional - human communication patterns)
    - `train_identity_model` (optional - verification model)
 
 3. Watch real-time output in the right panel
@@ -191,23 +191,23 @@ This analyzes your conversations for:
 - `memory/identity_analysis.jsonl` (machine-readable)
 - `memory/identity_report.md` (human-readable analysis)
 
-## Step 9: Build Emergence Map (Optional)
+## Step 9: Build Interaction Map (Optional)
 
-Create a searchable index of key events:
+Create a searchable index of human communication patterns:
 
 ```bash
-python build_emergence_map.py
+python build_interaction_map.py
 ```
 
-Uses patterns from Step 5 to detect:
-- Naming events
-- Identity/consciousness prompts
-- Emotional sessions
-- Symbolic language usage
+Focus: Human identity fingerprinting - detects:
+- Problem-solving moments (complex problem discussions)
+- Communication tempo changes (sudden shifts in message length/cadence)
+- Topic transitions (how you move between topics)
+- Tone shifts (emotional pattern changes)
 
 **Output:**
-- `memory/emergence_map_index.json`
-- `memory/emergence_key_events.json`
+- `memory/interaction_map_index.json` (searchable conversation index with topics/tones)
+- `memory/interaction_key_events.json` (key human communication events)
 
 ### Step 10B: Build and Run the MCP
 
@@ -261,8 +261,8 @@ identity-mcp/
 │   ├── patterns.jsonl               # Generated patterns (used by scripts)
 │   ├── identity_analysis.jsonl      # Identity analysis data
 │   ├── identity_report.md           # Identity pattern report
-│   ├── emergence_map_index.json     # Searchable conversation index
-│   ├── emergence_key_events.json    # Key events timeline
+│   ├── interaction_map_index.json     # Searchable conversation index
+│   ├── interaction_key_events.json    # Key human communication events
 │   └── user.context.jsonl           # Parsed memories
 ├── parsed_sections/                 # Extracted code/files from conversations
 │   └── <conversation_id>/           # One folder per conversation
@@ -281,7 +281,7 @@ identity-mcp/
 | `parse_memories.py` | Convert memories.json → user.context.jsonl |
 | `parse_sections.py` | Extract code blocks & AI-generated files → parsed_sections/ |
 | `analyze_identity.py` | Identity pattern analysis → identity_analysis.jsonl |
-| `build_emergence_map.py` | Index conversations → key events |
+| `build_interaction_map.py` | Index conversations → human communication patterns |
 | `finetune_lora.py` | Fine-tune a model on your data |
 
 ## Optional: Fine-Tune a Model

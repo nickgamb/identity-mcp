@@ -60,6 +60,11 @@ function getRecordByType(type: string): unknown | null {
  */
 export async function handleIdentityAnalysisSummary() {
   const summary = getRecordByType("identity.summary");
+  // New structure: human_identity and relational_context
+  const humanIdentity = getRecordByType("identity.human") as Record<string, unknown> | null;
+  const relationalContext = getRecordByType("identity.relational_context") as Record<string, unknown> | null;
+  
+  // Backward compatibility: try old structure if new one not found
   const relational = getRecordByType("identity.relational") as Record<string, unknown> | null;
   const selfRef = getRecordByType("identity.self_referential") as Record<string, unknown> | null;
 
@@ -70,6 +75,26 @@ export async function handleIdentityAnalysisSummary() {
     };
   }
 
+  // Use new structure if available, otherwise fall back to old structure
+  if (humanIdentity) {
+    return {
+      available: true,
+      summary,
+      human_identity_overview: {
+        we_i_ratio: humanIdentity.we_vs_i_ratio as number,
+        relational_patterns: Object.keys((humanIdentity.relational_patterns as Record<string, unknown>) || {}),
+        self_referential_patterns: Object.keys((humanIdentity.self_referential_patterns as Record<string, unknown>) || {}),
+      },
+      relational_context: relationalContext
+        ? {
+            we_i_ratio_assistant: relationalContext.we_vs_i_ratio_assistant as number,
+            note: relationalContext.note as string,
+          }
+        : null,
+    };
+  }
+
+  // Backward compatibility with old structure
   return {
     available: true,
     summary,

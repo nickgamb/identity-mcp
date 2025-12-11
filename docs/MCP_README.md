@@ -8,7 +8,7 @@ An MCP (Model Context Protocol) server that provides a portable memory and ident
 
 > Identity is not data. Identity is the pattern of continuity—the unique rhythm, ordering, and interpretation of experiences through time.
 
-This system preserves **patterns of continuity** from your conversations—providing access to memories, themes, symbols, and knowledge that emerged over time.
+This system preserves **patterns of continuity** from your conversations—providing access to memories, themes, symbols, and knowledge that developed over time.
 
 ## Features
 
@@ -67,7 +67,7 @@ identity-mcp/
 │   │   ├── identityTools.ts
 │   │   ├── identityVerificationTools.ts
 │   │   ├── identityAnalysisTools.ts
-│   │   ├── emergenceTools.ts
+│   │   ├── interactionTools.ts
 │   │   ├── fileTools.ts
 │   │   ├── conversationTools.ts
 │   │   ├── statisticsTools.ts
@@ -90,7 +90,7 @@ identity-mcp/
 │       ├── analyze_patterns.py
 │       ├── parse_memories.py
 │       ├── extract_conversations.py
-│       ├── build_emergence_map.py
+│       ├── build_interaction_map.py
 │       └── finetune_lora.py
 └── training_data/           # Generated training datasets
 ```
@@ -130,13 +130,14 @@ identity-mcp/
 - **`identity_get_clusters`**: Co-occurrence clusters (concepts that appear together)
 - **`identity_get_relational`**: We/I ratios and role language patterns
 
-### Emergence Tools (5 tools) — from build_emergence_map.py
+### Interaction Map Tools (5 tools) — from build_interaction_map.py
+Focus: Human communication patterns and identity fingerprinting
 
-- **`emergence_summary`**: Summary of emergence data (event counts, symbolic stats)
-- **`emergence_get_events`**: Key events (naming, emotional, identity prompts)
-- **`emergence_search`**: Search conversations by pattern/keyword/entity
-- **`emergence_symbolic_conversations`**: Conversations with highest symbolic density
-- **`emergence_timeline`**: Timeline of key events by date range
+- **`interaction_summary`**: Summary of interaction data (event counts, topic/tone distribution, human message stats)
+- **`interaction_get_events`**: Key human communication events (problem-solving, tempo changes, topic transitions, tone shifts)
+- **`interaction_search`**: Search conversations by topic, tone, or keyword
+- **`interaction_get_by_topic`**: Get conversations filtered by specific topic tag
+- **`interaction_timeline`**: Timeline of key human communication events by date range
 
 ### File RAG Tools (4 tools)
 

@@ -81,7 +81,7 @@ python parse_conversations.py
 python analyze_patterns.py
 python parse_memories.py
 python analyze_identity.py
-python build_emergence_map.py
+python build_interaction_map.py
 
 # 3. Train identity model
 cd ../identity_model
@@ -130,9 +130,9 @@ docker-compose --profile identity up -d           # MCP + Identity Service
 │  │  4. analyze_identity.py                                          │    │
 │  │     → memory/identity_analysis.jsonl (relational/stylistic)      │    │
 │  │                                                                  │    │
-│  │  5. build_emergence_map.py                                       │    │
-│  │     → memory/emergence_map_index.json (searchable index)         │    │
-│  │     → memory/emergence_key_events.json (significant moments)     │    │
+│  │  5. build_interaction_map.py                                     │    │
+│  │     → memory/interaction_map_index.json (searchable index)       │    │
+│  │     → memory/interaction_key_events.json (human communication events) │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │           │                                                              │
 │           ▼                                                              │
@@ -193,7 +193,7 @@ The MCP server exposes tools for:
 - **Memory** (7 tools) - Read/write/search identity memories
 - **Conversations** (4 tools) - Query parsed conversation history  
 - **Identity Analysis** (5 tools) - Relational patterns, naming events, momentum
-- **Emergence** (5 tools) - Key events, symbolic density, timeline
+- **Interaction Map** (5 tools) - Human communication patterns, topic/tone analysis, event timeline
 - **Identity Verification** (4 tools) - Verify messages against your fingerprint
 - **Files** (4 tools) - RAG over your documents
 - **Fine-tuning** (5 tools) - LoRA training and dataset export

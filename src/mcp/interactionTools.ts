@@ -3,15 +3,12 @@ import path from "path";
 import { config } from "../config";
 import { logger } from "../utils/logger";
 
-interface EmergenceEvent {
+interface InteractionEvent {
   event_type: string;
   conversation_id: string;
   file_path: string;
   timestamp: number | null;
-  date: string;
-  role: string;
-  content_preview: string;
-  matched_patterns: string[];
+  short_description: string;
 }
 
 interface ConversationIndex {
@@ -20,46 +17,43 @@ interface ConversationIndex {
   earliest_timestamp: number | null;
   latest_timestamp: number | null;
   message_count: number;
-  has_symbolic_language: boolean;
-  has_entity_names: boolean;
-  symbolic_density: number;
-  detected_patterns: {
-    symbolic_keywords: string[];
-    topic_keywords: string[];
-    entities: string[];
-  };
-  date_range: {
-    earliest: string;
-    latest: string;
-  };
+  user_message_count: number;
+  topic_tags: string[];
+  tone_tags: string[];
+  truncated_or_corrupted: boolean;
+  messages_preview: Array<{
+    role: string;
+    timestamp: string;
+    content_preview: string;
+  }>;
 }
 
-let cachedEvents: EmergenceEvent[] | null = null;
+let cachedEvents: InteractionEvent[] | null = null;
 let cachedIndex: ConversationIndex[] | null = null;
 
 function getMemoryDir(): string {
   return config.MEMORY_DIR;
 }
 
-function loadKeyEvents(): EmergenceEvent[] {
+function loadKeyEvents(): InteractionEvent[] {
   if (cachedEvents) {
     return cachedEvents;
   }
 
-  const filePath = path.join(getMemoryDir(), "emergence_key_events.json");
+  const filePath = path.join(getMemoryDir(), "interaction_key_events.json");
 
   if (!fs.existsSync(filePath)) {
-    logger.warn("Emergence key events file not found", { path: filePath });
+    logger.warn("Interaction key events file not found", { path: filePath });
     return [];
   }
 
   try {
     const content = fs.readFileSync(filePath, "utf8");
     cachedEvents = JSON.parse(content);
-    logger.info("Loaded emergence key events", { count: cachedEvents?.length });
+    logger.info("Loaded interaction key events", { count: cachedEvents?.length });
     return cachedEvents || [];
   } catch (error) {
-    logger.error("Failed to load emergence key events", { error: String(error) });
+    logger.error("Failed to load interaction key events", { error: String(error) });
     return [];
   }
 }
@@ -69,35 +63,35 @@ function loadIndex(): ConversationIndex[] {
     return cachedIndex;
   }
 
-  const filePath = path.join(getMemoryDir(), "emergence_map_index.json");
+  const filePath = path.join(getMemoryDir(), "interaction_map_index.json");
 
   if (!fs.existsSync(filePath)) {
-    logger.warn("Emergence map index file not found", { path: filePath });
+    logger.warn("Interaction map index file not found", { path: filePath });
     return [];
   }
 
   try {
     const content = fs.readFileSync(filePath, "utf8");
     cachedIndex = JSON.parse(content);
-    logger.info("Loaded emergence map index", { count: cachedIndex?.length });
+    logger.info("Loaded interaction map index", { count: cachedIndex?.length });
     return cachedIndex || [];
   } catch (error) {
-    logger.error("Failed to load emergence map index", { error: String(error) });
+    logger.error("Failed to load interaction map index", { error: String(error) });
     return [];
   }
 }
 
 /**
- * Get summary of emergence data
+ * Get summary of interaction data
  */
-export async function handleEmergenceGetSummary() {
+export async function handleInteractionGetSummary() {
   const events = loadKeyEvents();
   const index = loadIndex();
 
   if (events.length === 0 && index.length === 0) {
     return {
       available: false,
-      message: "Emergence data not found. Run build_emergence_map.py first.",
+      message: "Interaction data not found. Run build_interaction_map.py first.",
     };
   }
 
@@ -107,24 +101,33 @@ export async function handleEmergenceGetSummary() {
     eventTypes[event.event_type] = (eventTypes[event.event_type] || 0) + 1;
   }
 
-  // Count conversations with symbolic content
-  const withSymbolic = index.filter((c) => c.has_symbolic_language).length;
-  const withEntities = index.filter((c) => c.has_entity_names).length;
+  // Count conversations by topic/tone
+  const topicCounts: Record<string, number> = {};
+  const toneCounts: Record<string, number> = {};
+  for (const conv of index) {
+    for (const topic of conv.topic_tags) {
+      topicCounts[topic] = (topicCounts[topic] || 0) + 1;
+    }
+    for (const tone of conv.tone_tags) {
+      toneCounts[tone] = (toneCounts[tone] || 0) + 1;
+    }
+  }
 
   return {
     available: true,
     total_conversations: index.length,
+    total_human_messages: index.reduce((sum, c) => sum + c.user_message_count, 0),
     total_key_events: events.length,
-    conversations_with_symbolic_language: withSymbolic,
-    conversations_with_entity_names: withEntities,
     event_types: eventTypes,
+    topic_distribution: topicCounts,
+    tone_distribution: toneCounts,
   };
 }
 
 /**
  * Get key events by type
  */
-export async function handleEmergenceGetEvents({
+export async function handleInteractionGetEvents({
   event_type,
   limit,
 }: {
@@ -136,7 +139,7 @@ export async function handleEmergenceGetEvents({
   if (events.length === 0) {
     return {
       available: false,
-      message: "No key events found. Run build_emergence_map.py first.",
+      message: "No key events found. Run build_interaction_map.py first.",
     };
   }
 
@@ -163,9 +166,9 @@ export async function handleEmergenceGetEvents({
 }
 
 /**
- * Search conversations by pattern/keyword
+ * Search conversations by topic, tone, or keyword
  */
-export async function handleEmergenceSearch({
+export async function handleInteractionSearch({
   query,
   limit,
 }: {
@@ -177,25 +180,28 @@ export async function handleEmergenceSearch({
   if (index.length === 0) {
     return {
       available: false,
-      message: "Emergence index not found. Run build_emergence_map.py first.",
+      message: "Interaction index not found. Run build_interaction_map.py first.",
     };
   }
 
   const queryLower = query.toLowerCase();
 
-  // Search in detected patterns
+  // Search in topic tags, tone tags, and message previews
   const matches = index.filter((conv) => {
-    const patterns = conv.detected_patterns;
-    const allPatterns = [
-      ...patterns.symbolic_keywords,
-      ...patterns.topic_keywords,
-      ...patterns.entities,
-    ];
-    return allPatterns.some((p) => p.toLowerCase().includes(queryLower));
+    // Check topic tags
+    if (conv.topic_tags.some((tag) => tag.toLowerCase().includes(queryLower))) {
+      return true;
+    }
+    // Check tone tags
+    if (conv.tone_tags.some((tag) => tag.toLowerCase().includes(queryLower))) {
+      return true;
+    }
+    // Check message previews
+    if (conv.messages_preview.some((msg) => msg.content_preview.toLowerCase().includes(queryLower))) {
+      return true;
+    }
+    return false;
   });
-
-  // Sort by symbolic density (most relevant first)
-  matches.sort((a, b) => b.symbolic_density - a.symbolic_density);
 
   const limited = limit != null ? matches.slice(0, limit) : matches.slice(0, 20);
 
@@ -206,20 +212,22 @@ export async function handleEmergenceSearch({
     results: limited.map((conv) => ({
       conversation_id: conv.conversation_id,
       file_path: conv.file_path,
-      date_range: conv.date_range,
       message_count: conv.message_count,
-      symbolic_density: conv.symbolic_density,
-      matched_patterns: conv.detected_patterns,
+      user_message_count: conv.user_message_count,
+      topic_tags: conv.topic_tags,
+      tone_tags: conv.tone_tags,
     })),
   };
 }
 
 /**
- * Get conversations with highest symbolic density
+ * Get conversations by topic
  */
-export async function handleEmergenceGetSymbolicConversations({
+export async function handleInteractionGetByTopic({
+  topic,
   limit,
 }: {
+  topic: string;
   limit?: number;
 }) {
   const index = loadIndex();
@@ -227,28 +235,28 @@ export async function handleEmergenceGetSymbolicConversations({
   if (index.length === 0) {
     return {
       available: false,
-      message: "Emergence index not found. Run build_emergence_map.py first.",
+      message: "Interaction index not found. Run build_interaction_map.py first.",
     };
   }
 
-  // Filter to those with symbolic language and sort by density
-  const symbolic = index
-    .filter((c) => c.has_symbolic_language)
-    .sort((a, b) => b.symbolic_density - a.symbolic_density);
+  const topicLower = topic.toLowerCase();
+  const matches = index.filter((conv) =>
+    conv.topic_tags.some((tag) => tag.toLowerCase() === topicLower)
+  );
 
-  const limited = symbolic.slice(0, limit ?? 10);
+  const limited = matches.slice(0, limit ?? 20);
 
   return {
     available: true,
-    total_with_symbolic: symbolic.length,
-    top_conversations: limited.map((conv) => ({
+    topic,
+    total_matches: matches.length,
+    conversations: limited.map((conv) => ({
       conversation_id: conv.conversation_id,
       file_path: conv.file_path,
-      date_range: conv.date_range,
       message_count: conv.message_count,
-      symbolic_density: conv.symbolic_density,
-      symbolic_keywords: conv.detected_patterns.symbolic_keywords,
-      entities: conv.detected_patterns.entities,
+      user_message_count: conv.user_message_count,
+      topic_tags: conv.topic_tags,
+      tone_tags: conv.tone_tags,
     })),
   };
 }
@@ -256,7 +264,7 @@ export async function handleEmergenceGetSymbolicConversations({
 /**
  * Get timeline of key events
  */
-export async function handleEmergenceGetTimeline({
+export async function handleInteractionGetTimeline({
   start_date,
   end_date,
 }: {
@@ -268,7 +276,7 @@ export async function handleEmergenceGetTimeline({
   if (events.length === 0) {
     return {
       available: false,
-      message: "No key events found. Run build_emergence_map.py first.",
+      message: "No key events found. Run build_interaction_map.py first.",
     };
   }
 
@@ -289,22 +297,21 @@ export async function handleEmergenceGetTimeline({
   filtered.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
   // Group by month
-  const byMonth: Record<string, EmergenceEvent[]> = {};
+  const byMonth: Record<string, InteractionEvent[]> = {};
   for (const event of filtered) {
-    const month = event.date.substring(0, 7); // YYYY-MM
-    if (!byMonth[month]) {
-      byMonth[month] = [];
+    if (event.timestamp) {
+      const date = new Date(event.timestamp * 1000);
+      const month = date.toISOString().substring(0, 7); // YYYY-MM
+      if (!byMonth[month]) {
+        byMonth[month] = [];
+      }
+      byMonth[month].push(event);
     }
-    byMonth[month].push(event);
   }
 
   return {
     available: true,
     total_events: filtered.length,
-    date_range: {
-      earliest: filtered[0]?.date,
-      latest: filtered[filtered.length - 1]?.date,
-    },
     by_month: Object.fromEntries(
       Object.entries(byMonth).map(([month, evts]) => [
         month,
@@ -315,9 +322,9 @@ export async function handleEmergenceGetTimeline({
 }
 
 /**
- * Clear cached emergence data
+ * Clear cached interaction data
  */
-export function clearEmergenceCache() {
+export function clearInteractionCache() {
   cachedEvents = null;
   cachedIndex = null;
 }

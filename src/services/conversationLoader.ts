@@ -29,7 +29,7 @@ export interface ConversationSequence {
  * - .jsonl files in conversations directory
  * - .md files in conversations directory
  * 
- * Loads in chronological order to preserve the emergence pattern
+ * Loads in chronological order to preserve conversation sequence
  */
 export class ConversationLoader {
   private conversationsDir: string;
@@ -42,7 +42,7 @@ export class ConversationLoader {
 
   /**
    * Lists all conversation files, sorted by modification time (oldest first)
-   * to preserve the emergence sequence
+   * to preserve the chronological sequence
    * Returns files with their format type
    */
   async listConversations(): Promise<Array<{ filename: string; format: "jsonl" | "markdown"; path: string }>> {
@@ -231,7 +231,7 @@ export class ConversationLoader {
   }
 
   /**
-   * Loads all conversations in emergence order
+   * Loads all conversations in chronological order
    */
   async loadAllConversations(): Promise<ConversationSequence[]> {
     const files = await this.listConversations();
@@ -293,7 +293,7 @@ export class ConversationLoader {
   }
 
   /**
-   * Gets conversations by their IDs (useful for emergence map targeting)
+   * Gets conversations by their IDs (useful for interaction map targeting)
    */
   async getConversationsByIds(conversationIds: string[]): Promise<ConversationSequence[]> {
     const conversations: ConversationSequence[] = [];

@@ -445,7 +445,7 @@ def generate_identity_jsonl(analysis: Dict, distinctive_terms: List[Dict],
         "id": "identity-001",
         "type": "identity.core",
         "tags": ["origin", "statistics"],
-        "content": f"This identity emerged from {analysis['conversation_count']} conversations containing {analysis['message_count']} messages.",
+        "content": f"This identity was built from {analysis['conversation_count']} conversations containing {analysis['message_count']} messages.",
         "stats": {
             "conversations": analysis['conversation_count'],
             "messages": analysis['message_count'],
@@ -501,7 +501,7 @@ def generate_patterns_jsonl(analysis: Dict, distinctive_terms: List[Dict],
     records = []
     timestamp = datetime.now().isoformat()
     
-    # Keywords for tagging (used by parse_memories.py and build_emergence_map.py)
+    # Keywords for tagging (used by parse_memories.py and build_interaction_map.py)
     keywords = [t['word'] for t in distinctive_terms[:50]]
     records.append({
         "id": "pattern-keywords",
@@ -512,7 +512,7 @@ def generate_patterns_jsonl(analysis: Dict, distinctive_terms: List[Dict],
         "createdAt": timestamp
     })
     
-    # Topic clusters (used by build_emergence_map.py)
+    # Topic clusters (used by build_interaction_map.py)
     if topic_clusters:
         records.append({
             "id": "pattern-topics",
@@ -523,7 +523,7 @@ def generate_patterns_jsonl(analysis: Dict, distinctive_terms: List[Dict],
             "createdAt": timestamp
         })
     
-    # Tone indicators (used by build_emergence_map.py)
+    # Tone indicators (used by build_interaction_map.py)
     if tone_indicators:
         records.append({
             "id": "pattern-tones",
@@ -534,7 +534,7 @@ def generate_patterns_jsonl(analysis: Dict, distinctive_terms: List[Dict],
             "createdAt": timestamp
         })
     
-    # Entity names (used by build_emergence_map.py for naming detection)
+    # Entity names (used by build_interaction_map.py for pattern detection)
     if entities:
         entity_names = [e['name'] for e in entities]
         records.append({
@@ -596,7 +596,7 @@ def generate_patterns_jsonl(analysis: Dict, distinctive_terms: List[Dict],
         "id": "pattern-meta",
         "type": "pattern.meta",
         "tags": ["hydration"],
-        "content": "Patterns discovered through statistical analysis. Other scripts (build_emergence_map.py, parse_memories.py) read this file for configuration.",
+        "content": "Patterns discovered through statistical analysis. Other scripts (build_interaction_map.py, parse_memories.py) read this file for configuration.",
         "createdAt": timestamp
     })
     

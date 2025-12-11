@@ -85,12 +85,12 @@ import {
   handleIdentityGetRelational,
 } from "../mcp/identityAnalysisTools";
 import {
-  handleEmergenceGetSummary,
-  handleEmergenceGetEvents,
-  handleEmergenceSearch,
-  handleEmergenceGetSymbolicConversations,
-  handleEmergenceGetTimeline,
-} from "../mcp/emergenceTools";
+  handleInteractionGetSummary,
+  handleInteractionGetEvents,
+  handleInteractionSearch,
+  handleInteractionGetByTopic,
+  handleInteractionGetTimeline,
+} from "../mcp/interactionTools";
 import {
   handleIdentityModelStatus,
   handleIdentityVerify,
@@ -563,65 +563,66 @@ mcpRouter.get("/mcp/identity.relational", async (_req: Request, res: Response) =
   }
 });
 
-// Emergence endpoints
-mcpRouter.get("/mcp/emergence.summary", async (_req: Request, res: Response) => {
+// Interaction Map endpoints (human communication patterns)
+mcpRouter.get("/mcp/interaction.summary", async (_req: Request, res: Response) => {
   try {
-    const result = await handleEmergenceGetSummary();
+    const result = await handleInteractionGetSummary();
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.post("/mcp/emergence.events", async (req: Request, res: Response) => {
+mcpRouter.post("/mcp/interaction.events", async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       event_type: z.string().optional(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleEmergenceGetEvents(parsed);
+    const result = await handleInteractionGetEvents(parsed);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.post("/mcp/emergence.search", async (req: Request, res: Response) => {
+mcpRouter.post("/mcp/interaction.search", async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       query: z.string(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleEmergenceSearch(parsed);
+    const result = await handleInteractionSearch(parsed);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.post("/mcp/emergence.symbolic_conversations", async (req: Request, res: Response) => {
+mcpRouter.post("/mcp/interaction.by_topic", async (req: Request, res: Response) => {
   try {
     const schema = z.object({
+      topic: z.string(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleEmergenceGetSymbolicConversations(parsed);
+    const result = await handleInteractionGetByTopic(parsed);
     res.json(result);
   } catch (err) {
     handleError(res, err);
   }
 });
 
-mcpRouter.post("/mcp/emergence.timeline", async (req: Request, res: Response) => {
+mcpRouter.post("/mcp/interaction.timeline", async (req: Request, res: Response) => {
   try {
     const schema = z.object({
       start_date: z.string().optional(),
       end_date: z.string().optional(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleEmergenceGetTimeline(parsed);
+    const result = await handleInteractionGetTimeline(parsed);
     res.json(result);
   } catch (err) {
     handleError(res, err);

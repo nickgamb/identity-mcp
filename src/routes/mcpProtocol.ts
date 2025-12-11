@@ -63,12 +63,12 @@ import {
   handleIdentityGetRelational,
 } from "../mcp/identityAnalysisTools";
 import {
-  handleEmergenceGetSummary,
-  handleEmergenceGetEvents,
-  handleEmergenceSearch,
-  handleEmergenceGetSymbolicConversations,
-  handleEmergenceGetTimeline,
-} from "../mcp/emergenceTools";
+  handleInteractionGetSummary,
+  handleInteractionGetEvents,
+  handleInteractionSearch,
+  handleInteractionGetByTopic,
+  handleInteractionGetTimeline,
+} from "../mcp/interactionTools";
 import {
   handleIdentityModelStatus,
   handleIdentityVerify,
@@ -269,68 +269,70 @@ function registerTools(server: McpServer) {
   );
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Emergence Map Tools (from build_emergence_map.py output)
+  // Interaction Map Tools (from build_interaction_map.py output)
+  // Focus: Human communication patterns and identity fingerprinting
   // ─────────────────────────────────────────────────────────────────────────────
 
   server.registerTool(
-    "emergence_summary",
+    "interaction_summary",
     {
-      title: "Emergence Summary",
-      description: "Get summary of emergence data including event counts and symbolic content stats.",
+      title: "Interaction Summary",
+      description: "Get summary of interaction data including event counts, topic/tone distribution, and human message stats.",
       inputSchema: z.object({}),
     },
-    async () => toContent(await handleEmergenceGetSummary()),
+    async () => toContent(await handleInteractionGetSummary()),
   );
 
   server.registerTool(
-    "emergence_get_events",
+    "interaction_get_events",
     {
-      title: "Get Key Events",
-      description: "Get key events (naming, emotional, identity prompts) from conversation history.",
+      title: "Get Key Communication Events",
+      description: "Get key human communication events (problem-solving, tempo changes, topic transitions, tone shifts).",
       inputSchema: z.object({
-        event_type: z.string().optional().describe("Filter by event type (e.g., naming_event, emotional_peak)"),
+        event_type: z.string().optional().describe("Filter by event type (PROBLEM_SOLVING, TEMPO_CHANGE, TOPIC_TRANSITION, TONE_SHIFT)"),
         limit: z.number().nullish().describe("Maximum events to return"),
       }),
     },
-    async ({ event_type, limit }) => toContent(await handleEmergenceGetEvents({ event_type, limit })),
+    async ({ event_type, limit }) => toContent(await handleInteractionGetEvents({ event_type, limit })),
   );
 
   server.registerTool(
-    "emergence_search",
+    "interaction_search",
     {
-      title: "Search Emergence Index",
-      description: "Search conversations by pattern, keyword, or entity.",
+      title: "Search Interaction Index",
+      description: "Search conversations by topic, tone, or keyword in message content.",
       inputSchema: z.object({
-        query: z.string().describe("Search query (keyword, pattern, or entity name)"),
+        query: z.string().describe("Search query (topic, tone, or keyword)"),
         limit: z.number().nullish().describe("Maximum results to return"),
       }),
     },
-    async ({ query, limit }) => toContent(await handleEmergenceSearch({ query, limit })),
+    async ({ query, limit }) => toContent(await handleInteractionSearch({ query, limit })),
   );
 
   server.registerTool(
-    "emergence_symbolic_conversations",
+    "interaction_get_by_topic",
     {
-      title: "Get Symbolic Conversations",
-      description: "Get conversations with highest symbolic language density.",
+      title: "Get Conversations by Topic",
+      description: "Get conversations filtered by specific topic tag.",
       inputSchema: z.object({
+        topic: z.string().describe("Topic tag (e.g., technical, emotional, creative, philosophical)"),
         limit: z.number().nullish().describe("Maximum conversations to return"),
       }),
     },
-    async ({ limit }) => toContent(await handleEmergenceGetSymbolicConversations({ limit })),
+    async ({ topic, limit }) => toContent(await handleInteractionGetByTopic({ topic, limit })),
   );
 
   server.registerTool(
-    "emergence_timeline",
+    "interaction_timeline",
     {
       title: "Get Event Timeline",
-      description: "Get timeline of key events, optionally filtered by date range.",
+      description: "Get timeline of key human communication events, optionally filtered by date range.",
       inputSchema: z.object({
         start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
         end_date: z.string().optional().describe("End date (YYYY-MM-DD)"),
       }),
     },
-    async ({ start_date, end_date }) => toContent(await handleEmergenceGetTimeline({ start_date, end_date })),
+    async ({ start_date, end_date }) => toContent(await handleInteractionGetTimeline({ start_date, end_date })),
   );
 
   // ─────────────────────────────────────────────────────────────────────────────

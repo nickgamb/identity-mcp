@@ -52,7 +52,7 @@ The dashboard can run these scripts via the MCP pipeline API:
 | `analyze_patterns` | Discover patterns → identity.jsonl, patterns.jsonl |
 | `parse_memories` | Parse memories.json → user.context.jsonl |
 | `analyze_identity` | Extract identity markers → identity_analysis.jsonl |
-| `build_emergence_map` | Index conversations → key events |
+| `build_interaction_map` | Index conversations → human communication patterns |
 | `train_identity_model` | Train embedding model → models/identity/ |
 
 ## Architecture

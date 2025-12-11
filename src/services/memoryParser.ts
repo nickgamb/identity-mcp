@@ -25,7 +25,7 @@ interface MemoryTagConfig {
 /**
  * Parses ChatGPT memories.json and converts to JSONL format
  * These are factual memories about the user/relationship context
- * Tags are loaded from emergence_config.json if available
+ * Tags are loaded from memory_config.json if available
  */
 export class MemoryParser {
   private memoriesDir: string;
@@ -37,10 +37,10 @@ export class MemoryParser {
   }
 
   /**
-   * Load tag configuration from emergence_config.json
+   * Load tag configuration from memory_config.json
    */
   private loadTagConfig(): void {
-    const configPath = path.join(this.memoriesDir, "emergence_config.json");
+    const configPath = path.join(this.memoriesDir, "memory_config.json");
     
     if (fs.existsSync(configPath)) {
       try {
@@ -51,11 +51,11 @@ export class MemoryParser {
           contextTags: Object.keys(this.tagConfig?.memory_tags?.context_tags || {})
         });
       } catch (error) {
-        logger.warn("Error loading emergence_config.json, using no tags", { error: String(error) });
+        logger.warn("Error loading memory_config.json, using no tags", { error: String(error) });
         this.tagConfig = null;
       }
     } else {
-      logger.info("No emergence_config.json found, memories will have no tags");
+      logger.info("No memory_config.json found, memories will have no tags");
       this.tagConfig = null;
     }
   }
@@ -131,7 +131,7 @@ export class MemoryParser {
 
   /**
    * Extracts relevant tags from memory content
-   * Uses tags from emergence_config.json if available
+   * Uses tags from memory_config.json if available
    */
   private extractTags(content: string): string[] {
     const tags: string[] = [];

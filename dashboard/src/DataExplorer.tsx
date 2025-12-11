@@ -50,6 +50,14 @@ interface IdentityModel {
   vocabulary_profile?: any
   temporal_analysis?: any
   identity_report?: string
+  interaction_map?: {
+    available: boolean
+    total_key_events?: number
+    event_types?: Record<string, number>
+    topic_distribution?: Record<string, number>
+    tone_distribution?: Record<string, number>
+    total_human_messages?: number
+  }
 }
 
 interface FileItem {
@@ -197,13 +205,29 @@ export function DataExplorer() {
         return
       }
 
+      // Load interaction map data if available
+      let interactionMap = null
+      try {
+        const interactionRes = await fetch('/api/mcp/interaction.summary')
+        if (interactionRes.ok) {
+          const interactionData = await interactionRes.json()
+          if (interactionData.available) {
+            interactionMap = interactionData
+          }
+        }
+      } catch (error) {
+        // Interaction map not available - silently fail, it's optional
+        console.debug('Interaction map not available:', error)
+      }
+
       setIdentityModel({
         exists: true,
         config: statusData.config || null,
         stylistic_profile: statusData.stylistic_profile || null,
         vocabulary_profile: statusData.vocabulary_profile || null,
         temporal_analysis: statusData.temporal_analysis || null,
-        identity_report: statusData.identity_report || null
+        identity_report: statusData.identity_report || null,
+        interaction_map: interactionMap
       })
     } catch (error) {
       console.error('Failed to load identity model:', error)
@@ -1411,6 +1435,116 @@ export function DataExplorer() {
                       )}
                     </div>
                   )}
+                </CollapsibleSection>
+              )}
+
+              {/* Interaction Map - Communication Patterns */}
+              {identityModel.interaction_map && identityModel.interaction_map.available && (
+                <CollapsibleSection 
+                  title="Communication Patterns & Events" 
+                  icon={Activity}
+                  defaultExpanded={true}
+                  detailsContent={
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                      {identityModel.interaction_map.event_types && Object.entries(identityModel.interaction_map.event_types).map(([type, count]: [string, any]) => (
+                        <div key={type} className="p-2 rounded-lg bg-surface-100">
+                          <div className="text-xs text-text-muted mb-1">{type.replace(/_/g, ' ')}</div>
+                          <div className="font-semibold text-text-primary">{count as number}</div>
+                        </div>
+                      ))}
+                    </div>
+                  }
+                >
+                  {/* Event Type Distribution Chart */}
+                  {identityModel.interaction_map.event_types && Object.keys(identityModel.interaction_map.event_types).length > 0 && (
+                    <div className="h-64 mb-6">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={Object.entries(identityModel.interaction_map.event_types)
+                            .map(([type, count]: [string, any]) => ({
+                              type: type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
+                              count: count as number
+                            }))
+                            .sort((a, b) => b.count - a.count)
+                          }
+                          margin={{ top: 5, right: 30, left: 20, bottom: 40 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                          <XAxis 
+                            dataKey="type" 
+                            angle={-45}
+                            textAnchor="end"
+                            height={80}
+                            stroke="rgba(255,255,255,0.5)"
+                            fontSize={11}
+                          />
+                          <YAxis 
+                            stroke="rgba(255,255,255,0.5)"
+                            label={{ value: 'Event Count', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.7)' }}
+                          />
+                          <Tooltip 
+                            contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(255,255,255,0.2)' }}
+                            labelStyle={{ color: '#fff' }}
+                          />
+                          <Bar dataKey="count" fill="#8b5cf6" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+
+                  {/* Topic & Tone Distribution */}
+                  {(identityModel.interaction_map.topic_distribution || identityModel.interaction_map.tone_distribution) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      {identityModel.interaction_map.topic_distribution && Object.keys(identityModel.interaction_map.topic_distribution).length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-semibold text-text-primary mb-2">Topic Distribution</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {Object.entries(identityModel.interaction_map.topic_distribution)
+                              .sort(([, a]: [string, any], [, b]: [string, any]) => (b as number) - (a as number))
+                              .slice(0, 10)
+                              .map(([topic, count]: [string, any]) => (
+                                <div 
+                                  key={topic} 
+                                  className="px-3 py-1 rounded-full bg-purple-500/10 text-purple-400 text-sm font-medium"
+                                  title={`${count} conversations`}
+                                >
+                                  {topic} ({count})
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                      {identityModel.interaction_map.tone_distribution && Object.keys(identityModel.interaction_map.tone_distribution).length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-semibold text-text-primary mb-2">Tone Distribution</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {Object.entries(identityModel.interaction_map.tone_distribution)
+                              .sort(([, a]: [string, any], [, b]: [string, any]) => (b as number) - (a as number))
+                              .slice(0, 10)
+                              .map(([tone, count]: [string, any]) => (
+                                <div 
+                                  key={tone} 
+                                  className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-sm font-medium"
+                                  title={`${count} conversations`}
+                                >
+                                  {tone} ({count})
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Summary Stats */}
+                  <div className="mt-4 text-sm text-text-muted space-y-1">
+                    {identityModel.interaction_map.total_key_events !== undefined && (
+                      <div>Total communication events: {identityModel.interaction_map.total_key_events}</div>
+                    )}
+                    {identityModel.interaction_map.total_human_messages !== undefined && (
+                      <div>Human messages analyzed: {identityModel.interaction_map.total_human_messages.toLocaleString()}</div>
+                    )}
+                  </div>
                 </CollapsibleSection>
               )}
 

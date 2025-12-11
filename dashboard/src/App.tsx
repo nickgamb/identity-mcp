@@ -66,12 +66,12 @@ const SCRIPTS = [
     order: 4,
   },
   {
-    id: 'build_emergence_map',
-    name: 'Build Emergence Map',
-    file: 'build_emergence_map.py',
+    id: 'build_interaction_map',
+    name: 'Build Interaction Map',
+    file: 'build_interaction_map.py',
     path: 'scripts/conversation_processing/',
-    description: 'Indexes all conversations and identifies key events (naming, emotional, identity prompts).',
-    outputs: ['memory/emergence_map_index.json', 'memory/emergence_key_events.json'],
+    description: 'Indexes conversations and identifies human communication patterns (problem-solving, tempo changes, topic transitions, tone shifts).',
+    outputs: ['memory/interaction_map_index.json', 'memory/interaction_key_events.json'],
     icon: FolderOpen,
     color: 'accent',
     order: 5,
@@ -203,9 +203,9 @@ function App() {
         // Memory list check failed
       }
       
-      // Build Emergence Map - check via data.status
-      if (data.generatedData?.emergenceMap) {
-        finalStates['build_emergence_map'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      // Build Interaction Map - check via data.status
+      if (data.generatedData?.interactionMap) {
+        finalStates['build_interaction_map'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
       }
       
       // Train Identity Model - use data.status which already checks this

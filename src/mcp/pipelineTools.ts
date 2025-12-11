@@ -52,9 +52,9 @@ const ALLOWED_SCRIPTS: Record<string, { path: string; description: string }> = {
     path: "scripts/conversation_processing/analyze_identity.py",
     description: "Extract relational patterns and identity markers",
   },
-  build_emergence_map: {
-    path: "scripts/conversation_processing/build_emergence_map.py",
-    description: "Index conversations and identify key events",
+  build_interaction_map: {
+    path: "scripts/conversation_processing/build_interaction_map.py",
+    description: "Index conversations and identify human communication patterns",
   },
   train_identity_model: {
     path: "scripts/identity_model/train_identity_model.py",
@@ -258,7 +258,7 @@ export async function handlePipelineRunAll(): Promise<{
     "analyze_patterns",
     "parse_memories",
     "analyze_identity",
-    "build_emergence_map",
+    "build_interaction_map",
   ];
 
   for (const script of order) {

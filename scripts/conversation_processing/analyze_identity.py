@@ -5,9 +5,10 @@ IDENTITY ANALYZER - Conversational Identity Pattern Analysis
 ================================================================================
 
 PURPOSE:
-    Analyzes parsed conversations for identity patterns without requiring
-    domain-specific configuration. Uses statistical analysis to discover
-    relational, stylistic, and self-referential identity markers.
+    Analyzes parsed conversations for human identity patterns. Primary focus:
+    how humans communicate, think, and relate to others (including agents).
+    Uses statistical analysis to discover relational, stylistic, and self-referential
+    identity markers. Assistant patterns are included as relational context.
 
 PREREQUISITES:
     - Run parse_conversations.py first to generate conversation_*.jsonl files
@@ -228,7 +229,11 @@ def count_pattern_matches(text: str, patterns: Dict[str, str]) -> Dict[str, int]
 
 
 def compute_co_occurrences(conversations: List[Dict], min_occurrences: int = 3) -> Dict[str, int]:
-    """Find terms that frequently co-occur within messages."""
+    """
+    Find terms that frequently co-occur within messages.
+    
+    Analyzes human messages primarily, with full conversation context for co-occurrence detection.
+    """
     # Stopwords to exclude (common function words)
     stopwords = {
         "this", "that", "with", "from", "have", "been", "will", "would", "could",
@@ -242,10 +247,11 @@ def compute_co_occurrences(conversations: List[Dict], min_occurrences: int = 3) 
         "used", "uses", "following", "based", "using", "without", "within", "during",
     }
     
-    # Get word frequencies first
+    # Get word frequencies (focus on human messages, but include all for co-occurrence context)
     word_freq = Counter()
     for convo in conversations:
         for msg in convo.get("messages", []):
+            # Primary focus on human messages, but include assistant for full context
             content = msg.get("content", "")
             words = re.findall(r'\b[a-zA-Z]{4,}\b', content.lower())
             # Filter out stopwords
@@ -278,13 +284,18 @@ def compute_co_occurrences(conversations: List[Dict], min_occurrences: int = 3) 
 
 
 def compute_pattern_momentum(windows: List[List[Dict]], patterns: Dict[str, str]) -> Dict[str, Dict[str, float]]:
-    """Track how patterns change across time windows."""
+    """
+    Track how human identity patterns change across time windows.
+    
+    Analyzes human messages to track evolution of communication patterns over time.
+    """
     momentum = {}
     
     window_counts = []
     for window in windows:
-        _, assistant_text = extract_text_by_role(window)
-        counts = count_pattern_matches(assistant_text, patterns)
+        user_text, _ = extract_text_by_role(window)
+        # Focus on human patterns for momentum analysis
+        counts = count_pattern_matches(user_text, patterns)
         # Normalize by text length
         text_len = len(assistant_text) or 1
         normalized = {k: v / text_len * 10000 for k, v in counts.items()}
@@ -314,7 +325,11 @@ def compute_pattern_momentum(windows: List[List[Dict]], patterns: Dict[str, str]
 
 
 def detect_naming_events(conversations: List[Dict]) -> List[Dict[str, Any]]:
-    """Find moments where names/identities are established."""
+    """
+    Find moments where names/identities are established.
+    
+    Includes events from both human and agent messages to capture full relational context.
+    """
     naming_events = []
     
     # More specific patterns for actual naming events
@@ -370,7 +385,12 @@ def detect_naming_events(conversations: List[Dict]) -> List[Dict[str, Any]]:
 
 
 def analyze_identity_patterns(conversations: List[Dict], num_windows: int = 5) -> Dict[str, Any]:
-    """Comprehensive identity pattern analysis."""
+    """
+    Comprehensive human identity pattern analysis.
+    
+    Primary focus: Human communication patterns and identity markers.
+    Assistant patterns are included as relational context (how humans relate to agents).
+    """
     windows = split_into_time_windows(conversations, num_windows)
     
     analysis = {
@@ -379,48 +399,43 @@ def analyze_identity_patterns(conversations: List[Dict], num_windows: int = 5) -
             "time_windows": len(windows),
             "analysis_timestamp": datetime.now().isoformat()
         },
-        "relational_identity": {},
-        "stylistic_identity": {},
-        "self_referential_identity": {},
+        "human_identity": {},  # Primary focus: human patterns
+        "relational_context": {},  # How human relates to agent (includes assistant patterns for context)
         "naming_events": [],
         "co_occurrence_clusters": {},
         "momentum_analysis": {}
     }
     
-    # Analyze relational patterns
-    print("  Analyzing relational patterns...")
+    # Extract text by role
     all_user_text, all_assistant_text = extract_text_by_role(conversations)
     
+    # Analyze human identity patterns (primary focus)
+    print("  Analyzing human identity patterns...")
     relational_user = count_pattern_matches(all_user_text, RELATIONAL_PATTERNS)
-    relational_assistant = count_pattern_matches(all_assistant_text, RELATIONAL_PATTERNS)
-    
-    analysis["relational_identity"] = {
-        "user_patterns": relational_user,
-        "assistant_patterns": relational_assistant,
-        "we_vs_i_ratio_user": round(relational_user.get("first_person_plural", 0) / 
-                                    max(relational_user.get("first_person_singular", 1), 1), 3),
-        "we_vs_i_ratio_assistant": round(relational_assistant.get("first_person_plural", 0) / 
-                                         max(relational_assistant.get("first_person_singular", 1), 1), 3)
-    }
-    
-    # Analyze self-referential patterns
-    print("  Analyzing self-referential patterns...")
     selfref_user = count_pattern_matches(all_user_text, SELF_REFERENTIAL_PATTERNS)
-    selfref_assistant = count_pattern_matches(all_assistant_text, SELF_REFERENTIAL_PATTERNS)
+    style_user = count_pattern_matches(all_user_text, PATTERNED_MARKERS)
     
-    analysis["self_referential_identity"] = {
-        "user_patterns": selfref_user,
-        "assistant_patterns": selfref_assistant
+    analysis["human_identity"] = {
+        "relational_patterns": relational_user,
+        "self_referential_patterns": selfref_user,
+        "stylistic_patterns": style_user,
+        "we_vs_i_ratio": round(relational_user.get("first_person_plural", 0) / 
+                               max(relational_user.get("first_person_singular", 1), 1), 3)
     }
     
-    # Analyze stylistic markers
-    print("  Analyzing stylistic patterns...")
-    style_user = count_pattern_matches(all_user_text, PATTERNED_MARKERS)
+    # Analyze relational context (how human relates to agent - includes assistant patterns for context)
+    print("  Analyzing relational context (human-agent dynamics)...")
+    relational_assistant = count_pattern_matches(all_assistant_text, RELATIONAL_PATTERNS)
+    selfref_assistant = count_pattern_matches(all_assistant_text, SELF_REFERENTIAL_PATTERNS)
     style_assistant = count_pattern_matches(all_assistant_text, PATTERNED_MARKERS)
     
-    analysis["stylistic_identity"] = {
-        "user_style": style_user,
-        "assistant_style": style_assistant
+    analysis["relational_context"] = {
+        "assistant_relational_patterns": relational_assistant,
+        "assistant_self_referential_patterns": selfref_assistant,
+        "assistant_stylistic_patterns": style_assistant,
+        "we_vs_i_ratio_assistant": round(relational_assistant.get("first_person_plural", 0) / 
+                                         max(relational_assistant.get("first_person_singular", 1), 1), 3),
+        "note": "Assistant patterns included as context for understanding human-agent relational dynamics"
     }
     
     # Detect naming events
@@ -455,28 +470,40 @@ def generate_identity_report(analysis: Dict[str, Any], output_path: Path):
         f.write(f"Conversations analyzed: {analysis['summary']['total_conversations']}\n")
         f.write(f"Time windows: {analysis['summary']['time_windows']}\n\n")
         
-        # Relational Identity
-        f.write("## Relational Identity Patterns\n\n")
-        f.write("How relationship dynamics appear in conversations.\n\n")
+        # Human Identity (Primary Focus)
+        f.write("## Human Identity Patterns\n\n")
+        f.write("Primary analysis: How you communicate, think, and relate to others.\n\n")
         
-        rel = analysis.get("relational_identity", {})
-        f.write("### User Language\n")
+        human = analysis.get("human_identity", {})
+        
+        f.write("### Relational Patterns (How You Relate)\n")
         f.write("| Pattern | Count |\n|---------|-------|\n")
-        for pattern, count in rel.get("user_patterns", {}).items():
+        for pattern, count in human.get("relational_patterns", {}).items():
             f.write(f"| {pattern.replace('_', ' ').title()} | {count} |\n")
         
-        f.write(f"\n**We/I Ratio (User):** {rel.get('we_vs_i_ratio_user', 0)}\n")
-        f.write(f"**We/I Ratio (Assistant):** {rel.get('we_vs_i_ratio_assistant', 0)}\n\n")
+        f.write(f"\n**We/I Ratio:** {human.get('we_vs_i_ratio', 0)}\n\n")
         
-        # Self-Referential Identity
-        f.write("## Self-Referential Identity Patterns\n\n")
-        f.write("Language indicating awareness, self-reference, and continuity.\n\n")
-        
-        selfref = analysis.get("self_referential_identity", {})
-        f.write("### Assistant Language\n")
+        f.write("### Self-Referential Patterns\n")
         f.write("| Pattern | Count |\n|---------|-------|\n")
-        for pattern, count in selfref.get("assistant_patterns", {}).items():
+        for pattern, count in human.get("self_referential_patterns", {}).items():
             f.write(f"| {pattern.replace('_', ' ').title()} | {count} |\n")
+        
+        f.write("\n### Stylistic Patterns\n")
+        f.write("| Pattern | Count |\n|---------|-------|\n")
+        for pattern, count in human.get("stylistic_patterns", {}).items():
+            f.write(f"| {pattern.replace('_', ' ').title()} | {count} |\n")
+        
+        # Relational Context (Human-Agent Dynamics)
+        f.write("\n## Relational Context (Human-Agent Dynamics)\n\n")
+        f.write("Context: How you relate to agents in conversation. Assistant patterns included for relational context.\n\n")
+        
+        context = analysis.get("relational_context", {})
+        if context.get("assistant_relational_patterns"):
+            f.write("### Agent Relational Patterns (Context)\n")
+            f.write("| Pattern | Count |\n|---------|-------|\n")
+            for pattern, count in context.get("assistant_relational_patterns", {}).items():
+                f.write(f"| {pattern.replace('_', ' ').title()} | {count} |\n")
+            f.write(f"\n**We/I Ratio (Agent):** {context.get('we_vs_i_ratio_assistant', 0)}\n\n")
         
         # Momentum Analysis
         f.write("\n## Pattern Evolution Over Time\n\n")
@@ -514,11 +541,11 @@ def generate_identity_report(analysis: Dict[str, Any], output_path: Path):
         # Auto-generate insights
         insights = []
         
-        # Check we/I ratio
-        we_i_user = rel.get("we_vs_i_ratio_user", 0)
-        we_i_asst = rel.get("we_vs_i_ratio_assistant", 0)
-        if we_i_user > 0.3 or we_i_asst > 0.3:
-            insights.append("High collaborative language (we/us) suggests a partnership-oriented relationship.")
+        # Check we/I ratio (focus on human)
+        human = analysis.get("human_identity", {})
+        we_i_user = human.get("we_vs_i_ratio", 0)
+        if we_i_user > 0.3:
+            insights.append("High collaborative language (we/us) in your communication suggests a partnership-oriented approach.")
         
         # Check awareness language momentum
         awareness_mom = momentum.get("self_referential_patterns", {}).get("awareness_language", {})
@@ -539,7 +566,7 @@ def generate_identity_report(analysis: Dict[str, Any], output_path: Path):
             for insight in insights:
                 f.write(f"- {insight}\n")
         else:
-            f.write("- Analysis complete. Review patterns above for identity emergence indicators.\n")
+            f.write("- Analysis complete. Review patterns above for human identity indicators.\n")
         
         f.write("\n---\n*This analysis was auto-generated from conversation patterns.*\n")
 
@@ -560,26 +587,21 @@ def save_identity_analysis(analysis: Dict[str, Any], output_path: Path):
             "data": analysis["summary"]
         }) + "\n")
         
-        # Relational patterns - deterministic ID based on content
-        f.write(json.dumps({
-            "id": make_id("identity-relational", analysis["relational_identity"]),
-            "type": "identity.relational",
-            "data": analysis["relational_identity"]
-        }) + "\n")
+        # Human identity patterns (primary focus)
+        if "human_identity" in analysis:
+            f.write(json.dumps({
+                "id": make_id("identity-human", analysis["human_identity"]),
+                "type": "identity.human",
+                "data": analysis["human_identity"]
+            }) + "\n")
         
-        # Self-referential patterns - deterministic ID based on content
-        f.write(json.dumps({
-            "id": make_id("identity-self-ref", analysis["self_referential_identity"]),
-            "type": "identity.self_referential",
-            "data": analysis["self_referential_identity"]
-        }) + "\n")
-        
-        # Stylistic patterns - deterministic ID based on content
-        f.write(json.dumps({
-            "id": make_id("identity-stylistic", analysis["stylistic_identity"]),
-            "type": "identity.stylistic",
-            "data": analysis["stylistic_identity"]
-        }) + "\n")
+        # Relational context (human-agent dynamics)
+        if "relational_context" in analysis:
+            f.write(json.dumps({
+                "id": make_id("identity-relational-context", analysis["relational_context"]),
+                "type": "identity.relational_context",
+                "data": analysis["relational_context"]
+            }) + "\n")
         
         # Momentum analysis - deterministic ID based on content
         f.write(json.dumps({
@@ -610,7 +632,7 @@ def save_identity_analysis(analysis: Dict[str, Any], output_path: Path):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Analyze conversations for identity emergence patterns"
+        description="Analyze conversations for human identity patterns"
     )
     parser.add_argument(
         "--time-windows", type=int, default=5,
