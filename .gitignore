@@ -59,3 +59,4 @@ docker-compose-dev.yml
 docker-compose.yml
 screenshots/vibes.gif
 compress_gif.py
+docs/BLOG_DRAFT.md
