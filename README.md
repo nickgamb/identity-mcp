@@ -104,7 +104,6 @@ docker-compose --profile identity up -d           # MCP + Identity Service
 | [Multi-User & OIDC Support](docs/MULTI_USER_OIDC.md) | Multi-user data isolation and OIDC authentication |
 | [Docker Setup](docs/DOCKER_SETUP.md) | Container deployment guide |
 | [Environment Variables](docs/ENVIRONMENT_VARIABLES.md) | Complete reference for all configuration options |
-| [Blog: Securing Identity MCP](docs/BLOG_SECURING_IDENTITY_MCP.md) | Tutorial on adding OAuth/OIDC and policy-based access control |
 
 ## Architecture
 
