@@ -476,17 +476,17 @@ def create_deepspeed_config(output_dir: Path) -> Path:
     # Single GPU (24GB): Conservative settings
     # Dual GPU (48GB): More aggressive prefetching and live parameters
     if num_gpus >= 2:
-        # FP32: Extremely aggressive - 20B model in FP32 = ~80GB, need minimal GPU memory
-        # DeepSpeed tries to move model to GPU before sharding, so keep very little live
-        max_live_params = 5e7  # 50M parameters max (extremely aggressive for FP32)
-        max_reuse_distance = 5e7
-        reduce_bucket = 5e7  # Small buckets for FP32
-        prefetch_bucket = 5e7
+        # Extremely aggressive - DeepSpeed tries to move model to GPU before sharding
+        # Keep minimal live parameters to prevent OOM during initialization
+        max_live_params = 1e7  # 10M parameters max (prevents OOM during init)
+        max_reuse_distance = 1e7
+        reduce_bucket = 1e7  # Very small buckets
+        prefetch_bucket = 1e7
     else:
-        max_live_params = 1e8  # Very conservative for single GPU with FP32
-        max_reuse_distance = 1e8
-        reduce_bucket = 1e8
-        prefetch_bucket = 1e8
+        max_live_params = 5e7  # Conservative for single GPU
+        max_reuse_distance = 5e7
+        reduce_bucket = 5e7
+        prefetch_bucket = 5e7
     
     config = {
         "zero_optimization": {
@@ -494,8 +494,8 @@ def create_deepspeed_config(output_dir: Path) -> Path:
             "offload_param": {
                 "device": "cpu",
                 "pin_memory": True,
-                "buffer_count": 2 if num_gpus >= 2 else 1,  # Minimal buffers for FP32 (2x memory)
-                "buffer_size": 2e7,  # Smaller buffers for FP32
+                "buffer_count": 1,  # Minimal buffers to reduce GPU memory during init
+                "buffer_size": 1e7 if num_gpus >= 2 else 2e7,  # Smaller buffers for multi-GPU
             },
             "offload_optimizer": {
                 "device": "cpu",
@@ -1135,8 +1135,7 @@ if num_gpus > 1 and num_processes == 1 and not USE_DEEPSPEED:
     log.info("")
 elif num_gpus > 1 and USE_DEEPSPEED:
     log.info("")
-    log.info(f"✅ Multi-GPU Setup: {{num_gpus}} P40s detected with DeepSpeed ZeRO-3")
-    log.info(f"   Expected speedup: ~{{num_gpus * 0.85:.1f}}x ({{int(85 * num_gpus)}}% efficiency)")
+    log.info(f"✅ Multi-GPU Setup: {{num_gpus}} GPUs detected with DeepSpeed ZeRO-3")
     log.info("")
 
 # Patch torch.xpu to avoid AttributeError in MXFP4 quantizer validation
@@ -1175,19 +1174,23 @@ model_kwargs = {{
 }}
 
 if USE_DEEPSPEED and ds_config is not None:
-    # DeepSpeed mode - load to CPU normally, DeepSpeed will shard during initialization
+    # DeepSpeed mode - force CPU loading with device_map to prevent GPU allocation
     log.info("  Mode: DeepSpeed ZeRO-3 (optimal for multi-GPU)")
-    # Load model to CPU without device_map - DeepSpeed ZeRO-3 will handle GPU sharding
-    # during initialization. The model stays on CPU until DeepSpeed moves it in shards.
-    model_kwargs_no_device = {{
+    # Force CPU loading with device_map - prevents any GPU allocation during load
+    # DeepSpeed ZeRO-3 will handle GPU sharding during initialization
+    model_kwargs_cpu = {{
         "trust_remote_code": True,
         "torch_dtype": torch.float16 if use_fp16 else torch.float32,
         "low_cpu_mem_usage": True,
+        "device_map": "cpu",  # Force CPU to prevent GPU allocation
     }}
-    # Don't use device_map - let DeepSpeed handle device placement
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, **model_kwargs_no_device)
-    # Move to CPU explicitly (model may be on default device)
-    model = model.cpu()
+    # Set max_memory to prevent any GPU allocation
+    if torch.cuda.is_available():
+        max_memory = {{"cpu": "200GiB"}}
+        for i in range(torch.cuda.device_count()):
+            max_memory[f"cuda:{{i}}"] = "0MiB"  # Zero GPU memory during load
+        model_kwargs_cpu["max_memory"] = max_memory
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, **model_kwargs_cpu)
     log.info("  Model loaded to CPU (DeepSpeed ZeRO-3 will shard across GPUs during initialization)")
 else:
     # Single/Multi-GPU without DeepSpeed - load to CPU first to avoid OOM
@@ -1260,13 +1263,11 @@ if hasattr(model.config, 'use_cache'):
 
 if hasattr(model, 'enable_input_require_grads'):
     model.enable_input_require_grads()
-    log.info("✅ Input gradients enabled for gradient checkpointing")
 else:
     def make_inputs_require_grad(module, input, output):
         output.requires_grad_(True)
     if hasattr(model, 'get_input_embeddings'):
         model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
-        log.info("✅ Input gradients enabled via forward hook")
 
 # Load and tokenize dataset
 log.info("\\nLoading and tokenizing dataset...")
