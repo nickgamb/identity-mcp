@@ -46,6 +46,9 @@ class Config:
     max_grad_norm: float = 1.0
     seed: int = 42
     use_gpu_offload: bool = False
+    gpu_max_memory_gb: int = 8          # hard cap per GPU used for "support only" sharding
+    gpu_free_fraction: float = 0.50     # use at most this fraction of *currently free* VRAM
+    reenable_gpu_every: int = 200       # after CPU fallback, try re-enable GPU offload every N optimizer steps
 
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent if Path(__file__).parent.name == "conversation_processing" else Path(__file__).parent
@@ -64,12 +67,6 @@ ADAPTERS_DIR = get_user_dir(PROJECT_ROOT / "adapters")
 
 for d in [TRAINING_DATA_DIR, ADAPTERS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
-
-# Hard cap per GPU for "support only" sharding.
-GPU_MAX_GB_CAP = float(os.environ.get("GPU_MAX_GB_CAP", "8"))          # default 8GiB per GPU
-GPU_FREE_FRACTION = float(os.environ.get("GPU_FREE_FRACTION", "0.50")) # use at most 50% of free VRAM
-REENABLE_GPU_EVERY = int(os.environ.get("REENABLE_GPU_EVERY", "200"))  # try re-enable GPU offload every N optimizer steps
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # LOGGING & UTILITIES
@@ -180,7 +177,7 @@ def _move_batch_to_device(batch: dict, device):
 
 def _force_model_dtype_inplace(model, target_dtype):
     # Force a consistent dtype across the entire sharded model.
-    # This is the key fix for float != bfloat16 issues.
+    # This avoids float != bf16/fp16 mixed errors.
     import torch
     with torch.no_grad():
         for p in model.parameters():
@@ -376,8 +373,6 @@ def train(
                 log.info(f"   GPU [{i}]: {dev['name']} ({dev['memory_total_gb']}GB)")
         log.info("")
     else:
-        if not config.use_gpu_offload:
-            os.environ["CUDA_VISIBLE_DEVICES"] = ""
         log.info("🖥️  CPU-only training mode")
         log.info("")
 
@@ -479,7 +474,8 @@ def train(
     except Exception:
         pass
 
-    # REQUIRED for gradient checkpointing + PEFT (fixes "None of the inputs have requires_grad=True")
+    # REQUIRED for gradient checkpointing + PEFT
+    # (fixes: "None of the inputs have requires_grad=True. Gradients will be None")
     try:
         model.enable_input_require_grads()
     except Exception:
@@ -497,15 +493,19 @@ def train(
         mm = {"cpu": "100GiB"}
         if not (torch.cuda.is_available() and num_gpus > 0):
             return mm
+
+        cap = float(config.gpu_max_memory_gb)
+        frac = float(config.gpu_free_fraction)
+
         for gi in range(num_gpus):
             try:
                 free_b, total_b = torch.cuda.mem_get_info(gi)
                 free_gb = free_b / (1024**3)
                 total_gb = total_b / (1024**3)
 
-                allow = min(GPU_MAX_GB_CAP, free_gb * GPU_FREE_FRACTION)
+                allow = min(cap, free_gb * frac)
                 allow = max(2.0, allow)
-                allow = min(allow, max(2.0, total_gb - 3.0))  # absolute headroom for activations/fragmentation
+                allow = min(allow, max(2.0, total_gb - 3.0))  # headroom for activations/fragmentation
 
                 mm[gi] = f"{allow:.0f}GiB"
             except Exception:
@@ -575,13 +575,15 @@ def train(
 
     if use_gpu and num_gpus > 0:
         # Helps fragmentation, but doesn't "force" more model onto GPU.
-        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = os.environ.get(
+            "PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True"
+        )
 
         resh = try_dispatch_to_gpus(model_container[0])
         if resh is not None:
             model_container[0] = resh
             gpu_enabled[0] = True
-            log.info(f"🚀 GPU offload enabled (capped ~{GPU_MAX_GB_CAP:.0f}GiB/GPU).")
+            log.info(f"🚀 GPU offload enabled (capped ~{float(config.gpu_max_memory_gb):.0f}GiB/GPU).")
         else:
             log.warning("⚠️  GPU offload not possible right now — staying CPU-only.")
             model_container[0] = dispatch_cpu_only(model_container[0])
@@ -649,7 +651,7 @@ def train(
 
     def process_batch_with_fallback(batch):
         m = model_container[0]
-        m = _force_model_dtype_inplace(m, target_dtype)  # keep consistent after any dispatch
+        m = _force_model_dtype_inplace(m, target_dtype)
         dev = _input_device(m)
         batch_dev = _move_batch_to_device(batch, dev)
 
@@ -704,7 +706,8 @@ def train(
             for _ in range(start_step_in_epoch):
                 next(it, None)
 
-        progress = tqdm(total=steps_per_epoch - (start_step_in_epoch if epoch == start_epoch else 0), desc="  Training", unit="batch")
+        progress = tqdm(total=steps_per_epoch - (start_step_in_epoch if epoch == start_epoch else 0),
+                        desc="  Training", unit="batch")
 
         epoch_loss = 0.0
         nloss = 0
@@ -732,7 +735,7 @@ def train(
                     _save_checkpoint(m, tokenizer, optimizer, scheduler, global_step, epoch, epoch_loss, output_dir, log)
 
                 # Conservative re-enable of GPU offload once VRAM is available again
-                if (not gpu_enabled[0]) and use_gpu and num_gpus > 0 and (global_step % REENABLE_GPU_EVERY == 0):
+                if (not gpu_enabled[0]) and use_gpu and num_gpus > 0 and (global_step % int(config.reenable_gpu_every) == 0):
                     resh = try_dispatch_to_gpus(model_container[0])
                     if resh is not None:
                         model_container[0] = resh
@@ -822,7 +825,18 @@ def main():
     parser.add_argument('--output_name', type=str, default=None)
     parser.add_argument('--resume_from_checkpoint', type=str, default=None)
 
+    parser.add_argument("--gpu_max_memory_gb", type=int, default=8,
+                        help="Max VRAM (GiB) per GPU used for offload")
+    parser.add_argument("--gpu_free_fraction", type=float, default=0.50,
+                        help="Use at most this fraction of currently FREE VRAM for offload budgets")
+    parser.add_argument("--reenable_gpu_every", type=int, default=200,
+                        help="After a fallback to CPU, try re-enabling GPU offload every N optimizer steps")
+
     args = parser.parse_args()
+
+    # If CPU-only, disable CUDA BEFORE anything imports torch/cuda.
+    if not args.gpu_offload:
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
     if args.hf_token:
         os.environ["HF_TOKEN"] = args.hf_token
@@ -847,9 +861,9 @@ def main():
         "Max Length": args.max_length,
         "Mode": mode_str,
         "Output": args.output_name,
-        "GPU cap": f"{GPU_MAX_GB_CAP:.0f}GiB/GPU" if args.gpu_offload else "n/a",
-        "GPU frac": f"{GPU_FREE_FRACTION:.2f}" if args.gpu_offload else "n/a",
-        "GPU retry": f"every {REENABLE_GPU_EVERY} steps" if args.gpu_offload else "n/a",
+        "GPU cap": f"{args.gpu_max_memory_gb:.0f}GiB/GPU" if args.gpu_offload else "n/a",
+        "GPU frac": f"{args.gpu_free_fraction:.2f}" if args.gpu_offload else "n/a",
+        "GPU retry": f"every {args.reenable_gpu_every} steps" if args.gpu_offload else "n/a",
     })
 
     gpu_info = get_gpu_info()
@@ -874,6 +888,9 @@ def main():
         lora_r=args.lora_r,
         lora_alpha=args.lora_alpha,
         use_gpu_offload=args.gpu_offload,
+        gpu_max_memory_gb=args.gpu_max_memory_gb,
+        gpu_free_fraction=args.gpu_free_fraction,
+        reenable_gpu_every=args.reenable_gpu_every,
     )
 
     if args.dataset_path:
