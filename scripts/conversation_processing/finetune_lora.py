@@ -187,12 +187,23 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # Project paths
-PROJECT_ROOT = Path(__file__).parent.parent
-CONVERSATIONS_DIR = PROJECT_ROOT / "conversations"
-FILES_DIR = PROJECT_ROOT / "files"
-MEMORY_DIR = PROJECT_ROOT / "memory"
-TRAINING_DATA_DIR = PROJECT_ROOT / "training_data"
-ADAPTERS_DIR = PROJECT_ROOT / "adapters"
+# Script is at: scripts/conversation_processing/finetune_lora.py
+# Need to go up 3 levels: conversation_processing -> scripts -> project_root
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+
+# Support multi-user: read USER_ID from environment
+USER_ID = os.environ.get("USER_ID")
+def get_user_dir(base_dir: Path, user_id: Optional[str] = None) -> Path:
+    """Get user-specific directory if user_id is provided, otherwise base directory."""
+    if user_id:
+        return base_dir / user_id
+    return base_dir
+
+CONVERSATIONS_DIR = get_user_dir(PROJECT_ROOT / "conversations", USER_ID)
+FILES_DIR = get_user_dir(PROJECT_ROOT / "files", USER_ID)
+MEMORY_DIR = get_user_dir(PROJECT_ROOT / "memory", USER_ID)
+TRAINING_DATA_DIR = get_user_dir(PROJECT_ROOT / "training_data", USER_ID)
+ADAPTERS_DIR = get_user_dir(PROJECT_ROOT / "adapters", USER_ID)
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 
 # Ensure directories exist
@@ -209,17 +220,8 @@ def load_conversations() -> List[Dict[str, Any]]:
     """Load conversations from JSON or JSONL files."""
     conversations = []
     
-    # Try conversations.json first
-    conversations_json = CONVERSATIONS_DIR / "conversations.json"
-    if conversations_json.exists():
-        log.info(f"Loading conversations from {conversations_json}...")
-        with open(conversations_json, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            conversations = data if isinstance(data, list) else [data]
-        log.info(f"Loaded {len(conversations)} conversations")
-        return conversations
-    
-    # Load from JSONL files
+    # Prefer parsed JSONL files over raw conversations.json
+    # JSONL files are already parsed and have the correct structure
     jsonl_files = sorted(CONVERSATIONS_DIR.glob('conversation_*.jsonl'))
     if jsonl_files:
         log.info(f"Loading from {len(jsonl_files)} JSONL files...")
@@ -251,7 +253,16 @@ def load_conversations() -> List[Dict[str, Any]]:
         log.info(f"Loaded {len(conversations)} conversations")
         return conversations
     
-    log.warning("No conversations found")
+    # Fallback: Try conversations.json (raw ChatGPT export format)
+    # Note: This format requires parsing the mapping structure
+    conversations_json = CONVERSATIONS_DIR / "conversations.json"
+    if conversations_json.exists():
+        log.warning(f"Found conversations.json but no parsed JSONL files.")
+        log.warning(f"Please run parse_conversations.py first to convert conversations.json to JSONL format.")
+        log.warning(f"Skipping conversations.json (requires parsing mapping structure)")
+    
+    if not conversations:
+        log.warning("No conversations found")
     return conversations
 
 
@@ -379,9 +390,23 @@ def export_training_data(
     # Shuffle and write
     random.shuffle(training_examples)
     log.info(f"Writing {len(training_examples)} training examples to {output_path}...")
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, 'w', encoding='utf-8', errors='replace') as f:
         for example in training_examples:
-            f.write(json.dumps(example, ensure_ascii=False) + '\n')
+            # Clean and ensure valid JSON - handle any encoding issues
+            try:
+                # Ensure all string values are properly encoded
+                cleaned_example = {}
+                for key, value in example.items():
+                    if isinstance(value, str):
+                        # Remove or replace invalid UTF-8 sequences
+                        cleaned_example[key] = value.encode('utf-8', errors='replace').decode('utf-8')
+                    else:
+                        cleaned_example[key] = value
+                # Write with proper JSON escaping
+                f.write(json.dumps(cleaned_example, ensure_ascii=False) + '\n')
+            except Exception as e:
+                log.warning(f"Skipping invalid example: {e}")
+                continue
     
     log.info(f"[OK] Dataset exported: {output_path}")
     return output_path
@@ -438,15 +463,16 @@ def create_deepspeed_config(output_dir: Path) -> Path:
     # Single GPU (24GB): Conservative settings
     # Dual GPU (48GB): More aggressive prefetching and live parameters
     if num_gpus >= 2:
-        max_live_params = 3e9  # 3B parameters can be live (more VRAM available)
-        max_reuse_distance = 3e9
-        reduce_bucket = 8e8  # Larger buckets for multi-GPU communication
-        prefetch_bucket = 8e8
-    else:
-        max_live_params = 1e9  # Conservative for single GPU
+        # More conservative for 20B model - need to keep very little on GPU at once
+        max_live_params = 1e9  # 1B parameters max (conservative for large models)
         max_reuse_distance = 1e9
-        reduce_bucket = 5e8
+        reduce_bucket = 5e8  # Moderate buckets
         prefetch_bucket = 5e8
+    else:
+        max_live_params = 5e8  # Very conservative for single GPU
+        max_reuse_distance = 5e8
+        reduce_bucket = 3e8
+        prefetch_bucket = 3e8
     
     config = {
         "zero_optimization": {
@@ -454,8 +480,8 @@ def create_deepspeed_config(output_dir: Path) -> Path:
             "offload_param": {
                 "device": "cpu",
                 "pin_memory": True,
-                "buffer_count": 5 if num_gpus >= 2 else 4,  # More buffers for multi-GPU
-                "buffer_size": 1e8,
+                "buffer_count": 3 if num_gpus >= 2 else 2,  # Fewer buffers to reduce memory
+                "buffer_size": 5e7,  # Smaller buffers for large models
             },
             "offload_optimizer": {
                 "device": "cpu",
@@ -641,7 +667,7 @@ try:
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
         trust_remote_code=True,
-        torch_dtype=torch.bfloat16,
+        torch_dtype=torch.float16,  # FP16 works on P40 (Pascal)
         device_map="cpu",
         low_cpu_mem_usage=True
     )
@@ -1107,14 +1133,21 @@ log.info("\\nLoading model...")
 
 model_kwargs = {{
     "trust_remote_code": True,
-    "torch_dtype": torch.bfloat16,
+    "torch_dtype": torch.float16,  # FP16 works on P40 (Pascal)
     "low_cpu_mem_usage": True,
 }}
 
 if USE_DEEPSPEED and ds_config is not None:
     # DeepSpeed mode - load to CPU, DeepSpeed handles GPU distribution
     log.info("  Mode: DeepSpeed ZeRO-3 (optimal for multi-GPU)")
+    # Explicitly keep model on CPU with memory limits to prevent GPU allocation
     model_kwargs["device_map"] = "cpu"
+    if torch.cuda.is_available():
+        # Set minimal GPU memory to prevent any allocation during load
+        max_memory = {{"cpu": "200GiB"}}
+        for i in range(torch.cuda.device_count()):
+            max_memory[f"cuda:{{i}}"] = "100MiB"  # Minimal GPU memory during load
+        model_kwargs["max_memory"] = max_memory
     model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, **model_kwargs)
     log.info("  Model loaded to CPU (DeepSpeed will shard across GPUs)")
 else:
@@ -1264,7 +1297,7 @@ training_args = TrainingArguments(
     gradient_accumulation_steps=16,
     learning_rate=LEARNING_RATE,
     bf16=False,  # P40 doesn't support bf16 (Pascal architecture)
-    fp16=torch.cuda.is_available(),  # Use fp16 for P40
+    fp16=True,  # FP16 works on P40 (Pascal, no Tensor Cores but still supports FP16)
     gradient_checkpointing=True,
     dataloader_pin_memory=False,
     dataloader_num_workers=0,
