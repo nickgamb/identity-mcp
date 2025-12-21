@@ -103,7 +103,7 @@ interface ScriptState {
 type MainView = 'pipeline' | 'data'
 
 function App() {
-  const { user, isLoading: authLoading, isAuthenticated, login, logout } = useAuth()
+  const { user, isLoading: authLoading, isAuthenticated, isOidcEnabled, login, logout } = useAuth()
   const [mainView, setMainView] = useState<MainView>('pipeline')
   const [scriptStates, setScriptStates] = useState<Record<string, ScriptState>>({})
   const [selectedScript, setSelectedScript] = useState<string | null>(null)
@@ -339,7 +339,7 @@ function App() {
             </button>
             
             {/* Auth UI */}
-            {!authLoading && (
+            {!authLoading && isOidcEnabled && (
               <>
                 {isAuthenticated && user ? (
                   <div className="flex items-center gap-3">

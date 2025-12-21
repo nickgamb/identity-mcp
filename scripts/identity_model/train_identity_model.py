@@ -738,10 +738,25 @@ def main():
     else:
         device = args.device
     
+    # Detect multi-GPU setup
+    # Check CUDA availability and device count (works in Docker if GPUs are properly exposed)
+    num_gpus = 0
+    if torch.cuda.is_available():
+        num_gpus = torch.cuda.device_count()
+        if num_gpus > 0:
+            print(f"   CUDA available: {num_gpus} GPU(s) detected")
+            for i in range(num_gpus):
+                gpu_name = torch.cuda.get_device_name(i)
+                print(f"     GPU {i}: {gpu_name}")
+    
+    use_multi_gpu = num_gpus > 1 and device == "cuda"
+    
     print("=" * 60)
     print("IDENTITY EMBEDDING MODEL TRAINER")
     print("=" * 60)
     print(f"\nDevice: {device}")
+    if use_multi_gpu:
+        print(f"Multi-GPU: Enabled ({num_gpus} GPUs)")
     print(f"Model: {ALTERNATIVE_MODELS[args.model_size]}")
     
     # Load conversations
@@ -777,13 +792,50 @@ def main():
     # Load sentence transformer
     print("\n🤖 Loading sentence transformer model...")
     model_name = ALTERNATIVE_MODELS[args.model_size]
-    model = SentenceTransformer(model_name, device=device)
-    print(f"   Model loaded: {model_name}")
+    
+    if use_multi_gpu:
+        # For multi-GPU, load on first device and wrap the underlying model
+        # SentenceTransformer stores the model in _modules['0'] typically
+        model = SentenceTransformer(model_name, device="cuda:0")
+        
+        # Wrap the underlying transformer model with DataParallel
+        # This allows batch processing to be distributed across GPUs
+        try:
+            # Access the underlying transformer (usually in _modules['0'])
+            if hasattr(model, '_modules'):
+                module_keys = list(model._modules.keys())
+                if module_keys:
+                    first_key = module_keys[0]
+                    original_module = model._modules[first_key]
+                    # Wrap with DataParallel
+                    model._modules[first_key] = torch.nn.DataParallel(
+                        original_module, 
+                        device_ids=list(range(num_gpus))
+                    )
+                    print(f"   Model loaded: {model_name} (using {num_gpus} GPUs with DataParallel)")
+                else:
+                    print(f"   Model loaded: {model_name} (multi-GPU setup attempted, using single GPU)")
+                    use_multi_gpu = False  # Fallback to single GPU
+            else:
+                print(f"   Model loaded: {model_name} (multi-GPU setup attempted, using single GPU)")
+                use_multi_gpu = False  # Fallback to single GPU
+        except Exception as e:
+            print(f"   ⚠️  Warning: Could not enable multi-GPU ({e}), using single GPU")
+            use_multi_gpu = False  # Fallback to single GPU
+    else:
+        model = SentenceTransformer(model_name, device=device)
+        print(f"   Model loaded: {model_name}")
     
     # Compute embeddings
     print("\n🧮 Computing semantic embeddings...")
+    # Increase batch size for multi-GPU to better utilize all GPUs
+    # DataParallel automatically splits batches across GPUs, so we can use larger batches
+    effective_batch_size = args.batch_size * num_gpus if use_multi_gpu else args.batch_size
+    if use_multi_gpu:
+        print(f"   Using batch size {effective_batch_size} (base: {args.batch_size} × {num_gpus} GPUs)")
+        print(f"   DataParallel will split batches across {num_gpus} GPUs automatically")
     embeddings = compute_semantic_embeddings(
-        user_messages, model, batch_size=args.batch_size
+        user_messages, model, batch_size=effective_batch_size
     )
     
     # Compute identity centroid
@@ -827,6 +879,8 @@ def main():
         "model_name": model_name,
         "model_size": args.model_size,
         "device_trained_on": device,
+        "num_gpus": num_gpus if use_multi_gpu else 1,
+        "multi_gpu_enabled": use_multi_gpu,
         "num_messages": len(user_messages),
         "num_conversations": len(conversations),
         "identity_signals": {

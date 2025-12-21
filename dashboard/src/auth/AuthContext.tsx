@@ -12,6 +12,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isOidcEnabled: boolean;
   login: () => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: () => string | null;
@@ -165,6 +166,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     user,
     isLoading,
     isAuthenticated: !!user,
+    isOidcEnabled: config.enabled,
     login,
     logout,
     getAccessToken,
