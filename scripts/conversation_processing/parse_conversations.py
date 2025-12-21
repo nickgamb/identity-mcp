@@ -120,6 +120,11 @@ def extract_messages_from_mapping(mapping: Dict, worker_id: int = 0, show_progre
         text_content = parts[0] if isinstance(parts[0], str) else json.dumps(parts[0])
         if not text_content or not text_content.strip():
             continue
+        
+        # Clean invalid UTF-8 sequences early
+        if isinstance(text_content, str):
+            text_content = text_content.encode('utf-8', errors='replace').decode('utf-8')
+            text_content = text_content.replace('\x00', '')  # Remove null bytes
             
         # Get timestamp
         create_time = message.get('create_time')
@@ -194,9 +199,28 @@ def process_conversation(args) -> Optional[Dict]:
     # Write files with lock to avoid conflicts
     with file_lock:
         # Write JSONL
-        with open(jsonl_path, 'w', encoding='utf-8') as f:
+        with open(jsonl_path, 'w', encoding='utf-8', errors='replace') as f:
             for msg in messages:
-                f.write(json.dumps(msg, ensure_ascii=False) + '\n')
+                # Clean message content to ensure valid UTF-8 and JSON
+                cleaned_msg = {}
+                for key, value in msg.items():
+                    if isinstance(value, str):
+                        # Clean invalid UTF-8 sequences
+                        cleaned = value.encode('utf-8', errors='replace').decode('utf-8')
+                        # Remove null bytes and replacement characters that might break JSON
+                        cleaned = cleaned.replace('\x00', '').replace('\ufffd', '')
+                        cleaned_msg[key] = cleaned
+                    else:
+                        cleaned_msg[key] = value
+                
+                # Validate JSON before writing
+                try:
+                    json_str = json.dumps(cleaned_msg, ensure_ascii=False)
+                    json.loads(json_str)  # Validate it can be parsed
+                    f.write(json_str + '\n')
+                except Exception as e:
+                    print(f"Warning: Skipping invalid message in {convo_id}: {e}")
+                    continue
         
         # Write Markdown
         with open(md_path, 'w', encoding='utf-8') as f:

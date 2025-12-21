@@ -390,6 +390,7 @@ def export_training_data(
     # Shuffle and write
     random.shuffle(training_examples)
     log.info(f"Writing {len(training_examples)} training examples to {output_path}...")
+    valid_count = 0
     with open(output_path, 'w', encoding='utf-8', errors='replace') as f:
         for example in training_examples:
             # Clean and ensure valid JSON - handle any encoding issues
@@ -398,15 +399,27 @@ def export_training_data(
                 cleaned_example = {}
                 for key, value in example.items():
                     if isinstance(value, str):
-                        # Remove or replace invalid UTF-8 sequences
-                        cleaned_example[key] = value.encode('utf-8', errors='replace').decode('utf-8')
+                        # Remove or replace invalid UTF-8 sequences and control characters
+                        cleaned = value.encode('utf-8', errors='replace').decode('utf-8')
+                        # Remove null bytes and other problematic control chars (keep newlines/tabs)
+                        cleaned = cleaned.replace('\x00', '').replace('\ufffd', '')  # Remove null bytes and replacement chars
+                        cleaned_example[key] = cleaned
                     else:
                         cleaned_example[key] = value
-                # Write with proper JSON escaping
-                f.write(json.dumps(cleaned_example, ensure_ascii=False) + '\n')
+                
+                # Serialize to JSON and validate
+                json_str = json.dumps(cleaned_example, ensure_ascii=False)
+                # Validate it can be parsed back
+                json.loads(json_str)
+                # Write the validated JSON
+                f.write(json_str + '\n')
+                valid_count += 1
             except Exception as e:
                 log.warning(f"Skipping invalid example: {e}")
                 continue
+    
+    if valid_count < len(training_examples):
+        log.warning(f"Wrote {valid_count}/{len(training_examples)} valid examples")
     
     log.info(f"[OK] Dataset exported: {output_path}")
     return output_path
@@ -463,16 +476,17 @@ def create_deepspeed_config(output_dir: Path) -> Path:
     # Single GPU (24GB): Conservative settings
     # Dual GPU (48GB): More aggressive prefetching and live parameters
     if num_gpus >= 2:
-        # More conservative for 20B model - need to keep very little on GPU at once
-        max_live_params = 1e9  # 1B parameters max (conservative for large models)
-        max_reuse_distance = 1e9
-        reduce_bucket = 5e8  # Moderate buckets
-        prefetch_bucket = 5e8
+        # FP32: Extremely aggressive - 20B model in FP32 = ~80GB, need minimal GPU memory
+        # DeepSpeed tries to move model to GPU before sharding, so keep very little live
+        max_live_params = 5e7  # 50M parameters max (extremely aggressive for FP32)
+        max_reuse_distance = 5e7
+        reduce_bucket = 5e7  # Small buckets for FP32
+        prefetch_bucket = 5e7
     else:
-        max_live_params = 5e8  # Very conservative for single GPU
-        max_reuse_distance = 5e8
-        reduce_bucket = 3e8
-        prefetch_bucket = 3e8
+        max_live_params = 1e8  # Very conservative for single GPU with FP32
+        max_reuse_distance = 1e8
+        reduce_bucket = 1e8
+        prefetch_bucket = 1e8
     
     config = {
         "zero_optimization": {
@@ -480,8 +494,8 @@ def create_deepspeed_config(output_dir: Path) -> Path:
             "offload_param": {
                 "device": "cpu",
                 "pin_memory": True,
-                "buffer_count": 3 if num_gpus >= 2 else 2,  # Fewer buffers to reduce memory
-                "buffer_size": 5e7,  # Smaller buffers for large models
+                "buffer_count": 2 if num_gpus >= 2 else 1,  # Minimal buffers for FP32 (2x memory)
+                "buffer_size": 2e7,  # Smaller buffers for FP32
             },
             "offload_optimizer": {
                 "device": "cpu",
@@ -506,6 +520,10 @@ def create_deepspeed_config(output_dir: Path) -> Path:
         "train_batch_size": train_batch_size,
         "train_micro_batch_size_per_gpu": micro_batch,
         "wall_clock_breakdown": False,
+        # NOTE: DeepSpeed FP16 requires Tensor Cores (Volta+ architecture, e.g., V100, A100, RTX series)
+        # P40 GPUs (Pascal) support FP16 but lack Tensor Cores, so DeepSpeed will reject FP16 on P40s
+        # For P40s: DeepSpeed will auto-disable FP16 and use FP32 (uses 2x memory but ZeRO-3 still fits)
+        # For better GPUs: FP16 will work with Tensor Cores
         "fp16": {
             "enabled": True,
             "loss_scale": 0,
@@ -1060,13 +1078,32 @@ num_gpus = torch.cuda.device_count()
 num_processes = int(os.environ.get("WORLD_SIZE", 1))
 local_rank = int(os.environ.get("LOCAL_RANK", -1))
 
-# Check DeepSpeed availability
+# Check DeepSpeed availability and determine FP16 setting
 ds_config = None
+use_fp16 = True  # Default to FP16, will be updated based on DeepSpeed config
 if USE_DEEPSPEED and DEEPSPEED_CONFIG and os.path.exists(DEEPSPEED_CONFIG):
     try:
         import deepspeed
         with open(DEEPSPEED_CONFIG, 'r') as f:
             ds_config = json.load(f)
+        # Auto-disable FP16 for Pascal GPUs (P40) - they lack Tensor Cores
+        fp16_config = ds_config.get("fp16", {{}})
+        if isinstance(fp16_config, dict) and fp16_config.get("enabled", False):
+            try:
+                if torch.cuda.is_available():
+                    capability = torch.cuda.get_device_capability(0)
+                    if capability[0] < 7:  # Pascal = 6.x, needs Volta+ (7.0+) for Tensor Cores
+                        log.warning("⚠️  Detected Pascal GPU (no Tensor Cores) - disabling FP16 in DeepSpeed config")
+                        ds_config["fp16"]["enabled"] = False
+                        use_fp16 = False  # Also disable in TrainingArguments
+                        # Update config file
+                        with open(DEEPSPEED_CONFIG, 'w') as f:
+                            json.dump(ds_config, f, indent=2)
+                        log.info("   ✅ Switched to FP32 (uses 2x memory but ZeRO-3 will still fit)")
+            except Exception:
+                pass  # If check fails, let DeepSpeed handle it
+        elif isinstance(fp16_config, dict):
+            use_fp16 = fp16_config.get("enabled", False)
         log.info(f"DeepSpeed ZeRO-3 enabled ({{num_gpus}} GPU(s), {{num_processes}} process(es))")
     except Exception as e:
         log.info(f"DeepSpeed not available: {{e}}")
@@ -1138,78 +1175,38 @@ model_kwargs = {{
 }}
 
 if USE_DEEPSPEED and ds_config is not None:
-    # DeepSpeed mode - load to CPU, DeepSpeed handles GPU distribution
+    # DeepSpeed mode - load to CPU normally, DeepSpeed will shard during initialization
     log.info("  Mode: DeepSpeed ZeRO-3 (optimal for multi-GPU)")
-    # Explicitly keep model on CPU with memory limits to prevent GPU allocation
-    model_kwargs["device_map"] = "cpu"
-    if torch.cuda.is_available():
-        # Set minimal GPU memory to prevent any allocation during load
-        max_memory = {{"cpu": "200GiB"}}
-        for i in range(torch.cuda.device_count()):
-            max_memory[f"cuda:{{i}}"] = "100MiB"  # Minimal GPU memory during load
-        model_kwargs["max_memory"] = max_memory
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, **model_kwargs)
-    log.info("  Model loaded to CPU (DeepSpeed will shard across GPUs)")
+    # Load model to CPU without device_map - DeepSpeed ZeRO-3 will handle GPU sharding
+    # during initialization. The model stays on CPU until DeepSpeed moves it in shards.
+    model_kwargs_no_device = {{
+        "trust_remote_code": True,
+        "torch_dtype": torch.float16 if use_fp16 else torch.float32,
+        "low_cpu_mem_usage": True,
+    }}
+    # Don't use device_map - let DeepSpeed handle device placement
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, **model_kwargs_no_device)
+    # Move to CPU explicitly (model may be on default device)
+    model = model.cpu()
+    log.info("  Model loaded to CPU (DeepSpeed ZeRO-3 will shard across GPUs during initialization)")
 else:
-    # Single/Multi-GPU without DeepSpeed - use device_map with memory limits
+    # Single/Multi-GPU without DeepSpeed - load to CPU first to avoid OOM
+    # Accelerate/Trainer will handle GPU distribution during training
     if num_gpus == 0:
         # CPU only
         log.info("  Mode: CPU only (no CUDA)")
         max_memory = {{"cpu": "100GiB"}}
         model_kwargs["device_map"] = "cpu"
     else:
-        # GPU mode - apply VRAM limits if specified
-        vram_setting = {repr(max_vram_per_gpu)}
-        
-        if vram_setting.lower() == "auto":
-            # No GPU limits - configure CPU offload
-            log.info(f"  Mode: {{num_gpus}} GPU(s) with auto memory management (no GPU limits)")
-            model_kwargs["device_map"] = "auto"
-            
-            if CPU_OFFLOAD:
-                model_kwargs["max_memory"] = {{"cpu": "100GiB"}}
-                model_kwargs["offload_buffers"] = True
-                log.info(f"  CPU offload: ✅ enabled (100GB)")
-            else:
-                log.info(f"  CPU offload: ❌ disabled (GPU-only)")
+        # Without DeepSpeed ZeRO-3, we can't shard the model during loading
+        # Load to CPU first, let training framework handle GPU distribution
+        log.info(f"  Mode: {{num_gpus}} GPU(s) without DeepSpeed (load to CPU first)")
+        model_kwargs["device_map"] = "cpu"
+        if CPU_OFFLOAD:
+            model_kwargs["max_memory"] = {{"cpu": "200GiB"}}
+            log.info(f"  CPU offload: ✅ enabled (200GB)")
         else:
-            # User-specified VRAM limit per GPU
-            try:
-                vram_gb = int(vram_setting)
-                vram_limit = f"{{vram_gb}}GiB"
-                
-                if num_gpus == 1:
-                    log.info(f"  Mode: Single GPU with {{vram_limit}} VRAM limit")
-                else:
-                    log.info(f"  Mode: {{num_gpus}} GPUs with {{vram_limit}} per GPU")
-                    total_vram = num_gpus * vram_gb
-                    log.info(f"  Total VRAM available: {{total_vram}}GB")
-                
-                # Build memory config
-                if CPU_OFFLOAD:
-                    if num_gpus == 1:
-                        max_memory = {{0: vram_limit, "cpu": "100GiB"}}
-                    else:
-                        max_memory = {{i: vram_limit for i in range(num_gpus)}}
-                        max_memory["cpu"] = "100GiB"
-                    log.info(f"  CPU offload: ✅ enabled (100GB)")
-                else:
-                    if num_gpus == 1:
-                        max_memory = {{0: vram_limit}}
-                    else:
-                        max_memory = {{i: vram_limit for i in range(num_gpus)}}
-                    log.info(f"  CPU offload: ❌ disabled (GPU-only)")
-                
-                model_kwargs["device_map"] = "auto"
-                model_kwargs["max_memory"] = max_memory
-                if CPU_OFFLOAD:
-                    model_kwargs["offload_buffers"] = True
-            except ValueError:
-                log.warning(f"Invalid --max_vram_per_gpu value: {{vram_setting}}, using auto")
-                model_kwargs["device_map"] = "auto"
-                if CPU_OFFLOAD:
-                    model_kwargs["max_memory"] = {{"cpu": "100GiB"}}
-                    model_kwargs["offload_buffers"] = True
+            log.info(f"  CPU offload: ❌ disabled")
     
     model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, **model_kwargs)
     log.info("  ✅ Model loaded successfully")
@@ -1273,7 +1270,34 @@ else:
 
 # Load and tokenize dataset
 log.info("\\nLoading and tokenizing dataset...")
-dataset = load_dataset("json", data_files=DATASET_PATH, split="train")
+try:
+    # Try loading with json format first
+    dataset = load_dataset("json", data_files=DATASET_PATH, split="train")
+except Exception as e:
+    log.warning(f"Failed to load with json format: {{e}}")
+    log.info("Trying to load as JSONL with error handling...")
+    # Fallback: manually load and validate JSONL lines
+    import json as json_module
+    valid_examples = []
+    with open(DATASET_PATH, 'r', encoding='utf-8', errors='replace') as f:
+        for line_num, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                example = json_module.loads(line)
+                valid_examples.append(example)
+            except Exception as parse_err:
+                log.warning(f"Skipping invalid JSON on line {{line_num}}: {{parse_err}}")
+                continue
+    
+    if not valid_examples:
+        raise RuntimeError(f"No valid examples found in {{DATASET_PATH}}")
+    
+    log.info(f"Loaded {{len(valid_examples)}} valid examples from JSONL")
+    # Convert to dataset format
+    from datasets import Dataset
+    dataset = Dataset.from_list(valid_examples)
 
 def tokenize_function(examples):
     texts = []
@@ -1296,8 +1320,8 @@ training_args = TrainingArguments(
     per_device_train_batch_size=1,
     gradient_accumulation_steps=16,
     learning_rate=LEARNING_RATE,
-    bf16=False,  # P40 doesn't support bf16 (Pascal architecture)
-    fp16=True,  # FP16 works on P40 (Pascal, no Tensor Cores but still supports FP16)
+    bf16=False,  
+    fp16=use_fp16 if USE_DEEPSPEED else True,  # Match DeepSpeed config (auto-disabled for Pascal) or default to True
     gradient_checkpointing=True,
     dataloader_pin_memory=False,
     dataloader_num_workers=0,
@@ -1317,7 +1341,7 @@ training_args = TrainingArguments(
 if training_args.gradient_checkpointing:
     if hasattr(model, 'gradient_checkpointing_enable'):
         model.gradient_checkpointing_enable()
-        log.info("✅ Gradient checkpointing enabled (saves VRAM)")
+        log.info("✅ Gradient checkpointing enabled")
     else:
         log.info("⚠️  Model may not support gradient_checkpointing_enable()")
         log.info("   Trainer will attempt to enable it automatically")
