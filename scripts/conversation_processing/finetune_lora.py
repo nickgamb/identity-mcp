@@ -4,40 +4,14 @@
 ║                    LoRA Fine-Tuning for Large Language Models                ║
 ║                                                                              ║
 ║  Supports models up to 20B+ parameters on consumer/prosumer hardware         ║
-║  • CPU-only mode (slow but always works)                                     ║
-║  • GPU+CPU offload mode (DeepSpeed ZeRO-3 with CPU offload)                  ║
-║  • Multi-GPU support with automatic sharding                                 ║
+║  • CPU-only mode (slow but always works, ~40GB RAM for 20B model)            ║
+║  • CPU with GPU offload (loads on CPU, offloads shards to GPU during training)│
 ║  • Checkpoint save/resume with full state preservation                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
-
-USAGE EXAMPLES:
-
-  CPU-ONLY (guaranteed to work, ~40GB RAM for 20B model):
-    python finetune_lora.py --model_name gpt-oss:20b --cpu_only --epochs 3
-    python finetune_lora.py --model_name gpt-oss:20b --max_length 2048 --cpu_only --epochs 3
-
-  SINGLE GPU + CPU OFFLOAD (24GB VRAM + 100GB+ RAM):
-    python finetune_lora.py --model_name gpt-oss:20b --epochs 3
-    python finetune_lora.py --model_name gpt-oss:20b --max_length 2048 --epochs 3
-
-  MULTI-GPU + CPU OFFLOAD (2x24GB VRAM + 100GB+ RAM):
-    deepspeed --num_gpus=2 finetune_lora.py --model_name gpt-oss:20b --epochs 3
-    deepspeed --num_gpus=2 finetune_lora.py --model_name gpt-oss:20b --max_length 2048 --epochs 3
-
-  RESUME FROM CHECKPOINT:
-    python finetune_lora.py --model_name gpt-oss:20b \\
-        --output_name my-adapter-1234567890 \\
-        --resume_from_checkpoint checkpoint-1500
-
-  EXPORT DATASET ONLY:
-    python finetune_lora.py --export_only --dataset_source all
-
-MONITORING:
-  watch -n 1 nvidia-smi                    # GPU utilization
-  tail -f adapters/*/training_*.log        # Training progress
 """
 
 import os
+import re
 import sys
 import json
 import argparse
@@ -56,20 +30,11 @@ from dataclasses import dataclass
 
 @dataclass
 class Config:
-    """Training configuration with sensible defaults.
-    
-    Memory guidance for 20B models:
-    - max_length=512:  ~20GB VRAM per GPU with offload
-    - max_length=1024: ~30GB VRAM per GPU with offload  
-    - max_length=2048: ~50GB+ VRAM, needs aggressive offload or CPU-only
-    
-    For 2x P40 (48GB total) with 2048 length: use CPU-only or reduce to 1024
-    """
     model_name: str = "gpt-oss:20b"
-    dataset_source: str = "all"  # conversations|files|memories|all
+    dataset_source: str = "all"
     epochs: int = 3
     learning_rate: float = 2e-5
-    max_length: int = 2048  # Default to longer sequences
+    max_length: int = 2048
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.1
@@ -80,13 +45,15 @@ class Config:
     warmup_steps: int = 100
     max_grad_norm: float = 1.0
     seed: int = 42
+    use_gpu_offload: bool = False
+    gpu_max_memory_gb: int = 8
+    gpu_free_fraction: float = 0.50
+    reenable_gpu_every: int = 200
 
-# Project paths - support multi-user via USER_ID env var
 PROJECT_ROOT = Path(__file__).parent.parent.parent if Path(__file__).parent.name == "conversation_processing" else Path(__file__).parent
 USER_ID = os.environ.get("USER_ID")
 
 def get_user_dir(base_dir: Path) -> Path:
-    """Get user-specific directory if USER_ID is set."""
     if USER_ID:
         return base_dir / USER_ID
     return base_dir
@@ -97,48 +64,48 @@ MEMORY_DIR = get_user_dir(PROJECT_ROOT / "memory")
 TRAINING_DATA_DIR = get_user_dir(PROJECT_ROOT / "training_data")
 ADAPTERS_DIR = get_user_dir(PROJECT_ROOT / "adapters")
 
-# Ensure directories exist
 for d in [TRAINING_DATA_DIR, ADAPTERS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
+
+# Hard cap per GPU for "support only" sharding.
+# GPU_MAX_GB_CAP = float(os.environ.get("GPU_MAX_GB_CAP", "8"))          # default 8GiB per GPU
+# GPU_FREE_FRACTION = float(os.environ.get("GPU_FREE_FRACTION", "0.50")) # use at most 50% of free VRAM
+# REENABLE_GPU_EVERY = int(os.environ.get("REENABLE_GPU_EVERY", "200"))  # try re-enable GPU offload every N optimizer steps
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # LOGGING & UTILITIES
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class ColoredFormatter(logging.Formatter):
-    """Colored log output for better readability."""
     COLORS = {
-        'DEBUG': '\033[36m',     # Cyan
-        'INFO': '\033[32m',      # Green
-        'WARNING': '\033[33m',   # Yellow
-        'ERROR': '\033[31m',     # Red
-        'CRITICAL': '\033[35m',  # Magenta
+        'DEBUG': '\033[36m',
+        'INFO': '\033[32m',
+        'WARNING': '\033[33m',
+        'ERROR': '\033[31m',
+        'CRITICAL': '\033[35m',
     }
     RESET = '\033[0m'
     BOLD = '\033[1m'
-    
+
     def format(self, record):
         color = self.COLORS.get(record.levelname, '')
         if record.levelname == 'INFO':
-            # Clean info messages without prefix
             return f"{color}{record.getMessage()}{self.RESET}"
         return f"{color}{self.BOLD}[{record.levelname}]{self.RESET} {color}{record.getMessage()}{self.RESET}"
 
 
 def setup_logging(output_dir: Optional[Path] = None, rank: int = 0) -> logging.Logger:
-    """Setup logging to both console and file."""
     logger = logging.getLogger("finetune")
     logger.setLevel(logging.INFO)
-    logger.handlers = []  # Clear existing handlers
-    
-    # Console handler with colors (only rank 0)
+    logger.handlers = []
+
     if rank == 0:
         ch = logging.StreamHandler()
         ch.setLevel(logging.INFO)
         ch.setFormatter(ColoredFormatter())
         logger.addHandler(ch)
-    
-    # File handler (all ranks write to separate files)
+
     if output_dir:
         output_dir.mkdir(parents=True, exist_ok=True)
         log_file = output_dir / f"training_{datetime.now().strftime('%Y%m%d_%H%M%S')}_rank{rank}.log"
@@ -148,12 +115,11 @@ def setup_logging(output_dir: Optional[Path] = None, rank: int = 0) -> logging.L
         logger.addHandler(fh)
         if rank == 0:
             logger.info(f"📝 Log file: {log_file}")
-    
+
     return logger
 
 
 def print_banner(title: str, char: str = "═"):
-    """Print a nice banner."""
     width = 70
     print(f"\n\033[1m{char * width}\033[0m")
     print(f"\033[1m  {title.center(width - 4)}\033[0m")
@@ -161,30 +127,18 @@ def print_banner(title: str, char: str = "═"):
 
 
 def print_config_table(config: dict):
-    """Print configuration as a nice table."""
     max_key = max(len(str(k)) for k in config.keys())
     for key, value in config.items():
         print(f"  \033[36m{key:<{max_key}}\033[0m : \033[33m{value}\033[0m")
     print()
 
 
-def format_time(seconds: float) -> str:
-    """Format seconds into human-readable string."""
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    elif seconds < 3600:
-        return f"{seconds // 60:.0f}m {seconds % 60:.0f}s"
-    else:
-        return f"{seconds // 3600:.0f}h {(seconds % 3600) // 60:.0f}m"
-
-
 def get_gpu_info() -> dict:
-    """Get GPU information."""
     try:
         import torch
         if not torch.cuda.is_available():
             return {"available": False, "count": 0, "devices": []}
-        
+
         devices = []
         for i in range(torch.cuda.device_count()):
             props = torch.cuda.get_device_properties(i)
@@ -195,20 +149,15 @@ def get_gpu_info() -> dict:
                 "memory_total_gb": round(mem_total, 1),
                 "memory_free_gb": round(mem_free, 1),
                 "compute_capability": f"{props.major}.{props.minor}",
-                "has_tensor_cores": props.major >= 7,  # Volta+ has tensor cores
+                "has_tensor_cores": props.major >= 7,
             })
-        
-        return {
-            "available": True,
-            "count": len(devices),
-            "devices": devices,
-        }
+
+        return {"available": True, "count": len(devices), "devices": devices}
     except Exception as e:
         return {"available": False, "count": 0, "devices": [], "error": str(e)}
 
 
 def get_model_id(model_name: str) -> str:
-    """Convert model name to HuggingFace model ID."""
     mapping = {
         'gpt-oss:20b': 'openai/gpt-oss-20b',
         'gpt-oss/20b': 'openai/gpt-oss-20b',
@@ -221,15 +170,38 @@ def get_model_id(model_name: str) -> str:
     return model_name
 
 
+def _move_batch_to_device(batch: dict, device):
+    out = {}
+    for k, v in batch.items():
+        try:
+            out[k] = v.to(device, non_blocking=True)
+        except Exception:
+            out[k] = v
+    return out
+
+
+def _force_model_dtype_inplace(model, target_dtype):
+    # Force a consistent dtype across the entire sharded model.
+    # This is the key fix for float != bfloat16 issues.
+    import torch
+    with torch.no_grad():
+        for p in model.parameters():
+            if p.is_floating_point() and p.dtype != target_dtype:
+                p.data = p.data.to(dtype=target_dtype)
+        for b in model.buffers():
+            if b.is_floating_point() and b.dtype != target_dtype:
+                b.data = b.data.to(dtype=target_dtype)
+    return model
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATA LOADING
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def load_conversations() -> List[Dict[str, Any]]:
-    """Load conversations from JSONL files."""
     conversations = []
     jsonl_files = sorted(CONVERSATIONS_DIR.glob('conversation_*.jsonl'))
-    
+
     for jsonl_file in jsonl_files:
         try:
             with open(jsonl_file, 'r', encoding='utf-8') as f:
@@ -241,58 +213,46 @@ def load_conversations() -> List[Dict[str, Any]]:
                     try:
                         msg = json.loads(line)
                         if msg.get('role') and msg.get('content') is not None:
-                            messages.append({
-                                'role': msg.get('role'),
-                                'content': msg.get('content', ''),
-                            })
+                            messages.append({'role': msg.get('role'), 'content': msg.get('content', '')})
                     except json.JSONDecodeError:
                         continue
-                
+
                 if messages:
-                    conversations.append({
-                        'id': jsonl_file.stem.replace('conversation_', ''),
-                        'messages': messages
-                    })
+                    conversations.append({'id': jsonl_file.stem.replace('conversation_', ''), 'messages': messages})
         except Exception as e:
             logging.warning(f"Error loading {jsonl_file}: {e}")
-    
+
     return conversations
 
 
 def load_files() -> List[Dict[str, Any]]:
-    """Load text files from files directory."""
     files = []
     if not FILES_DIR.exists():
         return files
-    
+
     for ext in ['*.txt', '*.md']:
         for file_path in FILES_DIR.rglob(ext):
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = f.read()
-                
+
                 title = file_path.stem
                 if content.startswith('# '):
                     first_line = content.split('\n')[0]
                     title = first_line[2:].strip()
-                
-                files.append({
-                    'filename': file_path.name,
-                    'title': title,
-                    'content': content
-                })
+
+                files.append({'filename': file_path.name, 'title': title, 'content': content})
             except Exception as e:
                 logging.warning(f"Error loading {file_path}: {e}")
-    
+
     return files
 
 
 def load_memory() -> List[Dict[str, Any]]:
-    """Load memory records from JSONL files."""
     memory_records = []
     if not MEMORY_DIR.exists():
         return memory_records
-    
+
     for jsonl_file in MEMORY_DIR.glob('*.jsonl'):
         try:
             with open(jsonl_file, 'r', encoding='utf-8') as f:
@@ -307,19 +267,17 @@ def load_memory() -> List[Dict[str, Any]]:
                         continue
         except Exception as e:
             logging.warning(f"Error loading {jsonl_file}: {e}")
-    
+
     return memory_records
 
 
 def export_training_data(source: str = "all", output_path: Optional[Path] = None) -> Path:
-    """Export training data to JSONL format."""
     if output_path is None:
         timestamp = int(datetime.now().timestamp() * 1000)
         output_path = TRAINING_DATA_DIR / f"dataset-{timestamp}.jsonl"
-    
+
     training_examples = []
-    
-    # Load conversations
+
     if source in ["conversations", "all"]:
         conversations = load_conversations()
         for conv in conversations:
@@ -333,8 +291,7 @@ def export_training_data(source: str = "all", output_path: Optional[Path] = None
                         'response': assistant_msg.get('content', '')
                     })
         print(f"  📚 Loaded {len(training_examples)} examples from conversations")
-    
-    # Load files
+
     if source in ["files", "all"]:
         start_count = len(training_examples)
         files = load_files()
@@ -345,8 +302,7 @@ def export_training_data(source: str = "all", output_path: Optional[Path] = None
                 'response': file_data.get('content', '')
             })
         print(f"  📄 Loaded {len(training_examples) - start_count} examples from files")
-    
-    # Load memory
+
     if source in ["memories", "all"]:
         start_count = len(training_examples)
         memory_records = load_memory()
@@ -359,20 +315,15 @@ def export_training_data(source: str = "all", output_path: Optional[Path] = None
             content = record.get('content', '')
             if not isinstance(content, str):
                 content = json.dumps(content)
-            training_examples.append({
-                'instruction': instruction,
-                'response': content
-            })
+            training_examples.append({'instruction': instruction, 'response': content})
         print(f"  🧠 Loaded {len(training_examples) - start_count} examples from memory")
-    
-    # Shuffle and write
+
     random.shuffle(training_examples)
-    
+
     valid_count = 0
     with open(output_path, 'w', encoding='utf-8', errors='replace') as f:
         for example in training_examples:
             try:
-                # Clean text
                 cleaned = {}
                 for key, value in example.items():
                     if isinstance(value, str):
@@ -380,125 +331,23 @@ def export_training_data(source: str = "all", output_path: Optional[Path] = None
                         cleaned[key] = cleaned[key].replace('\x00', '').replace('\ufffd', '')
                     else:
                         cleaned[key] = value
-                
+
                 json_str = json.dumps(cleaned, ensure_ascii=False)
-                json.loads(json_str)  # Validate
+                json.loads(json_str)
                 f.write(json_str + '\n')
                 valid_count += 1
-            except Exception as e:
+            except Exception:
                 continue
-    
+
     print(f"  ✅ Wrote {valid_count} examples to {output_path}")
     return output_path
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DEEPSPEED CONFIGURATION
+# TRAINING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def create_deepspeed_config(
-    output_dir: Path,
-    num_gpus: int = 1,
-    use_fp16: bool = True,
-    gradient_accumulation_steps: int = 16,
-) -> Path:
-    """
-    Create DeepSpeed ZeRO-3 configuration optimized for CPU offloading.
-    
-    Key settings for 20B model on limited VRAM:
-    - Stage 3: Partition optimizer, gradients, AND parameters
-    - CPU offload for both parameters and optimizer
-    - Small bucket sizes to reduce peak GPU memory
-    - Conservative live parameters limit
-    """
-    # Effective batch size = micro_batch * grad_accum * num_gpus
-    micro_batch = 1
-    train_batch_size = micro_batch * gradient_accumulation_steps * num_gpus
-    
-    config = {
-        # Batch sizes
-        "train_batch_size": train_batch_size,
-        "train_micro_batch_size_per_gpu": micro_batch,
-        "gradient_accumulation_steps": gradient_accumulation_steps,
-        "gradient_clipping": 1.0,
-        
-        # ZeRO-3 with aggressive CPU offloading
-        "zero_optimization": {
-            "stage": 3,
-            
-            # Offload parameters to CPU (critical for large models)
-            "offload_param": {
-                "device": "cpu",
-                "pin_memory": True,
-                "buffer_count": 4,
-                "buffer_size": 1e8,  # 100M elements per buffer
-            },
-            
-            # Offload optimizer to CPU (saves massive GPU memory)
-            "offload_optimizer": {
-                "device": "cpu",
-                "pin_memory": True,
-                "buffer_count": 4,
-                "fast_init": False,  # Slower but more stable
-            },
-            
-            # Communication optimization
-            "overlap_comm": True,
-            "contiguous_gradients": True,
-            
-            # Memory management - keep these small for large models
-            "reduce_bucket_size": 5e7,           # 50M (smaller = less peak memory)
-            "stage3_prefetch_bucket_size": 5e7,  # 50M
-            "stage3_param_persistence_threshold": 1e5,  # 100K params stay on GPU
-            
-            # Critical: limit live parameters on GPU
-            "stage3_max_live_parameters": 1e8,   # 100M max at once
-            "stage3_max_reuse_distance": 1e8,    # 100M
-            
-            # For saving full weights
-            "stage3_gather_16bit_weights_on_model_save": True,
-            
-            # Sub-group size for memory efficiency
-            "sub_group_size": 1e9,
-        },
-        
-        # FP16 configuration
-        # Note: P40 supports FP16 but without tensor cores
-        # Still useful for memory savings (half the size)
-        "fp16": {
-            "enabled": use_fp16,
-            "loss_scale": 0,  # Dynamic loss scaling
-            "loss_scale_window": 1000,
-            "initial_scale_power": 16,
-            "hysteresis": 2,
-            "min_loss_scale": 1,
-        },
-        
-        # Disable BF16 (not supported on Pascal)
-        "bf16": {
-            "enabled": False,
-        },
-        
-        # Optimizer - let Trainer handle this
-        "zero_allow_untested_optimizer": True,
-        
-        # Misc
-        "wall_clock_breakdown": False,
-        "steps_per_print": 100,
-    }
-    
-    config_path = output_dir / "ds_config_zero3.json"
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
-    
-    return config_path
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CPU-ONLY TRAINING
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def train_cpu_only(
+def train(
     model_id: str,
     dataset_path: Path,
     output_dir: Path,
@@ -506,58 +355,70 @@ def train_cpu_only(
     resume_from_checkpoint: Optional[str] = None,
     log: Optional[logging.Logger] = None,
 ):
-    """
-    CPU-only training with manual training loop.
-    No GPU memory requirements, but slower.
-    """
     import torch
     from torch.utils.data import DataLoader
     from tqdm import tqdm
-    
+
     if log is None:
         log = logging.getLogger("finetune")
-    
-    # Set seed
+
     torch.manual_seed(config.seed)
     random.seed(config.seed)
-    
-    # Disable CUDA
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
-    
-    log.info("🖥️  CPU-only training mode")
-    log.info(f"   This will be slow but memory-efficient")
-    log.info("")
-    
-    # Import ML libraries
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(config.seed)
+
+    use_gpu = config.use_gpu_offload and torch.cuda.is_available()
+
+    if use_gpu:
+        gpu_info = get_gpu_info()
+        log.info("🖥️  CPU-first training with GPU offload")
+        log.info("   GPU is support only (hard capped per GPU)")
+        if gpu_info.get("available"):
+            for i, dev in enumerate(gpu_info.get("devices", [])):
+                log.info(f"   GPU [{i}]: {dev['name']} ({dev['memory_total_gb']}GB)")
+        log.info("")
+    else:
+        if not config.use_gpu_offload:
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
+        log.info("🖥️  CPU-only training mode")
+        log.info("")
+
     from transformers import AutoModelForCausalLM, AutoTokenizer, get_linear_schedule_with_warmup
+    from transformers.utils import logging as hf_logging
+    hf_logging.set_verbosity_error()
     from datasets import load_dataset
     from peft import LoraConfig, get_peft_model, PeftModel, TaskType
-    
-    # Load tokenizer
+
     log.info("📦 Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    
-    # Load model to CPU
+
+    gpu_info = get_gpu_info()
+    num_gpus = gpu_info["count"] if use_gpu else 0
+
+    # Choose ONE dtype for the whole model to avoid float/bf16 mixed errors.
+    # - GPU-offload path: use FP16 everywhere (CPU shards + GPU shards) for consistency.
+    # - CPU-only path: use FP32 everywhere (safer on CPU).
+    target_dtype = torch.float16 if (use_gpu and num_gpus > 0) else torch.float32
+
+    # Always load base model on CPU first (prevents GPU-side load/dequant OOM)
     log.info("📦 Loading model to CPU (this takes a while for large models)...")
-    log.info("   Tip: Watch memory with 'htop' in another terminal")
-    
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         trust_remote_code=True,
-        torch_dtype=torch.float32,  # FP32 for CPU (more stable)
+        torch_dtype=target_dtype,
         device_map="cpu",
         low_cpu_mem_usage=True,
     )
-    log.info("   ✅ Model loaded!")
-    
-    # Check for checkpoint
+    model = _force_model_dtype_inplace(model, target_dtype)
+    log.info("   ✅ Model loaded on CPU!")
+
+    # Checkpoint handling
     global_step = 0
     saved_optimizer_state = None
     saved_scheduler_state = None
-    
-    # Find checkpoint
+
     checkpoint_path = None
     if resume_from_checkpoint:
         cp = Path(resume_from_checkpoint)
@@ -565,25 +426,22 @@ def train_cpu_only(
             cp = output_dir / resume_from_checkpoint
         if cp.exists():
             checkpoint_path = cp
-    
+
     if not checkpoint_path:
         checkpoints = sorted(glob.glob(str(output_dir / "checkpoint-*")))
         if checkpoints:
             checkpoint_path = Path(checkpoints[-1])
-    
-    # Apply LoRA or load from checkpoint
+
     if checkpoint_path and checkpoint_path.exists():
         log.info(f"📂 Loading checkpoint: {checkpoint_path}")
         model = PeftModel.from_pretrained(model, checkpoint_path, is_trainable=True)
-        
-        # Extract step
+
         if "checkpoint-" in checkpoint_path.name:
             try:
                 global_step = int(checkpoint_path.name.split("checkpoint-")[1])
-            except:
+            except Exception:
                 pass
-        
-        # Load optimizer/scheduler state
+
         state_path = checkpoint_path / "training_state.pt"
         if state_path.exists():
             log.info("   Loading optimizer/scheduler state...")
@@ -592,13 +450,13 @@ def train_cpu_only(
             saved_scheduler_state = state.get("scheduler")
             if "global_step" in state:
                 global_step = state["global_step"]
-        
+
         log.info(f"   Resuming from step {global_step}")
     else:
         log.info("🔧 Applying LoRA adapters...")
-        for param in model.parameters():
-            param.requires_grad = False
-        
+        for p in model.parameters():
+            p.requires_grad = False
+
         lora_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM,
             r=config.lora_r,
@@ -608,13 +466,133 @@ def train_cpu_only(
             bias="none",
         )
         model = get_peft_model(model, lora_config)
-    
+
+    # Ensure dtype consistency after PEFT wraps modules
+    model = _force_model_dtype_inplace(model, target_dtype)
+
+    # Reduce VRAM pressure
+    try:
+        model.gradient_checkpointing_enable()
+    except Exception:
+        pass
+    try:
+        if hasattr(model, "config"):
+            model.config.use_cache = False
+    except Exception:
+        pass
+
+    # REQUIRED for gradient checkpointing + PEFT (fixes "None of the inputs have requires_grad=True")
+    try:
+        model.enable_input_require_grads()
+    except Exception:
+        try:
+            emb = model.get_input_embeddings()
+            if emb is not None and hasattr(emb, "weight"):
+                emb.weight.requires_grad_(True)
+        except Exception:
+            pass
+
     model.print_trainable_parameters()
-    
-    # Load dataset
+
+    # ---- Accelerate dispatch helpers ----
+    def _compute_max_memory():
+        mm = {"cpu": "100GiB"}
+        if not (torch.cuda.is_available() and num_gpus > 0):
+            return mm
+        for gi in range(num_gpus):
+            try:
+                free_b, total_b = torch.cuda.mem_get_info(gi)
+                free_gb = free_b / (1024**3)
+                total_gb = total_b / (1024**3)
+
+                allow = min(GPU_MAX_GB_CAP, free_gb * GPU_FREE_FRACTION)
+                allow = max(2.0, allow)
+                allow = min(allow, max(2.0, total_gb - 3.0))  # absolute headroom for activations/fragmentation
+
+                mm[gi] = f"{allow:.0f}GiB"
+            except Exception:
+                mm[gi] = "4GiB"
+        return mm
+
+    def dispatch_cpu_only(m):
+        # Properly remove GPU sharding without manual param moves.
+        try:
+            from accelerate import dispatch_model
+            from accelerate.hooks import remove_hook_from_module
+        except Exception:
+            m = m.to("cpu")
+            return _force_model_dtype_inplace(m, target_dtype)
+
+        try:
+            try:
+                remove_hook_from_module(m, recurse=True)
+            except Exception:
+                pass
+            m = dispatch_model(m, device_map={"": "cpu"})
+            m.to("cpu")
+        except Exception:
+            m = m.to("cpu")
+
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+        gc.collect()
+        return _force_model_dtype_inplace(m, target_dtype)
+
+    def try_dispatch_to_gpus(m):
+        if not (config.use_gpu_offload and torch.cuda.is_available() and num_gpus > 0):
+            return None
+        try:
+            from accelerate import dispatch_model
+            from accelerate.utils import infer_auto_device_map
+            from accelerate.hooks import remove_hook_from_module
+        except Exception:
+            return None
+
+        budgets = _compute_max_memory()
+        try:
+            try:
+                remove_hook_from_module(m, recurse=True)
+            except Exception:
+                pass
+
+            device_map = infer_auto_device_map(
+                m,
+                max_memory=budgets,
+                no_split_module_classes=getattr(m, "_no_split_modules", None),
+            )
+            m = dispatch_model(m, device_map=device_map)
+            return _force_model_dtype_inplace(m, target_dtype)
+        except Exception:
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+            gc.collect()
+            return None
+
+    model_container = [model]
+    gpu_enabled = [False]
+
+    if use_gpu and num_gpus > 0:
+        # Helps fragmentation, but doesn't "force" more model onto GPU.
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+        resh = try_dispatch_to_gpus(model_container[0])
+        if resh is not None:
+            model_container[0] = resh
+            gpu_enabled[0] = True
+            log.info(f"🚀 GPU offload enabled (capped ~{GPU_MAX_GB_CAP:.0f}GiB/GPU).")
+        else:
+            log.warning("⚠️  GPU offload not possible right now — staying CPU-only.")
+            model_container[0] = dispatch_cpu_only(model_container[0])
+            gpu_enabled[0] = False
+
+    # Dataset
     log.info(f"📊 Loading dataset from {dataset_path}...")
     dataset = load_dataset("json", data_files=str(dataset_path), split="train")
-    
+
     def tokenize_fn(examples):
         texts = [
             f"### Instruction:\n{inst}\n\n### Response:\n{resp}{tokenizer.eos_token}"
@@ -623,24 +601,23 @@ def train_cpu_only(
         tok = tokenizer(texts, truncation=True, max_length=config.max_length, padding="max_length")
         tok["labels"] = tok["input_ids"].copy()
         return tok
-    
+
     log.info("   Tokenizing...")
     tokenized = dataset.map(tokenize_fn, batched=True, remove_columns=dataset.column_names)
     tokenized.set_format("torch", columns=["input_ids", "attention_mask", "labels"])
-    
-    # Create dataloader
+
     dataloader = DataLoader(
         tokenized,
         batch_size=config.batch_size,
-        shuffle=(global_step == 0),  # Don't shuffle when resuming
+        shuffle=(global_step == 0),
         num_workers=0,
     )
-    
-    # Setup optimizer and scheduler
+
+    # Optimizer/scheduler
     log.info("⚙️  Setting up optimizer...")
-    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    trainable_params = [p for p in model_container[0].parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable_params, lr=config.learning_rate, weight_decay=0.01)
-    
+
     total_steps = len(dataloader) * config.epochs
     warmup_steps = min(config.warmup_steps, total_steps // 10)
     scheduler = get_linear_schedule_with_warmup(
@@ -648,140 +625,143 @@ def train_cpu_only(
         num_warmup_steps=warmup_steps,
         num_training_steps=total_steps
     )
-    
-    # Restore optimizer/scheduler state
+
     if saved_optimizer_state:
-        log.info("   Restoring optimizer state...")
         optimizer.load_state_dict(saved_optimizer_state)
     if saved_scheduler_state:
-        log.info("   Restoring scheduler state...")
         scheduler.load_state_dict(saved_scheduler_state)
     elif global_step > 0:
-        log.info(f"   Advancing scheduler by {global_step} steps...")
         for _ in range(global_step):
             scheduler.step()
-    
-    # Calculate training info
+
     steps_per_epoch = len(dataloader)
     start_epoch = global_step // steps_per_epoch
     start_step_in_epoch = global_step % steps_per_epoch
-    remaining_steps = total_steps - global_step
-    
-    log.info("")
-    log.info(f"📈 Training plan:")
-    log.info(f"   Dataset size: {len(tokenized)} examples")
-    log.info(f"   Steps per epoch: {steps_per_epoch}")
-    log.info(f"   Total epochs: {config.epochs}")
-    log.info(f"   Starting from: epoch {start_epoch + 1}, step {start_step_in_epoch}")
-    log.info(f"   Remaining steps: {remaining_steps}")
-    log.info("")
-    
+
+    def _input_device(m):
+        # For sharded models, this is the right anchor for where input_ids must live.
+        try:
+            emb = m.get_input_embeddings()
+            return emb.weight.device
+        except Exception:
+            try:
+                return next(m.parameters()).device
+            except Exception:
+                return torch.device("cpu")
+
+    def process_batch_with_fallback(batch):
+        m = model_container[0]
+        m = _force_model_dtype_inplace(m, target_dtype)  # keep consistent after any dispatch
+        dev = _input_device(m)
+        batch_dev = _move_batch_to_device(batch, dev)
+
+        try:
+            outputs = m(
+                input_ids=batch_dev["input_ids"],
+                attention_mask=batch_dev["attention_mask"],
+                labels=batch_dev["labels"],
+            )
+            loss = outputs.loss
+            loss.backward()
+            return loss
+
+        except RuntimeError as e:
+            msg = str(e).lower()
+            if ("out of memory" in msg) and torch.cuda.is_available():
+                log.warning("GPU OOM — re-dispatching to CPU and retrying this batch on CPU.")
+                model_container[0] = dispatch_cpu_only(model_container[0])
+                gpu_enabled[0] = False
+
+                m2 = model_container[0]
+                m2 = _force_model_dtype_inplace(m2, target_dtype)
+                batch_cpu = _move_batch_to_device(batch, torch.device("cpu"))
+                outputs = m2(
+                    input_ids=batch_cpu["input_ids"],
+                    attention_mask=batch_cpu["attention_mask"],
+                    labels=batch_cpu["labels"],
+                )
+                loss = outputs.loss
+                loss.backward()
+                return loss
+            raise
+
     # Training loop
     log.info("🚀 Starting training...")
-    model.train()
+    model_container[0].train()
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    grad_accum = max(1, int(config.gradient_accumulation_steps))
+    micro = 0
+
     for epoch in range(start_epoch, config.epochs):
         log.info(f"\n{'═' * 50}")
         log.info(f"  Epoch {epoch + 1}/{config.epochs}")
         log.info(f"{'═' * 50}")
-        
-        epoch_loss = 0.0
-        num_batches = 0
-        
-        # Recreate dataloader with shuffle after first epoch
+
         if epoch > start_epoch:
             dataloader = DataLoader(tokenized, batch_size=config.batch_size, shuffle=True, num_workers=0)
-        
-        # Progress bar
+
+        it = enumerate(dataloader)
         if epoch == start_epoch and start_step_in_epoch > 0:
-            # Skip to checkpoint position
-            skip_bar = tqdm(total=start_step_in_epoch, desc="⏩ Skipping to checkpoint", unit="batch")
-            
-            for idx, batch in enumerate(dataloader):
-                if idx < start_step_in_epoch:
-                    skip_bar.update(1)
-                    continue
-                
-                if idx == start_step_in_epoch:
-                    skip_bar.close()
-                    log.info(f"   Resuming training at batch {start_step_in_epoch}...")
-                    progress = tqdm(
-                        total=steps_per_epoch - start_step_in_epoch,
-                        desc=f"  Training",
-                        unit="batch"
-                    )
-                
-                # Training step
-                optimizer.zero_grad()
-                outputs = model(
-                    input_ids=batch["input_ids"],
-                    attention_mask=batch["attention_mask"],
-                    labels=batch["labels"]
-                )
-                loss = outputs.loss
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.max_grad_norm)
+            for _ in range(start_step_in_epoch):
+                next(it, None)
+
+        progress = tqdm(total=steps_per_epoch - (start_step_in_epoch if epoch == start_epoch else 0), desc="  Training", unit="batch")
+
+        epoch_loss = 0.0
+        nloss = 0
+
+        for _, batch in it:
+            if micro == 0:
+                optimizer.zero_grad(set_to_none=True)
+
+            loss = process_batch_with_fallback(batch)
+            epoch_loss += float(loss.item())
+            nloss += 1
+            micro += 1
+
+            if micro >= grad_accum:
+                m = model_container[0]
+                torch.nn.utils.clip_grad_norm_(m.parameters(), max_norm=config.max_grad_norm)
                 optimizer.step()
                 scheduler.step()
-                
-                epoch_loss += loss.item()
-                num_batches += 1
+                micro = 0
                 global_step += 1
-                
+
                 progress.set_postfix({"loss": f"{loss.item():.4f}", "step": global_step})
-                progress.update(1)
-                
-                # Checkpoint
+
                 if global_step % config.checkpoint_steps == 0:
-                    _save_checkpoint(model, tokenizer, optimizer, scheduler, global_step, epoch, epoch_loss, output_dir, log)
-            
-            progress.close()
-        else:
-            # Normal epoch
-            progress = tqdm(dataloader, total=steps_per_epoch, desc=f"  Training", unit="batch")
-            
-            for batch in progress:
-                optimizer.zero_grad()
-                outputs = model(
-                    input_ids=batch["input_ids"],
-                    attention_mask=batch["attention_mask"],
-                    labels=batch["labels"]
-                )
-                loss = outputs.loss
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.max_grad_norm)
-                optimizer.step()
-                scheduler.step()
-                
-                epoch_loss += loss.item()
-                num_batches += 1
-                global_step += 1
-                
-                progress.set_postfix({"loss": f"{loss.item():.4f}", "step": global_step})
-                
-                # Checkpoint
-                if global_step % config.checkpoint_steps == 0:
-                    _save_checkpoint(model, tokenizer, optimizer, scheduler, global_step, epoch, epoch_loss, output_dir, log)
-        
-        avg_loss = epoch_loss / num_batches if num_batches > 0 else 0
-        log.info(f"\n   Epoch {epoch + 1} complete. Average loss: {avg_loss:.4f}")
-    
-    # Save final model
+                    _save_checkpoint(m, tokenizer, optimizer, scheduler, global_step, epoch, epoch_loss, output_dir, log)
+
+                # Conservative re-enable of GPU offload once VRAM is available again
+                if (not gpu_enabled[0]) and use_gpu and num_gpus > 0 and (global_step % REENABLE_GPU_EVERY == 0):
+                    resh = try_dispatch_to_gpus(model_container[0])
+                    if resh is not None:
+                        model_container[0] = resh
+                        gpu_enabled[0] = True
+                        log.info("✅ Re-enabled GPU offload (still capped).")
+
+            progress.update(1)
+
+        progress.close()
+        avg = (epoch_loss / max(1, nloss))
+        log.info(f"\n   Epoch {epoch + 1} complete. Average loss: {avg:.4f}")
+
+        start_step_in_epoch = 0
+
     log.info(f"\n💾 Saving final model to {output_dir}...")
-    model.save_pretrained(output_dir)
+    model_container[0].save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
     log.info("✅ Training complete!")
 
 
 def _save_checkpoint(model, tokenizer, optimizer, scheduler, global_step, epoch, epoch_loss, output_dir, log):
-    """Save a checkpoint with full state."""
     ckpt_dir = output_dir / f"checkpoint-{global_step}"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
-    
+
     model.save_pretrained(ckpt_dir)
     tokenizer.save_pretrained(ckpt_dir)
-    
+
     import torch
     torch.save({
         'optimizer': optimizer.state_dict(),
@@ -790,359 +770,24 @@ def _save_checkpoint(model, tokenizer, optimizer, scheduler, global_step, epoch,
         'epoch': epoch,
         'epoch_loss': epoch_loss,
     }, ckpt_dir / 'training_state.pt')
-    
+
     log.info(f"\n   💾 Checkpoint saved: {ckpt_dir.name}")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# GPU + CPU OFFLOAD TRAINING (DeepSpeed ZeRO-3)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def train_gpu_with_offload(
-    model_id: str,
-    dataset_path: Path,
-    output_dir: Path,
-    config: Config,
-    resume_from_checkpoint: Optional[str] = None,
-    log: Optional[logging.Logger] = None,
-):
-    """
-    GPU training with CPU offload using Accelerate + DeepSpeed ZeRO-3.
-    
-    Uses Accelerate's DeepSpeed integration which properly handles:
-    - Model partitioning during loading
-    - CPU offloading of parameters and optimizer
-    - FP16 training
-    """
-    import torch
-    
-    if log is None:
-        log = logging.getLogger("finetune")
-    
-    # Set seed
-    torch.manual_seed(config.seed)
-    random.seed(config.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(config.seed)
-    
-    # Environment setup
-    os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-    
-    # Get GPU info
-    gpu_info = get_gpu_info()
-    num_gpus = gpu_info["count"]
-    
-    if num_gpus == 0:
-        log.warning("No GPUs detected! Falling back to CPU-only mode.")
-        return train_cpu_only(model_id, dataset_path, output_dir, config, resume_from_checkpoint, log)
-    
-    log.info(f"🎮 GPU + CPU Offload mode (Accelerate + DeepSpeed ZeRO-3)")
-    log.info(f"   {num_gpus} GPU(s) detected:")
-    for i, dev in enumerate(gpu_info["devices"]):
-        tensor_cores = "✅ Tensor Cores" if dev["has_tensor_cores"] else "❌ No Tensor Cores"
-        log.info(f"   [{i}] {dev['name']} - {dev['memory_total_gb']}GB - CC {dev['compute_capability']} - {tensor_cores}")
-    log.info("")
-    
-    # Check for Pascal GPUs (no tensor cores)
-    has_tensor_cores = any(dev["has_tensor_cores"] for dev in gpu_info["devices"])
-    use_fp16 = True  # We'll use FP16 for memory savings
-    
-    if not has_tensor_cores:
-        log.warning("⚠️  Pascal GPU detected (no Tensor Cores)")
-        log.warning("   Using FP16 for memory efficiency")
-        log.warning("   Will patch DeepSpeed to allow FP16 on Pascal")
-        log.info("")
-        
-        # Monkey-patch DeepSpeed's sanity check
-        try:
-            import deepspeed.runtime.engine as ds_engine
-            original_sanity_check = ds_engine.DeepSpeedEngine._do_sanity_check
-            
-            def patched_sanity_check(self):
-                try:
-                    original_sanity_check(self)
-                except ValueError as e:
-                    if "fp16 is not supported" in str(e).lower():
-                        pass  # Ignore FP16 check on Pascal
-                    else:
-                        raise
-            
-            ds_engine.DeepSpeedEngine._do_sanity_check = patched_sanity_check
-            log.info("   ✅ Patched DeepSpeed to allow FP16 on Pascal")
-        except Exception as e:
-            log.warning(f"   Could not patch DeepSpeed: {e}")
-    
-    # Memory warning for long sequences
-    if config.max_length >= 2048:
-        total_vram = sum(dev["memory_total_gb"] for dev in gpu_info["devices"])
-        log.warning(f"⚠️  Long sequences ({config.max_length} tokens) with {total_vram}GB total VRAM")
-        log.warning("   If OOM occurs, try: --cpu_only or --max_length 1024")
-        log.info("")
-    
-    # STEP 1: Initialize distributed if needed
-    import torch.distributed as dist
-    
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    world_size = int(os.environ.get("WORLD_SIZE", 1))
-    
-    if not dist.is_initialized() and world_size > 1:
-        import deepspeed
-        log.info("   Initializing DeepSpeed distributed...")
-        deepspeed.init_distributed()
-    
-    log.info(f"   Rank {local_rank + 1}/{world_size}")
-    
-    if torch.cuda.is_available() and local_rank >= 0:
-        torch.cuda.set_device(local_rank)
-    
-    # Create DeepSpeed config
-    ds_config_path = create_deepspeed_config(
-        output_dir=output_dir,
-        num_gpus=num_gpus,
-        use_fp16=use_fp16,
-        gradient_accumulation_steps=config.gradient_accumulation_steps,
-    )
-    log.info(f"📋 Created DeepSpeed config: {ds_config_path}")
-    
-    # Import after distributed init
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    from datasets import load_dataset
-    from peft import LoraConfig, get_peft_model, PeftModel, TaskType
-    from torch.utils.data import DataLoader
-    from tqdm import tqdm
-    from accelerate import Accelerator
-    from accelerate.utils import DeepSpeedPlugin
-    
-    # Create Accelerator with DeepSpeed
-    deepspeed_plugin = DeepSpeedPlugin(
-        hf_ds_config=str(ds_config_path),
-        zero3_init_flag=True,  # Enable ZeRO-3 init
-        gradient_accumulation_steps=config.gradient_accumulation_steps,
-        zero_stage=3,
-    )
-    
-    accelerator = Accelerator(
-        mixed_precision="fp16" if use_fp16 else "no",
-        deepspeed_plugin=deepspeed_plugin,
-        gradient_accumulation_steps=config.gradient_accumulation_steps,
-    )
-    
-    log.info("   ✅ Accelerator initialized with DeepSpeed ZeRO-3")
-    
-    # Load tokenizer
-    log.info("📦 Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    
-    # STEP 2: Load model - Accelerate handles ZeRO-3 partitioning
-    log.info("📦 Loading model with ZeRO-3 partitioning...")
-    log.info("   Accelerate will partition during loading")
-    log.info("   This may take 5-10 minutes for 20B+ models...")
-    
-    # Clear GPU memory
-    gc.collect()
-    torch.cuda.empty_cache()
-    
-    # Let Accelerate handle the model loading with proper ZeRO-3 init
-    with accelerator.main_process_first():
-        model = AutoModelForCausalLM.from_pretrained(
-            model_id,
-            trust_remote_code=True,
-            torch_dtype=torch.float16,
-            low_cpu_mem_usage=True,
-        )
-    
-    log.info("   ✅ Model loaded!")
-    
-    # Check for checkpoint
-    checkpoint_path = None
-    if resume_from_checkpoint:
-        cp = Path(resume_from_checkpoint)
-        if not cp.is_absolute():
-            cp = output_dir / resume_from_checkpoint
-        if cp.exists():
-            checkpoint_path = cp
-    
-    if not checkpoint_path:
-        checkpoints = sorted(glob.glob(str(output_dir / "checkpoint-*")))
-        if checkpoints:
-            checkpoint_path = Path(checkpoints[-1])
-    
-    # Apply LoRA
-    if checkpoint_path and checkpoint_path.exists():
-        log.info(f"📂 Loading LoRA checkpoint: {checkpoint_path}")
-        model = PeftModel.from_pretrained(model, str(checkpoint_path), is_trainable=True)
-    else:
-        log.info("🔧 Applying LoRA adapters...")
-        for param in model.parameters():
-            param.requires_grad = False
-        
-        lora_config = LoraConfig(
-            task_type=TaskType.CAUSAL_LM,
-            r=config.lora_r,
-            lora_alpha=config.lora_alpha,
-            lora_dropout=config.lora_dropout,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-            bias="none",
-        )
-        model = get_peft_model(model, lora_config)
-    
-    model.print_trainable_parameters()
-    
-    # Enable gradient checkpointing
-    if hasattr(model, 'gradient_checkpointing_enable'):
-        model.gradient_checkpointing_enable()
-        log.info("   ✅ Gradient checkpointing enabled")
-    
-    if hasattr(model.config, 'use_cache'):
-        model.config.use_cache = False
-    
-    if hasattr(model, 'enable_input_require_grads'):
-        model.enable_input_require_grads()
-    
-    # Load dataset
-    log.info(f"📊 Loading dataset from {dataset_path}...")
-    dataset = load_dataset("json", data_files=str(dataset_path), split="train")
-    
-    def tokenize_fn(examples):
-        texts = []
-        for inst, resp in zip(examples["instruction"], examples["response"]):
-            inst_str = " ".join(str(x) for x in inst) if isinstance(inst, list) else str(inst or "")
-            resp_str = " ".join(str(x) for x in resp) if isinstance(resp, list) else str(resp or "")
-            text = f"### Instruction:\n{inst_str}\n\n### Response:\n{resp_str}{tokenizer.eos_token}"
-            texts.append(text)
-        tok = tokenizer(texts, truncation=True, max_length=config.max_length, padding="max_length")
-        tok["labels"] = tok["input_ids"].copy()
-        return tok
-    
-    tokenized = dataset.map(tokenize_fn, batched=True, remove_columns=dataset.column_names, desc="Tokenizing")
-    tokenized.set_format("torch", columns=["input_ids", "attention_mask", "labels"])
-    
-    log.info(f"   Dataset size: {len(tokenized)} examples")
-    
-    # Create dataloader
-    dataloader = DataLoader(
-        tokenized,
-        batch_size=config.batch_size,
-        shuffle=True,
-        num_workers=0,
-        pin_memory=False,
-    )
-    
-    # Create optimizer (only for trainable params)
-    trainable_params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.AdamW(trainable_params, lr=config.learning_rate, weight_decay=0.01)
-    
-    # Calculate total steps
-    num_update_steps = len(dataloader) // config.gradient_accumulation_steps * config.epochs
-    
-    # Create scheduler
-    from transformers import get_cosine_schedule_with_warmup
-    scheduler = get_cosine_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=config.warmup_steps,
-        num_training_steps=num_update_steps,
-    )
-    
-    # Prepare with Accelerate - this handles DeepSpeed partitioning
-    log.info("🚀 Preparing model with Accelerate...")
-    model, optimizer, dataloader, scheduler = accelerator.prepare(
-        model, optimizer, dataloader, scheduler
-    )
-    log.info("   ✅ Model prepared and partitioned!")
-    
-    # Training loop
-    log.info("")
-    log.info("🚀 Starting training...")
-    
-    global_step = 0
-    start_epoch = 0
-    
-    # Handle checkpoint resumption
-    if checkpoint_path:
-        state_path = checkpoint_path / "training_state.pt"
-        if state_path.exists():
-            state = torch.load(state_path, map_location="cpu", weights_only=True)
-            global_step = state.get("global_step", 0)
-            start_epoch = state.get("epoch", 0)
-            log.info(f"   Resuming from step {global_step}, epoch {start_epoch}")
-    
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    for epoch in range(start_epoch, config.epochs):
-        log.info(f"\n{'═' * 50}")
-        log.info(f"  Epoch {epoch + 1}/{config.epochs}")
-        log.info(f"{'═' * 50}")
-        
-        model.train()
-        epoch_loss = 0.0
-        num_batches = 0
-        
-        progress = tqdm(dataloader, desc=f"  Training", unit="batch", disable=(not accelerator.is_main_process))
-        
-        for batch in progress:
-            with accelerator.accumulate(model):
-                # Forward pass
-                outputs = model(
-                    input_ids=batch["input_ids"],
-                    attention_mask=batch["attention_mask"],
-                    labels=batch["labels"],
-                )
-                loss = outputs.loss
-                
-                # Backward pass
-                accelerator.backward(loss)
-                
-                if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(model.parameters(), config.max_grad_norm)
-                
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad()
-            
-            epoch_loss += loss.item()
-            num_batches += 1
-            
-            if accelerator.sync_gradients:
-                global_step += 1
-            
-            if accelerator.is_main_process:
-                progress.set_postfix({"loss": f"{loss.item():.4f}", "step": global_step})
-            
-            # Checkpoint
-            if global_step > 0 and global_step % config.checkpoint_steps == 0 and accelerator.is_main_process:
-                ckpt_dir = output_dir / f"checkpoint-{global_step}"
-                ckpt_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Save LoRA weights (unwrap model first)
-                unwrapped_model = accelerator.unwrap_model(model)
-                unwrapped_model.save_pretrained(ckpt_dir)
-                tokenizer.save_pretrained(ckpt_dir)
-                
-                # Save training state
-                torch.save({
-                    'global_step': global_step,
-                    'epoch': epoch,
-                    'epoch_loss': epoch_loss,
-                }, ckpt_dir / 'training_state.pt')
-                
-                log.info(f"\n   💾 Checkpoint saved: {ckpt_dir.name}")
-        
-        avg_loss = epoch_loss / num_batches if num_batches > 0 else 0
-        if accelerator.is_main_process:
-            log.info(f"\n   Epoch {epoch + 1} complete. Average loss: {avg_loss:.4f}")
-    
-    # Save final model
-    if accelerator.is_main_process:
-        log.info(f"\n💾 Saving final model to {output_dir}...")
-        unwrapped_model = accelerator.unwrap_model(model)
-        unwrapped_model.save_pretrained(output_dir)
-        tokenizer.save_pretrained(output_dir)
-        log.info("✅ Training complete!")
-    
-    accelerator.wait_for_everyone()
+def warn_if_other_gpu_processes():
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory",
+             "--format=csv,noheader"],
+            text=True
+        ).strip()
+        if out:
+            print("\n⚠️  Other GPU processes detected:")
+            print(out)
+            print("⚠️  Consider stopping them to avoid OOM.\n")
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1155,97 +800,74 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
-    
-    # Model
-    parser.add_argument('--model_name', type=str, default='gpt-oss:20b',
-                        help='Model name (HuggingFace ID or Ollama-style)')
-    parser.add_argument('--hf_token', type=str, default=None,
-                        help='HuggingFace token (or set HF_TOKEN env)')
-    
-    # Data
-    parser.add_argument('--dataset_source', type=str, 
+
+    parser.add_argument('--model_name', type=str, default='gpt-oss:20b')
+    parser.add_argument('--hf_token', type=str, default=None)
+
+    parser.add_argument('--dataset_source', type=str,
                         choices=['conversations', 'files', 'memories', 'all'],
-                        default='all', help='Data source')
-    parser.add_argument('--dataset_path', type=str, default=None,
-                        help='Use existing dataset file')
-    parser.add_argument('--export_only', action='store_true',
-                        help='Only export dataset')
-    
-    # Training
-    parser.add_argument('--epochs', type=int, default=3, help='Training epochs')
-    parser.add_argument('--learning_rate', type=float, default=2e-5, help='Learning rate')
-    parser.add_argument('--max_length', type=int, default=512, help='Max sequence length')
-    parser.add_argument('--batch_size', type=int, default=1, help='Micro batch size')
-    parser.add_argument('--gradient_accumulation', type=int, default=16, help='Gradient accumulation steps')
-    
-    # LoRA
-    parser.add_argument('--lora_r', type=int, default=16, help='LoRA rank')
-    parser.add_argument('--lora_alpha', type=int, default=32, help='LoRA alpha')
-    
-    # Mode
-    parser.add_argument('--cpu_only', action='store_true',
-                        help='Force CPU-only training')
-    
-    # Checkpointing
-    parser.add_argument('--output_name', type=str, default=None,
-                        help='Output adapter name')
-    parser.add_argument('--resume_from_checkpoint', type=str, default=None,
-                        help='Resume from checkpoint (e.g., checkpoint-1500)')
-    
-    # DeepSpeed (auto-added by launcher)
-    parser.add_argument('--local_rank', type=int, default=-1,
-                        help='Local rank (set by DeepSpeed)')
-    
+                        default='all')
+    parser.add_argument('--dataset_path', type=str, default=None)
+    parser.add_argument('--export_only', action='store_true')
+
+    parser.add_argument('--epochs', type=int, default=3)
+    parser.add_argument('--learning_rate', type=float, default=2e-5)
+    parser.add_argument('--max_length', type=int, default=512)
+    parser.add_argument('--batch_size', type=int, default=1)
+    parser.add_argument('--gradient_accumulation', type=int, default=16)
+
+    parser.add_argument('--lora_r', type=int, default=16)
+    parser.add_argument('--lora_alpha', type=int, default=32)
+
+    parser.add_argument('--gpu_offload', action='store_true')
+
+    parser.add_argument('--output_name', type=str, default=None)
+    parser.add_argument('--resume_from_checkpoint', type=str, default=None)
+    parser.add_argument("--gpu_max_memory_gb", type=int, default=8, help="Max VRAM (GiB) per GPU used for offload")
+    parser.add_argument("--gpu_free_fraction", type=float, default=0.50,help="Use at most this fraction of currently FREE VRAM for offload budgets")
+    parser.add_argument("--reenable_gpu_every", type=int, default=200, help="After a fallback to CPU, try re-enabling GPU offload every N optimizer steps")
+
     args = parser.parse_args()
-    
-    # Handle DeepSpeed local_rank
-    if args.local_rank != -1:
-        os.environ["LOCAL_RANK"] = str(args.local_rank)
-    
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    
-    # Setup HF token
+
     if args.hf_token:
         os.environ["HF_TOKEN"] = args.hf_token
-    
-    # Generate output name
+
     if args.output_name is None:
         timestamp = int(datetime.now().timestamp() * 1000)
         model_safe = args.model_name.replace(':', '-').replace('/', '-')
         args.output_name = f"lora-{model_safe}-{timestamp}"
-    
+
     output_dir = ADAPTERS_DIR / args.output_name
-    
-    # Setup logging
-    log = setup_logging(output_dir, rank=local_rank)
-    
-    # Only rank 0 prints banner
-    if local_rank == 0:
-        print_banner("LoRA Fine-Tuning")
-        
-        # Config
-        print("\033[1m📋 Configuration:\033[0m")
-        print_config_table({
-            "Model": args.model_name,
-            "Dataset": args.dataset_source,
-            "Epochs": args.epochs,
-            "Learning Rate": args.learning_rate,
-            "Max Length": args.max_length,
-            "Mode": "CPU-only" if args.cpu_only else "GPU + CPU Offload",
-            "Output": args.output_name,
-        })
-        
-        # GPU info
-        gpu_info = get_gpu_info()
-        if gpu_info["available"]:
-            print(f"\033[1m🎮 GPUs:\033[0m")
-            for i, dev in enumerate(gpu_info["devices"]):
-                print(f"  [{i}] {dev['name']} ({dev['memory_total_gb']}GB)")
-            print()
-        else:
-            print("\033[1m🖥️  No GPUs available - will use CPU\033[0m\n")
-    
-    # Create config object
+    log = setup_logging(output_dir, rank=0)
+
+    print_banner("LoRA Fine-Tuning")
+
+    print("\033[1m📋 Configuration:\033[0m")
+    mode_str = "CPU with GPU offload" if args.gpu_offload else "CPU-only"
+    print_config_table({
+        "Model": args.model_name,
+        "Dataset": args.dataset_source,
+        "Epochs": args.epochs,
+        "Learning Rate": args.learning_rate,
+        "Max Length": args.max_length,
+        "Mode": mode_str,
+        "Output": args.output_name,
+        "GPU cap": f"{GPU_MAX_GB_CAP:.0f}GiB/GPU" if args.gpu_offload else "n/a",
+        "GPU frac": f"{GPU_FREE_FRACTION:.2f}" if args.gpu_offload else "n/a",
+        "GPU retry": f"every {REENABLE_GPU_EVERY} steps" if args.gpu_offload else "n/a",
+    })
+
+    gpu_info = get_gpu_info()
+    if gpu_info["available"]:
+        print(f"\033[1m🎮 GPUs:\033[0m")
+        for i, dev in enumerate(gpu_info["devices"]):
+            print(f"  [{i}] {dev['name']} ({dev['memory_total_gb']}GB)")
+        print()
+    else:
+        if args.gpu_offload:
+            log.warning("⚠️  GPU offload requested but no GPUs available - falling back to CPU-only")
+        print("\033[1m🖥️  No GPUs available - will use CPU\033[0m\n")
+
     config = Config(
         model_name=args.model_name,
         dataset_source=args.dataset_source,
@@ -1256,66 +878,42 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation,
         lora_r=args.lora_r,
         lora_alpha=args.lora_alpha,
+        use_gpu_offload=args.gpu_offload,
+        gpu_max_memory_gb=args.gpu_max_memory_gb,
+        gpu_free_fraction=args.gpu_free_fraction,
+        reenable_gpu_every=args.reenable_gpu_every,
     )
-    
-    # Export dataset (only rank 0)
-    if local_rank == 0:
-        if args.dataset_path:
-            dataset_path = Path(args.dataset_path)
-            if not dataset_path.exists():
-                log.error(f"Dataset not found: {dataset_path}")
-                return 1
-            log.info(f"📂 Using existing dataset: {dataset_path}")
-        else:
-            log.info("📦 Exporting training data...")
-            dataset_path = export_training_data(source=args.dataset_source)
-        
-        if args.export_only:
-            log.info("\n✅ Dataset exported. Use --dataset_path to train later.")
-            return 0
-    else:
-        # Non-rank-0 processes wait for dataset
-        import time
-        while args.dataset_path is None:
-            # Find latest dataset
-            datasets = sorted(TRAINING_DATA_DIR.glob("dataset-*.jsonl"))
-            if datasets:
-                args.dataset_path = str(datasets[-1])
-                break
-            time.sleep(1)
+
+    if args.dataset_path:
         dataset_path = Path(args.dataset_path)
-    
-    # Get model ID
-    model_id = get_model_id(args.model_name)
-    
-    # Train
-    if args.cpu_only:
-        train_cpu_only(
-            model_id=model_id,
-            dataset_path=dataset_path,
-            output_dir=output_dir,
-            config=config,
-            resume_from_checkpoint=args.resume_from_checkpoint,
-            log=log,
-        )
+        if not dataset_path.exists():
+            log.error(f"Dataset not found: {dataset_path}")
+            return 1
+        log.info(f"📂 Using existing dataset: {dataset_path}")
     else:
-        train_gpu_with_offload(
-            model_id=model_id,
-            dataset_path=dataset_path,
-            output_dir=output_dir,
-            config=config,
-            resume_from_checkpoint=args.resume_from_checkpoint,
-            log=log,
-        )
-    
-    if local_rank == 0:
-        print_banner("Training Complete!", char="═")
-        log.info(f"🎉 Adapter saved to: {output_dir}")
-        log.info("")
-        log.info("Next steps:")
-        log.info(f"  • Test: ollama run {args.model_name} --lora {output_dir}")
-        log.info(f"  • Merge: python merge_lora.py --adapter {output_dir}")
-    
+        log.info("📦 Exporting training data...")
+        dataset_path = export_training_data(source=args.dataset_source)
+
+    if args.export_only:
+        log.info("\n✅ Dataset exported. Use --dataset_path to train later.")
+        return 0
+
+    model_id = get_model_id(args.model_name)
+
+    warn_if_other_gpu_processes()
+
+    train(
+        model_id=model_id,
+        dataset_path=dataset_path,
+        output_dir=output_dir,
+        config=config,
+        resume_from_checkpoint=args.resume_from_checkpoint,
+        log=log,
+    )
+
+    print_banner("Training Complete!", char="═")
+    log.info(f"🎉 Adapter saved to: {output_dir}")
+    log.info(f"  • Test: ollama run {args.model_name} --lora {output_dir}")
     return 0
 
 
