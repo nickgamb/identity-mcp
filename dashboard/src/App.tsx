@@ -20,6 +20,7 @@ import {
 import { DataExplorer } from './DataExplorer'
 import { useAuth } from './auth/AuthContext'
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react'
+import { authenticatedFetch } from './utils/api'
 
 // Script definitions
 const SCRIPTS = [
@@ -136,7 +137,7 @@ function App() {
 
   const checkMcpStatus = async () => {
     try {
-      const res = await fetch('/api/health')
+      const res = await authenticatedFetch('/api/health')
       setMcpStatus(res.ok ? 'online' : 'offline')
     } catch {
       setMcpStatus('offline')
@@ -158,7 +159,7 @@ function App() {
       })
       
       // Check data status to determine which scripts have completed
-      const res = await fetch('/api/mcp/data.status')
+      const res = await authenticatedFetch('/api/mcp/data.status')
       const data = await res.json()
       
       // Start with running scripts - only add completed if files exist
@@ -167,7 +168,7 @@ function App() {
       // Parse Conversations - check if conversation JSONL files exist
       if (data.counts?.conversationFiles > 0) {
         try {
-          const conversationsRes = await fetch('/api/mcp/data.conversations')
+          const conversationsRes = await authenticatedFetch('/api/mcp/data.conversations')
           if (conversationsRes.ok) {
             const conversationsData = await conversationsRes.json()
             if (conversationsData.conversations && conversationsData.conversations.length > 0) {
@@ -182,7 +183,7 @@ function App() {
       
       // Check memory files using the same API the dashboard uses
       try {
-        const memoryListRes = await fetch('/api/mcp/data.memories_list')
+        const memoryListRes = await authenticatedFetch('/api/mcp/data.memories_list')
         if (memoryListRes.ok) {
           const memoryListData = await memoryListRes.json()
           const memoryFileNames = memoryListData.memories?.map((f: any) => f._file) || []
@@ -236,7 +237,7 @@ function App() {
     setSelectedScript(scriptId)
 
     try {
-      const res = await fetch('/api/mcp/pipeline.run', {
+      const res = await authenticatedFetch('/api/mcp/pipeline.run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ script: script.id })
@@ -268,7 +269,7 @@ function App() {
 
   const viewFile = async (filePath: string) => {
     try {
-      const res = await fetch('/api/mcp/file.get', {
+      const res = await authenticatedFetch('/api/mcp/file.get', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filepath: filePath })
@@ -410,10 +411,43 @@ function App() {
         </div>
 
         {/* Data Explorer View */}
-        {mainView === 'data' && <DataExplorer />}
+        {mainView === 'data' && (
+          isOidcEnabled && !isAuthenticated ? (
+            <div className="flex flex-col items-center justify-center py-24">
+              <div className="card max-w-md text-center">
+                <Shield className="w-16 h-16 mx-auto mb-4 text-accent opacity-50" />
+                <h2 className="font-display text-xl font-semibold text-text-primary mb-2">Authentication Required</h2>
+                <p className="text-text-secondary mb-6">
+                  Please log in to access the Data Explorer.
+                </p>
+                <button onClick={login} className="btn btn-primary">
+                  <LogIn className="w-4 h-4" />
+                  <span>Login</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <DataExplorer />
+          )
+        )}
 
         {/* Pipeline View */}
         {mainView === 'pipeline' && (
+          isOidcEnabled && !isAuthenticated ? (
+            <div className="flex flex-col items-center justify-center py-24">
+              <div className="card max-w-md text-center">
+                <Shield className="w-16 h-16 mx-auto mb-4 text-accent opacity-50" />
+                <h2 className="font-display text-xl font-semibold text-text-primary mb-2">Authentication Required</h2>
+                <p className="text-text-secondary mb-6">
+                  Please log in to access the Processing Pipeline.
+                </p>
+                <button onClick={login} className="btn btn-primary">
+                  <LogIn className="w-4 h-4" />
+                  <span>Login</span>
+                </button>
+              </div>
+            </div>
+          ) : (
           <>
             {/* Pipeline Overview */}
             <section className="mb-8">
@@ -572,6 +606,7 @@ function App() {
           </div>
         </div>
           </>
+          )
         )}
       </main>
 

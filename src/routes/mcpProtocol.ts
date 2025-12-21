@@ -849,17 +849,34 @@ mcpProtocolRouter.post("/", async (req: Request, res: Response) => {
 
     // 1) Existing session: reuse its transport
     if (sessionId && transports[sessionId]) {
-      transport = transports[sessionId];
-      // Update user context for existing session (in case it changed)
-      if (userId) {
-        sessionUsers[sessionId] = userId;
+      const storedUserId = sessionUsers[sessionId];
+      // Validate userId matches stored session (prevent cross-user access)
+      if (userId && storedUserId && userId !== storedUserId) {
+        logger.warn("MCP Protocol: User mismatch for session, invalidating", {
+          sessionId: sessionId.substring(0, 8) + "...",
+          storedUserId: storedUserId.substring(0, 8) + "...",
+          newUserId: userId.substring(0, 8) + "...",
+        });
+        // Invalidate session - user changed
+        delete transports[sessionId];
+        delete sessionUsers[sessionId];
+        // Fall through to create new session
+      } else {
+        transport = transports[sessionId];
+        // Update user context if provided and matches
+        if (userId) {
+          sessionUsers[sessionId] = userId;
+        }
+        logger.info("MCP Protocol: Using existing session transport", {
+          sessionId: sessionId.substring(0, 8) + "...",
+          userId: userId ? userId.substring(0, 8) + "..." : "anonymous",
+        });
       }
-      logger.info("MCP Protocol: Using existing session transport", {
-        sessionId: sessionId.substring(0, 8) + "...",
-        userId: userId ? userId.substring(0, 8) + "..." : "anonymous",
-      });
-    } else if (!sessionId && isInitializeRequest(req.body)) {
-      // 2) New initialization request: create fresh transport + server
+    }
+    
+    // Create new session if transport wasn't set (either new request or invalidated session)
+    if (!transport && isInitializeRequest(req.body)) {
+      // New initialization request: create fresh transport + server
       const newTransport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (initializedSessionId) => {
@@ -877,7 +894,6 @@ mcpProtocolRouter.post("/", async (req: Request, res: Response) => {
         {
           name: "identity-mcp",
           version: "0.1.0",
-          protocolVersion: "2024-11-05",
         },
         { capabilities: { tools: { listChanged: true } } },
       );
@@ -924,6 +940,18 @@ mcpProtocolRouter.post("/", async (req: Request, res: Response) => {
     }
 
     // Delegate full JSON-RPC handling to the MCP SDK transport
+    if (!transport) {
+      res.status(400).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: "Bad Request: No valid transport available",
+        },
+        id: null,
+      });
+      return;
+    }
+    
     await transport.handleRequest(req, res, req.body);
   } catch (error) {
     logger.error("MCP Protocol: Error handling POST request", {

@@ -97,13 +97,20 @@ export async function authenticateToken(
     });
 
     // Extract user context from token claims
-    const userId = payload.sub || payload.preferred_username || payload.email || null;
-    if (!userId) {
+    const rawUserId = payload.sub || payload.preferred_username || payload.email || null;
+    if (!rawUserId) {
       throw new Error("Token missing user identifier (sub, preferred_username, or email)");
     }
 
+    // Validate and sanitize userId
+    const { validateUserId } = require("../utils/userContext");
+    const userId = validateUserId(rawUserId as string);
+    if (!userId) {
+      throw new Error("Invalid user identifier format in token");
+    }
+
     const userContext: UserContext = {
-      userId: userId as string,
+      userId,
       isAuthenticated: true,
       claims: payload as Record<string, any>,
     };

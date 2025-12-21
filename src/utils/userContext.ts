@@ -73,8 +73,39 @@ export function getRequiredUserId(userContext: UserContext | null): string | nul
 }
 
 /**
+ * Sanitize userId to prevent path traversal attacks.
+ * Only allows alphanumeric, hyphens, underscores, and dots.
+ */
+function sanitizeUserId(userId: string): string {
+  // Remove any path traversal attempts and unsafe characters
+  // Only allow: a-z, A-Z, 0-9, -, _, .
+  const sanitized = userId.replace(/[^a-zA-Z0-9._-]/g, "");
+  if (sanitized !== userId) {
+    logger.warn("Sanitized userId to prevent path traversal", { 
+      original: userId.substring(0, 20), 
+      sanitized: sanitized.substring(0, 20) 
+    });
+  }
+  return sanitized;
+}
+
+/**
+ * Validate userId format (safe for filesystem use)
+ */
+export function validateUserId(userId: string | null): string | null {
+  if (!userId) return null;
+  const sanitized = sanitizeUserId(userId);
+  if (!sanitized || sanitized.length === 0) {
+    logger.warn("Invalid userId format, rejecting", { userId: userId.substring(0, 20) });
+    return null;
+  }
+  return sanitized;
+}
+
+/**
  * Get user-specific directory path.
  * Returns per-user path if authenticated, otherwise returns base path (backward compat).
+ * Automatically sanitizes userId to prevent path traversal attacks.
  */
 export function getUserDataPath(basePath: string, userId: string | null): string {
   if (!config.OIDC_ENABLED || !userId) {
@@ -82,9 +113,16 @@ export function getUserDataPath(basePath: string, userId: string | null): string
     return basePath;
   }
 
+  // Sanitize userId to prevent path traversal
+  const sanitizedUserId = validateUserId(userId);
+  if (!sanitizedUserId) {
+    logger.error("Invalid userId, falling back to base path", { userId: userId.substring(0, 20) });
+    return basePath;
+  }
+
   // Multi-user mode: return per-user path
   const path = require("path");
-  return path.join(basePath, userId);
+  return path.join(basePath, sanitizedUserId);
 }
 
 /**

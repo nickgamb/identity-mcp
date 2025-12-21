@@ -154,7 +154,7 @@ mcpRouter.post("/mcp/memory.list", async (req: Request, res: Response) => {
     const payload: MemoryListRequest = {
       files: parsed.files as MemoryFileName[] | undefined,
     };
-    const result = await handleMemoryList(payload, userContext.userId);
+    const result = await handleMemoryList(payload, userContext?.userId ?? null);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -166,7 +166,7 @@ mcpRouter.post("/mcp/memory.get", async (req: Request, res: Response) => {
     const userContext = getUserContext(req);
     const parsed = memoryGetSchema.parse(req.body);
     const payload: MemoryGetRequest = parsed as MemoryGetRequest;
-    const result = await handleMemoryGet(payload, userContext.userId);
+    const result = await handleMemoryGet(payload, userContext?.userId ?? null);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -178,7 +178,7 @@ mcpRouter.post("/mcp/memory.append", async (req: Request, res: Response) => {
     const parsed = memoryAppendSchema.parse(req.body);
     const payload: MemoryAppendRequest = parsed as MemoryAppendRequest;
     const userContext = getUserContext(req);
-    const result = await handleMemoryAppend(payload, userContext.userId);
+    const result = await handleMemoryAppend(payload, userContext?.userId ?? null);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -343,7 +343,7 @@ mcpRouter.post("/mcp/conversation.list", async (req: Request, res: Response) => 
     });
     const userContext = getUserContext(req);
     const parsed = schema.parse(req.body);
-    const result = await handleConversationList({ ...parsed, limit: parsed.limit ?? undefined, offset: parsed.offset ?? undefined }, userContext.userId);
+    const result = await handleConversationList({ ...parsed, limit: parsed.limit ?? undefined, offset: parsed.offset ?? undefined }, userContext?.userId ?? null);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -357,7 +357,7 @@ mcpRouter.post("/mcp/conversation.get", async (req: Request, res: Response) => {
       conversationId: z.string(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleConversationGet(parsed, userContext.userId);
+    const result = await handleConversationGet(parsed, userContext?.userId ?? null);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -372,7 +372,7 @@ mcpRouter.post("/mcp/conversation.search", async (req: Request, res: Response) =
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleConversationSearch({ ...parsed, limit: parsed.limit ?? undefined }, userContext.userId);
+    const result = await handleConversationSearch({ ...parsed, limit: parsed.limit ?? undefined }, userContext?.userId ?? null);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -388,7 +388,7 @@ mcpRouter.post("/mcp/conversation.by_date_range", async (req: Request, res: Resp
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handleConversationByDateRange({ ...parsed, limit: parsed.limit ?? undefined }, userContext.userId);
+    const result = await handleConversationByDateRange({ ...parsed, limit: parsed.limit ?? undefined }, userContext?.userId ?? null);
     res.json(result);
   } catch (err) {
     handleError(res, err);
