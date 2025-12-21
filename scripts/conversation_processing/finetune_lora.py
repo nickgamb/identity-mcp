@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
 """
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                    LoRA Fine-Tuning for Large Language Models                ║
-║                                                                              ║
-║  Supports models up to 20B+ parameters on consumer/prosumer hardware         ║
-║  • CPU-only mode (slow but always works, ~40GB RAM for 20B model)            ║
-║  • CPU with GPU offload (loads on CPU, offloads shards to GPU during training)│
-║  • Checkpoint save/resume with full state preservation                       ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                    LoRA Fine-Tuning for Large Language Models                 ║
+║                                                                               ║
+║  Supports models up to 20B+ parameters on consumer/prosumer hardware          ║
+║  • CPU-only mode (slow but always works, ~40GB RAM for 20B model)             ║
+║  • CPU with GPU offload (loads on CPU, offloads shards to GPU during training)║
+║  • Checkpoint save/resume with full state preservation                        ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+CPU only with defaults
+python scripts/conversation_processing/finetune_lora.py --model_name gpt-oss:20b --max_length 2048 --epochs 3
+
+CPU + GPU offload with defaults
+python scripts/conversation_processing/finetune_lora.py --model_name gpt-oss:20b --gpu_offload --max_length 2048 --epochs 3
+
+CPU + GPU offload with custom settings
+python scripts/conversation_processing/finetune_lora.py \
+  --model_name gpt-oss:20b --gpu_offload --max_length 2048 --epochs 3 \
+  --gpu_max_memory_gb 12 --gpu_free_fraction 0.6 --reenable_gpu_every 100
 """
 
 import os
