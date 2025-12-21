@@ -104,15 +104,49 @@ def load_model():
                 local_files_only=local_files_only
             )
             logger.info("Loading model (this may take a while if downloading)...")
-            model = AutoModelForCausalLM.from_pretrained(
-                MODEL_NAME,
-                trust_remote_code=True,
-                torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
-                device_map="auto" if DEVICE == "cuda" else None,
-                cache_dir=cache_dir,
-                local_files_only=local_files_only
-            )
-            if DEVICE == "cpu":
+            
+            # Multi-GPU configuration
+            num_gpus = torch.cuda.device_count() if DEVICE == "cuda" else 0
+            logger.info(f"Detected {num_gpus} GPU(s)")
+            
+            if DEVICE == "cuda" and num_gpus > 1:
+                # Multi-GPU: Use device_map="auto" to split model across GPUs
+                # This will automatically distribute layers across available GPUs
+                logger.info(f"Using multi-GPU mode: splitting model across {num_gpus} GPUs")
+                model = AutoModelForCausalLM.from_pretrained(
+                    MODEL_NAME,
+                    trust_remote_code=True,
+                    torch_dtype=torch.float16,
+                    device_map="auto",  # Automatically splits across all GPUs
+                    cache_dir=cache_dir,
+                    local_files_only=local_files_only,
+                    low_cpu_mem_usage=True,
+                    max_memory={i: "22GiB" for i in range(num_gpus)}  # Limit per GPU to avoid OOM
+                )
+                # Log which GPUs are being used
+                if hasattr(model, 'hf_device_map'):
+                    logger.info(f"Model device map: {model.hf_device_map}")
+            elif DEVICE == "cuda":
+                # Single GPU
+                logger.info("Using single GPU mode")
+                model = AutoModelForCausalLM.from_pretrained(
+                    MODEL_NAME,
+                    trust_remote_code=True,
+                    torch_dtype=torch.float16,
+                    device_map="auto",
+                    cache_dir=cache_dir,
+                    local_files_only=local_files_only
+                )
+            else:
+                # CPU mode
+                model = AutoModelForCausalLM.from_pretrained(
+                    MODEL_NAME,
+                    trust_remote_code=True,
+                    torch_dtype=torch.float32,
+                    device_map=None,
+                    cache_dir=cache_dir,
+                    local_files_only=local_files_only
+                )
                 model = model.to(DEVICE)
             
             last_used = datetime.now()

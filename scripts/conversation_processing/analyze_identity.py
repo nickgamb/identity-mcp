@@ -306,7 +306,7 @@ def compute_pattern_momentum(windows: List[List[Dict]], patterns: Dict[str, str]
         # Focus on human patterns for momentum analysis
         counts = count_pattern_matches(user_text, patterns)
         # Normalize by text length
-        text_len = len(assistant_text) or 1
+        text_len = len(user_text) or 1
         normalized = {k: v / text_len * 10000 for k, v in counts.items()}
         window_counts.append(normalized)
     

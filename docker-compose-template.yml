@@ -13,14 +13,25 @@ services:
       - MEMORY_DIR=/app/memory
       - FILES_DIR=/app/files
       - IDENTITY_SERVICE_URL=http://identity-service:4001
+      - NVIDIA_VISIBLE_DEVICES=all
     volumes:
       - ./memory:/app/memory
       - ./conversations:/app/conversations
       - ./files:/app/files
       - ./scripts:/app/scripts
       - ./models:/app/models
+      - ./training_data:/app/training_data
+      - ./adapters:/app/adapters
     networks:
       - mcp-network
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4000/health"]
       interval: 10s
@@ -39,14 +50,26 @@ services:
       - ollama-data:/root/.ollama
       # Mount local ollama_models to persist downloaded models (read-write so new models can be saved)
       # Models are stored in /home/<USERNAME>/models/ollama_models/blobs on the host
-      - /home/<USERNAME>/models/ollama_models/blobs:/root/.ollama/models/blobs # CHANGE THIS TO YOUR OWN PATH
+      # - /home/<USERNAME>/models/ollama_models/blobs:/root/.ollama/models/blobs # CHANGE THIS TO YOUR OWN PATH
+      - /home/<USERNAME>/models/ollama_models/blobs:/root/.ollama/models/blobs
+      - /home/<USERNAME>/models/ollama_models/manifests:/root/.ollama/models/manifests
     networks:
       - mcp-network
-    # Enable GPU support for NVIDIA
+    # Enable GPU support for NVIDIA - use both GPUs explicitly
+    # NOTE: Ollama doesn't split a single model across multiple GPUs.
+    # Each model runs on one GPU. For multi-GPU inference, use the HF service instead.
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_NUM_PARALLEL=1  # Number of parallel requests (can increase for multiple models)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/11434' || exit 1"]
       interval: 15s
@@ -106,7 +129,6 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # For local models, use the full path. For HF Hub models, use model ID (e.g., THUDM/glm-4-5-air)
       - HF_MODEL=/root/.cache/huggingface/models/glm-4.5-air  # Local model path (adjust model name as needed)
       - HF_KEEP_ALIVE=300  # Unload after 5 minutes of inactivity (0=immediate, -1=never)
       - NVIDIA_VISIBLE_DEVICES=all
@@ -120,8 +142,15 @@ services:
       - /home/<USERNAME>/models/hf_models:/root/.cache/huggingface/hub:ro # CHANGE THIS TO YOUR OWN PATH
     networks:
       - mcp-network
-    # Enable GPU support
+    # Enable GPU support - use both GPUs explicitly
     runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -175,8 +204,8 @@ services:
       - JWT_REFRESH_SECRET=mcp-demo-refresh-secret-change-in-production
       - JWT_EXPIRES_IN=1d
       - JWT_REFRESH_EXPIRES_IN=7d
-      - DOMAIN_CLIENT=${LIBRECHAT_DOMAIN:-http://192.168.1.77:3080}
-      - DOMAIN_SERVER=${LIBRECHAT_DOMAIN:-http://192.168.1.77:3080}
+      - DOMAIN_CLIENT=${LIBRECHAT_DOMAIN:-http://localhost:3080}
+      - DOMAIN_SERVER=${LIBRECHAT_DOMAIN:-http://localhost:3080}
       - ALLOW_REGISTRATION=true
       - ALLOW_SOCIAL_LOGIN=false
       - APP_TITLE=Chat
@@ -222,6 +251,8 @@ services:
     container_name: identity-dashboard
     ports:
       - "3001:3001"
+    environment:
+      - VITE_OIDC_ENABLED=false
     volumes:
       - ./dashboard:/app
       - /app/node_modules
@@ -254,4 +285,3 @@ volumes:
     driver: local
   librechat-uploads:
     driver: local
-

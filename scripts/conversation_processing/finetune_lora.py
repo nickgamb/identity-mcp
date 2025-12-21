@@ -52,15 +52,35 @@ DUAL GPU (2x P40) - DeepSpeed ZeRO-3 with defaults:
   # Option 1: Try plain python first (may work with Trainer)
   python finetune_lora.py \\
     --model_name gpt-oss:20b \\
-    --max_length 512 \\
-    --epochs 3
+    --max_length 2048 \\
+    --epochs 3 \\
+
+  # Option 2: Use deepspeed launcher (recommended for multi-GPU)
+  deepspeed --num_gpus=2 finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --max_length 2048 \\
+    --epochs 3 \\
+  
+  # DeepSpeed auto-scales batch size to 32 (16 per GPU * 2)
+  # Uses 20GB per GPU + CPU offload
+
+  DUAL GPU (2x P40) - DeepSpeed ZeRO-3 with continuation from checkpoint:
+  # Option 1: Try plain python first (may work with Trainer)
+  python finetune_lora.py \\
+    --model_name gpt-oss:20b \\
+    --output_name alden-gpt-oss-20b-1764689640337 \\
+    --resume_from_checkpoint checkpoint-1500 \\
+    --dataset_path training_data/alden-dataset-1764565413005.jsonl \\ 
+    --max_length 2048 \\
   
   # Option 2: Use deepspeed launcher (recommended for multi-GPU)
   deepspeed --num_gpus=2 finetune_lora.py \\
     --model_name gpt-oss:20b \\
-    --max_length 512 \\
-    --epochs 3
-  
+    --output_name alden-gpt-oss-20b-1764689640337 \\
+    --resume_from_checkpoint checkpoint-1500 \\
+    --dataset_path training_data/alden-dataset-1764565413005.jsonl \\ 
+    --max_length 2048 \\
+
   # DeepSpeed auto-scales batch size to 32 (16 per GPU * 2)
   # Uses 20GB per GPU + CPU offload
 
@@ -1517,8 +1537,15 @@ Examples:
                        help='Max VRAM per GPU in GB (e.g., "20", "22", "auto" for no limit). Default: 20')
     parser.add_argument('--no_cpu_offload', action='store_true',
                        help='Disable CPU offloading (not recommended for large models)')
+    parser.add_argument('--local_rank', type=int, default=-1,
+                       help='Local rank for distributed training (set by DeepSpeed/accelerate)')
     
     args = parser.parse_args()
+    
+    # Update local_rank from argument if provided (DeepSpeed passes --local_rank)
+    if args.local_rank != -1:
+        local_rank = args.local_rank
+        os.environ["LOCAL_RANK"] = str(args.local_rank)
     
     # Set default max_length
     if args.max_length is None:
