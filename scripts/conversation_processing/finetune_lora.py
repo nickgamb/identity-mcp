@@ -46,9 +46,7 @@ class Config:
     max_grad_norm: float = 1.0
     seed: int = 42
     use_gpu_offload: bool = False
-    gpu_max_memory_gb: int = 8
-    gpu_free_fraction: float = 0.50
-    reenable_gpu_every: int = 200
+
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent if Path(__file__).parent.name == "conversation_processing" else Path(__file__).parent
 USER_ID = os.environ.get("USER_ID")
@@ -68,9 +66,9 @@ for d in [TRAINING_DATA_DIR, ADAPTERS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # Hard cap per GPU for "support only" sharding.
-# GPU_MAX_GB_CAP = float(os.environ.get("GPU_MAX_GB_CAP", "8"))          # default 8GiB per GPU
-# GPU_FREE_FRACTION = float(os.environ.get("GPU_FREE_FRACTION", "0.50")) # use at most 50% of free VRAM
-# REENABLE_GPU_EVERY = int(os.environ.get("REENABLE_GPU_EVERY", "200"))  # try re-enable GPU offload every N optimizer steps
+GPU_MAX_GB_CAP = float(os.environ.get("GPU_MAX_GB_CAP", "8"))          # default 8GiB per GPU
+GPU_FREE_FRACTION = float(os.environ.get("GPU_FREE_FRACTION", "0.50")) # use at most 50% of free VRAM
+REENABLE_GPU_EVERY = int(os.environ.get("REENABLE_GPU_EVERY", "200"))  # try re-enable GPU offload every N optimizer steps
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -823,9 +821,6 @@ def main():
 
     parser.add_argument('--output_name', type=str, default=None)
     parser.add_argument('--resume_from_checkpoint', type=str, default=None)
-    parser.add_argument("--gpu_max_memory_gb", type=int, default=8, help="Max VRAM (GiB) per GPU used for offload")
-    parser.add_argument("--gpu_free_fraction", type=float, default=0.50,help="Use at most this fraction of currently FREE VRAM for offload budgets")
-    parser.add_argument("--reenable_gpu_every", type=int, default=200, help="After a fallback to CPU, try re-enabling GPU offload every N optimizer steps")
 
     args = parser.parse_args()
 
@@ -879,9 +874,6 @@ def main():
         lora_r=args.lora_r,
         lora_alpha=args.lora_alpha,
         use_gpu_offload=args.gpu_offload,
-        gpu_max_memory_gb=args.gpu_max_memory_gb,
-        gpu_free_fraction=args.gpu_free_fraction,
-        reenable_gpu_every=args.reenable_gpu_every,
     )
 
     if args.dataset_path:
