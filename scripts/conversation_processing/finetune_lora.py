@@ -16,9 +16,11 @@ CPU + GPU offload with defaults
 python scripts/conversation_processing/finetune_lora.py --model_name gpt-oss:20b --gpu_offload --max_length 2048 --epochs 3
 
 CPU + GPU offload with custom settings
-python scripts/conversation_processing/finetune_lora.py \
-  --model_name gpt-oss:20b --gpu_offload --max_length 2048 --epochs 3 \
-  --gpu_max_memory_gb 12 --gpu_free_fraction 0.6 --reenable_gpu_every 100
+python scripts/conversation_processing/finetune_lora.py --model_name gpt-oss:20b --gpu_offload --max_length 2048 --epochs 3 --gpu_max_memory_gb 12 --gpu_free_fraction 0.6 --reenable_gpu_every 100
+
+python scripts/conversation_processing/finetune_lora.py --model_name gpt-oss:20b --gpu_offload --max_length 2048 --epochs 3 --gpu_max_memory_gb 14 --gpu_free_fraction 0.7 --reenable_gpu_every 100
+
+python scripts/conversation_processing/finetune_lora.py --model_name gpt-oss:20b --gpu_offload --max_length 2048 --epochs 3 --gpu_max_memory_gb 16 --gpu_free_fraction 0.7 --reenable_gpu_every 100
 """
 
 import os
@@ -51,7 +53,7 @@ class Config:
     lora_dropout: float = 0.1
     batch_size: int = 1
     gradient_accumulation_steps: int = 16
-    checkpoint_steps: int = 500
+    checkpoint_steps: int = 50
     logging_steps: int = 50
     warmup_steps: int = 100
     max_grad_norm: float = 1.0
