@@ -679,6 +679,8 @@ def train(
                 labels=batch_dev["labels"],
             )
             loss = outputs.loss
+            if torch.isnan(loss) or torch.isinf(loss):
+                return None  # Signal bad batch
             (loss / grad_accum_steps).backward()
             return loss
 
@@ -698,6 +700,8 @@ def train(
                     labels=batch_cpu["labels"],
                 )
                 loss = outputs.loss
+                if torch.isnan(loss) or torch.isinf(loss):
+                    return None
                 (loss / grad_accum_steps).backward()
                 return loss
             raise
@@ -729,11 +733,16 @@ def train(
         epoch_loss = 0.0
         nloss = 0
 
-        for _, batch in it:
+        for batch_idx, batch in it:
             if micro == 0:
                 optimizer.zero_grad(set_to_none=True)
 
             loss = process_batch_with_fallback(batch, grad_accum)
+            
+            if loss is None:
+                log.warning(f"NaN loss at batch {batch_idx}, skipping")
+                continue
+            
             epoch_loss += float(loss.item())
             nloss += 1
             micro += 1
