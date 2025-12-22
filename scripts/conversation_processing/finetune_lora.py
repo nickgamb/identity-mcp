@@ -437,9 +437,10 @@ def train(
             checkpoint_path = cp
 
     if not checkpoint_path:
-        checkpoints = sorted(glob.glob(str(output_dir / "checkpoint-*")))
+        checkpoints = list(output_dir.glob("checkpoint-*"))
         if checkpoints:
-            checkpoint_path = Path(checkpoints[-1])
+            checkpoints.sort(key=lambda p: int(p.name.split("-")[1]) if p.name.split("-")[1].isdigit() else 0)
+            checkpoint_path = checkpoints[-1]
 
     if checkpoint_path and checkpoint_path.exists():
         log.info(f"📂 Loading checkpoint: {checkpoint_path}")
@@ -665,7 +666,7 @@ def train(
             except Exception:
                 return torch.device("cpu")
 
-    def process_batch_with_fallback(batch):
+    def process_batch_with_fallback(batch, grad_accum_steps):
         m = model_container[0]
         m = _force_model_dtype_inplace(m, target_dtype)
         dev = _input_device(m)
@@ -678,7 +679,7 @@ def train(
                 labels=batch_dev["labels"],
             )
             loss = outputs.loss
-            loss.backward()
+            (loss / grad_accum_steps).backward()
             return loss
 
         except RuntimeError as e:
@@ -697,7 +698,7 @@ def train(
                     labels=batch_cpu["labels"],
                 )
                 loss = outputs.loss
-                loss.backward()
+                (loss / grad_accum_steps).backward()
                 return loss
             raise
 
@@ -732,7 +733,7 @@ def train(
             if micro == 0:
                 optimizer.zero_grad(set_to_none=True)
 
-            loss = process_batch_with_fallback(batch)
+            loss = process_batch_with_fallback(batch, grad_accum)
             epoch_loss += float(loss.item())
             nloss += 1
             micro += 1
@@ -767,7 +768,18 @@ def train(
         start_step_in_epoch = 0
 
     log.info(f"\n💾 Saving final model to {output_dir}...")
-    model_container[0].save_pretrained(output_dir)
+    try:
+        model_container[0].save_pretrained(output_dir)
+    except NotImplementedError:
+        from peft import get_peft_model_state_dict
+        from safetensors.torch import save_file
+        state = {k: v.cpu().contiguous() for k, v in get_peft_model_state_dict(model_container[0]).items()}
+        save_file(state, output_dir / "adapter_model.safetensors")
+        if hasattr(model_container[0], 'peft_config'):
+            for cfg in model_container[0].peft_config.values():
+                with open(output_dir / "adapter_config.json", "w") as f:
+                    json.dump(cfg.to_dict(), f)
+                break
     tokenizer.save_pretrained(output_dir)
     log.info("✅ Training complete!")
 
@@ -776,7 +788,20 @@ def _save_checkpoint(model, tokenizer, optimizer, scheduler, global_step, epoch,
     ckpt_dir = output_dir / f"checkpoint-{global_step}"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    model.save_pretrained(ckpt_dir)
+    try:
+        model.save_pretrained(ckpt_dir)
+    except NotImplementedError:
+        # Handle meta tensors from accelerate dispatch
+        from peft import get_peft_model_state_dict
+        from safetensors.torch import save_file
+        state = {k: v.cpu().contiguous() for k, v in get_peft_model_state_dict(model).items()}
+        save_file(state, ckpt_dir / "adapter_model.safetensors")
+        if hasattr(model, 'peft_config'):
+            for cfg in model.peft_config.values():
+                with open(ckpt_dir / "adapter_config.json", "w") as f:
+                    json.dump(cfg.to_dict(), f)
+                break
+    
     tokenizer.save_pretrained(ckpt_dir)
 
     import torch
