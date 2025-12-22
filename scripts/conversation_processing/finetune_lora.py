@@ -789,20 +789,25 @@ def _save_checkpoint(model, tokenizer, optimizer, scheduler, global_step, epoch,
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        model.save_pretrained(ckpt_dir)
-    except NotImplementedError:
-        # Handle meta tensors from accelerate dispatch
-        from peft import get_peft_model_state_dict
-        from safetensors.torch import save_file
-        state = {k: v.cpu().contiguous() for k, v in get_peft_model_state_dict(model).items()}
-        save_file(state, ckpt_dir / "adapter_model.safetensors")
-        if hasattr(model, 'peft_config'):
-            for cfg in model.peft_config.values():
-                with open(ckpt_dir / "adapter_config.json", "w") as f:
-                    json.dump(cfg.to_dict(), f)
-                break
-    
-    tokenizer.save_pretrained(ckpt_dir)
+        try:
+            model.save_pretrained(ckpt_dir)
+        except NotImplementedError:
+            # Handle meta tensors from accelerate dispatch
+            from peft import get_peft_model_state_dict
+            from safetensors.torch import save_file
+            state = {k: v.cpu().contiguous() for k, v in get_peft_model_state_dict(model).items()}
+            save_file(state, ckpt_dir / "adapter_model.safetensors")
+            if hasattr(model, 'peft_config'):
+                for cfg in model.peft_config.values():
+                    with open(ckpt_dir / "adapter_config.json", "w") as f:
+                        json.dump(cfg.to_dict(), f)
+                    break
+        
+        tokenizer.save_pretrained(ckpt_dir)
+    except Exception as e:
+        log.error(f"⚠️  Checkpoint save failed at step {global_step}: {e}")
+        log.error("   Training will continue - you may want to stop and investigate.")
+        return
 
     import torch
     torch.save({
