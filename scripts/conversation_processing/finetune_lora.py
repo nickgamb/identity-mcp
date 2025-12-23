@@ -49,7 +49,7 @@ class Config:
     model_name: str = "gpt-oss:20b"
     dataset_source: str = "all"
     epochs: int = 3
-    learning_rate: float = 2e-5
+    learning_rate: float = 1e-5
     max_length: int = 2048
     lora_r: int = 16
     lora_alpha: int = 32
@@ -409,7 +409,7 @@ def train(
     # Choose ONE dtype for the whole model to avoid float/bf16 mixed errors.
     # - GPU-offload path: use FP16 everywhere (CPU shards + GPU shards) for consistency.
     # - CPU-only path: use FP32 everywhere (safer on CPU).
-    target_dtype = torch.float16 if (use_gpu and num_gpus > 0) else torch.float32
+    target_dtype = torch.bfloat16 if (use_gpu and num_gpus > 0) else torch.float32
 
     # Always load base model on CPU first (prevents GPU-side load/dequant OOM)
     log.info("📦 Loading model to CPU (this takes a while for large models)...")
@@ -611,13 +611,42 @@ def train(
     dataset = load_dataset("json", data_files=str(dataset_path), split="train")
 
     def tokenize_fn(examples):
-        texts = [
-            f"### Instruction:\n{inst}\n\n### Response:\n{resp}{tokenizer.eos_token}"
-            for inst, resp in zip(examples["instruction"], examples["response"])
-        ]
-        tok = tokenizer(texts, truncation=True, max_length=config.max_length, padding="max_length")
-        tok["labels"] = tok["input_ids"].copy()
-        return tok
+        all_input_ids = []
+        all_attention_mask = []
+        all_labels = []
+        
+        for inst, resp in zip(examples["instruction"], examples["response"]):
+            # Use the model's chat template (harmony format for gpt-oss)
+            messages = [
+                {"role": "user", "content": inst},
+                {"role": "assistant", "content": resp}
+            ]
+            
+            # Apply chat template - this handles harmony format automatically
+            text = tokenizer.apply_chat_template(
+                messages, 
+                tokenize=False, 
+                add_generation_prompt=False
+            )
+            
+            # Tokenize
+            tok = tokenizer(
+                text, 
+                truncation=True, 
+                max_length=config.max_length, 
+                padding="max_length",
+                return_tensors=None
+            )
+            
+            all_input_ids.append(tok["input_ids"])
+            all_attention_mask.append(tok["attention_mask"])
+            all_labels.append(tok["input_ids"].copy())
+        
+        return {
+            "input_ids": all_input_ids,
+            "attention_mask": all_attention_mask,
+            "labels": all_labels
+        }
 
     log.info("   Tokenizing...")
     tokenized = dataset.map(tokenize_fn, batched=True, remove_columns=dataset.column_names)
@@ -867,7 +896,7 @@ def main():
     parser.add_argument('--export_only', action='store_true')
 
     parser.add_argument('--epochs', type=int, default=3)
-    parser.add_argument('--learning_rate', type=float, default=2e-5)
+    parser.add_argument('--learning_rate', type=float, default=1e-5)
     parser.add_argument('--max_length', type=int, default=512)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--gradient_accumulation', type=int, default=16)
