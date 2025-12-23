@@ -56,7 +56,7 @@ class Config:
     lora_dropout: float = 0.1
     batch_size: int = 1
     gradient_accumulation_steps: int = 16
-    checkpoint_steps: int = 40
+    checkpoint_steps: int = 30
     logging_steps: int = 50
     warmup_steps: int = 100
     max_grad_norm: float = 1.0
@@ -808,16 +808,25 @@ def train(
     log.info(f"\n💾 Saving final model to {output_dir}...")
     try:
         model_container[0].save_pretrained(output_dir)
-    except NotImplementedError:
-        from peft import get_peft_model_state_dict
+    except (NotImplementedError, RuntimeError):
         from safetensors.torch import save_file
-        state = {k: v.cpu().contiguous() for k, v in get_peft_model_state_dict(model_container[0]).items()}
-        save_file(state, output_dir / "adapter_model.safetensors")
-        if hasattr(model_container[0], 'peft_config'):
-            for cfg in model_container[0].peft_config.values():
-                with open(output_dir / "adapter_config.json", "w") as f:
-                    json.dump(cfg.to_dict(), f)
-                break
+        import torch
+        
+        state = {}
+        for name, param in model_container[0].named_parameters():
+            if param.requires_grad and "lora_" in name:
+                if param.device.type == "meta":
+                    continue
+                clean_name = name.replace("base_model.model.", "").replace("base_model.", "")
+                state[clean_name] = param.detach().cpu().contiguous()
+        
+        if state:
+            save_file(state, output_dir / "adapter_model.safetensors")
+            if hasattr(model_container[0], 'peft_config'):
+                for cfg in model_container[0].peft_config.values():
+                    with open(output_dir / "adapter_config.json", "w") as f:
+                        json.dump(cfg.to_dict(), f)
+                    break
     tokenizer.save_pretrained(output_dir)
     log.info("✅ Training complete!")
 
@@ -829,17 +838,31 @@ def _save_checkpoint(model, tokenizer, optimizer, scheduler, global_step, epoch,
     try:
         try:
             model.save_pretrained(ckpt_dir)
-        except NotImplementedError:
+        except (NotImplementedError, RuntimeError):
             # Handle meta tensors from accelerate dispatch
-            from peft import get_peft_model_state_dict
+            # Extract LoRA weights directly - they should be on GPU/CPU, not meta
             from safetensors.torch import save_file
-            state = {k: v.cpu().contiguous() for k, v in get_peft_model_state_dict(model).items()}
-            save_file(state, ckpt_dir / "adapter_model.safetensors")
-            if hasattr(model, 'peft_config'):
-                for cfg in model.peft_config.values():
-                    with open(ckpt_dir / "adapter_config.json", "w") as f:
-                        json.dump(cfg.to_dict(), f)
-                    break
+            import torch
+            
+            state = {}
+            for name, param in model.named_parameters():
+                if param.requires_grad and "lora_" in name:
+                    # Skip meta tensors
+                    if param.device.type == "meta":
+                        continue
+                    # Clean up name for PEFT format
+                    clean_name = name.replace("base_model.model.", "").replace("base_model.", "")
+                    state[clean_name] = param.detach().cpu().contiguous()
+            
+            if state:
+                save_file(state, ckpt_dir / "adapter_model.safetensors")
+                if hasattr(model, 'peft_config'):
+                    for cfg in model.peft_config.values():
+                        with open(ckpt_dir / "adapter_config.json", "w") as f:
+                            json.dump(cfg.to_dict(), f)
+                        break
+            else:
+                raise RuntimeError("No LoRA weights found to save")
         
         tokenizer.save_pretrained(ckpt_dir)
     except Exception as e:
