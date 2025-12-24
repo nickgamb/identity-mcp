@@ -808,7 +808,7 @@ def train(
     log.info(f"\n💾 Saving final model to {output_dir}...")
     try:
         model_container[0].save_pretrained(output_dir)
-    except (NotImplementedError, RuntimeError):
+    except (NotImplementedError, RuntimeError, Exception):
         from safetensors.torch import save_file
         import torch
         
@@ -822,13 +822,31 @@ def train(
         
         if state:
             save_file(state, output_dir / "adapter_model.safetensors")
-            if hasattr(model_container[0], 'peft_config'):
-                for cfg in model_container[0].peft_config.values():
-                    with open(output_dir / "adapter_config.json", "w") as f:
-                        json.dump(cfg.to_dict(), f)
-                    break
+            _save_peft_config(model_container[0], output_dir / "adapter_config.json")
     tokenizer.save_pretrained(output_dir)
     log.info("✅ Training complete!")
+
+
+def _save_peft_config(model, save_path):
+    """Save PEFT config with proper JSON serialization."""
+    if not hasattr(model, 'peft_config'):
+        return
+    for cfg in model.peft_config.values():
+        config_dict = cfg.to_dict()
+        # Convert non-JSON-serializable types
+        cleaned = {}
+        for k, v in config_dict.items():
+            if isinstance(v, set):
+                cleaned[k] = list(v)
+            elif hasattr(v, '__name__'):  # functions/classes
+                cleaned[k] = str(v)
+            elif not isinstance(v, (str, int, float, bool, list, dict, type(None))):
+                cleaned[k] = str(v)
+            else:
+                cleaned[k] = v
+        with open(save_path, "w") as f:
+            json.dump(cleaned, f, indent=2)
+        break  # Only save first config
 
 
 def _save_checkpoint(model, tokenizer, optimizer, scheduler, global_step, epoch, epoch_loss, output_dir, log):
@@ -838,7 +856,7 @@ def _save_checkpoint(model, tokenizer, optimizer, scheduler, global_step, epoch,
     try:
         try:
             model.save_pretrained(ckpt_dir)
-        except (NotImplementedError, RuntimeError):
+        except (NotImplementedError, RuntimeError, Exception) as inner_e:
             # Handle meta tensors from accelerate dispatch
             # Extract LoRA weights directly - they should be on GPU/CPU, not meta
             from safetensors.torch import save_file
@@ -856,11 +874,7 @@ def _save_checkpoint(model, tokenizer, optimizer, scheduler, global_step, epoch,
             
             if state:
                 save_file(state, ckpt_dir / "adapter_model.safetensors")
-                if hasattr(model, 'peft_config'):
-                    for cfg in model.peft_config.values():
-                        with open(ckpt_dir / "adapter_config.json", "w") as f:
-                            json.dump(cfg.to_dict(), f)
-                        break
+                _save_peft_config(model, ckpt_dir / "adapter_config.json")
             else:
                 raise RuntimeError("No LoRA weights found to save")
         
