@@ -462,7 +462,7 @@ def train(
         state_path = checkpoint_path / "training_state.pt"
         if state_path.exists():
             log.info("   Loading optimizer/scheduler state...")
-            state = torch.load(state_path, map_location="cpu")
+            state = torch.load(state_path, map_location="cpu", weights_only=False)
             saved_optimizer_state = state.get("optimizer")
             saved_scheduler_state = state.get("scheduler")
             if "global_step" in state:
