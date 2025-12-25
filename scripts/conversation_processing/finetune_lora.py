@@ -10,6 +10,7 @@
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 
 source venv/bin/activate
+watch -n 1 nvidia-smi
 
 CPU only with defaults
 python scripts/conversation_processing/finetune_lora.py --model_name gpt-oss:20b --max_length 2048 --epochs 3
@@ -444,7 +445,13 @@ def train(
 
     if checkpoint_path and checkpoint_path.exists():
         log.info(f"📂 Loading checkpoint: {checkpoint_path}")
-        model = PeftModel.from_pretrained(model, checkpoint_path, is_trainable=True)
+        # Suppress PEFT's "missing adapter keys" warning - it's a false positive
+        # when loading safetensors checkpoints with correct key names
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*missing adapter keys.*", category=UserWarning)
+            model = PeftModel.from_pretrained(model, checkpoint_path, is_trainable=True)
+        log.info("   ✅ Checkpoint weights loaded (ignore any 'missing adapter keys' warning above)")
 
         if "checkpoint-" in checkpoint_path.name:
             try:
@@ -680,9 +687,14 @@ def train(
         for _ in range(global_step):
             scheduler.step()
 
+    grad_accum = max(1, int(config.gradient_accumulation_steps))
+    
     steps_per_epoch = len(dataloader)
-    start_epoch = global_step // steps_per_epoch
-    start_step_in_epoch = global_step % steps_per_epoch
+    # global_step counts optimizer steps, but we need to skip batches
+    # Each optimizer step = grad_accum batches
+    batches_completed = global_step * grad_accum
+    start_epoch = batches_completed // steps_per_epoch
+    start_step_in_epoch = batches_completed % steps_per_epoch
 
     def _input_device(m):
         # For sharded models, this is the right anchor for where input_ids must live.
@@ -740,7 +752,6 @@ def train(
     model_container[0].train()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    grad_accum = max(1, int(config.gradient_accumulation_steps))
     micro = 0
 
     for epoch in range(start_epoch, config.epochs):
@@ -752,11 +763,12 @@ def train(
             dataloader = DataLoader(tokenized, batch_size=config.batch_size, shuffle=True, num_workers=0)
 
         it = enumerate(dataloader)
-        if epoch == start_epoch and start_step_in_epoch > 0:
-            for _ in range(start_step_in_epoch):
+        skip_batches = start_step_in_epoch if epoch == start_epoch else 0
+        if skip_batches > 0:
+            for _ in range(skip_batches):
                 next(it, None)
 
-        progress = tqdm(total=steps_per_epoch - (start_step_in_epoch if epoch == start_epoch else 0),
+        progress = tqdm(total=steps_per_epoch, initial=skip_batches,
                         desc="  Training", unit="batch")
 
         epoch_loss = 0.0
@@ -817,8 +829,8 @@ def train(
             if param.requires_grad and "lora_" in name:
                 if param.device.type == "meta":
                     continue
-                clean_name = name.replace("base_model.model.", "").replace("base_model.", "")
-                state[clean_name] = param.detach().cpu().contiguous()
+                # Keep full name - PEFT expects base_model.model.* prefix
+                state[name] = param.detach().cpu().contiguous()
         
         if state:
             save_file(state, output_dir / "adapter_model.safetensors")
@@ -868,9 +880,8 @@ def _save_checkpoint(model, tokenizer, optimizer, scheduler, global_step, epoch,
                     # Skip meta tensors
                     if param.device.type == "meta":
                         continue
-                    # Clean up name for PEFT format
-                    clean_name = name.replace("base_model.model.", "").replace("base_model.", "")
-                    state[clean_name] = param.detach().cpu().contiguous()
+                    # Keep full name - PEFT expects base_model.model.* prefix
+                    state[name] = param.detach().cpu().contiguous()
             
             if state:
                 save_file(state, ckpt_dir / "adapter_model.safetensors")
