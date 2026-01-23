@@ -1,8 +1,9 @@
+# PyTorch 2.1.2 with CUDA 11.8 comes from base Docker image (supports P40)
+# These are the additional packages needed:
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 pydantic==2.5.0
 transformers>=4.40.0
-torch>=2.0.0
 accelerate>=0.25.0
 sentencepiece>=0.1.99
 protobuf>=3.20.0

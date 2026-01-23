@@ -49,10 +49,13 @@ services:
     volumes:
       - ollama-data:/root/.ollama
       # Mount local ollama_models to persist downloaded models (read-write so new models can be saved)
-      # Models are stored in /home/<USERNAME>/models/ollama_models/blobs on the host
-      # - /home/<USERNAME>/models/ollama_models/blobs:/root/.ollama/models/blobs # CHANGE THIS TO YOUR OWN PATH
+      # Models are stored in /home/<USERNAME>/models/ollama_models on the host
+      # CHANGE <USERNAME> TO YOUR OWN USERNAME
       - /home/<USERNAME>/models/ollama_models/blobs:/root/.ollama/models/blobs
       - /home/<USERNAME>/models/ollama_models/manifests:/root/.ollama/models/manifests
+      # Mount adapters directory so LoRA adapters are accessible from inside the container
+      # CHANGE <PROJECT_PATH> to your project location (e.g., /home/<USERNAME>/ai)
+      - /home/<USERNAME>/<PROJECT_PATH>/adapters:/app/adapters:ro
     networks:
       - mcp-network
     # Enable GPU support for NVIDIA - use both GPUs explicitly
@@ -109,17 +112,20 @@ services:
       retries: 5
       start_period: 30s
 
-  # HuggingFace Inference Service with Tool Support
-  # Uses Transformers to run HuggingFace models with proper tool calling support
-  # Can be used for GLM, GPT-OSS, or any other HF model that supports tools
+  # HuggingFace Inference Service with Dynamic Model Hot-Swapping
+  # Supports multiple models and adapters with automatic hot-swapping
   # 
-  # NOTE: This service uses a Docker Compose profile so it doesn't start by default.
-  # This prevents it from consuming GPU memory when not needed.
-  # To start it: docker-compose --profile hf up -d hf-service
-  # Or: docker-compose --profile hf up (to start all services including HF)
+  # To start: docker-compose --profile hf up -d hf-service
   #
-  # The service uses lazy loading - models only load on first request.
-  # Models auto-unload after 5 minutes of inactivity (configurable via HF_KEEP_ALIVE).
+  # Directory structure (CHANGE PATHS TO MATCH YOUR SETUP):
+  #   /home/<USERNAME>/models/hf_models/  → /app/models/   (all HF models)
+  #   /home/<USERNAME>/<PROJECT_PATH>/adapters/ → /app/adapters/ (all LoRA adapters)
+  #
+  # To add new models/adapters:
+  #   1. Place model in /home/<USERNAME>/models/hf_models/<model-name>/
+  #   2. Place adapter in /home/<USERNAME>/<PROJECT_PATH>/adapters/<adapter-name>/
+  #   3. Add entry to MODEL_REGISTRY in hf_api.py
+  #   4. Add to librechat.yaml modelSpecs and HFService models list
   hf-service:
     profiles: ["hf"]  # Only start when --profile hf is used
     build:
@@ -129,17 +135,18 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - HF_MODEL=/root/.cache/huggingface/models/glm-4.5-air  # Local model path (adjust model name as needed)
       - HF_KEEP_ALIVE=300  # Unload after 5 minutes of inactivity (0=immediate, -1=never)
       - NVIDIA_VISIBLE_DEVICES=all
-      - HF_HOME=/root/.cache/huggingface  # Use mounted cache
+      # Base paths for models and adapters (parent directories)
+      - HF_MODELS_PATH=/app/models
+      - HF_ADAPTERS_PATH=/app/adapters
     volumes:
-      # Mount local HuggingFace models directory directly
-      # Models are stored in /home/<USERNAME>/models/hf_models on the host
-      # Mount the direct model directory (if you have models in direct format like glm-4.5-air)
-      # and the cache format directory (for models downloaded via HuggingFace)
-      - /home/<USERNAME>/models/hf_models/glm-4.5-air:/root/.cache/huggingface/models/glm-4.5-air:ro # CHANGE model name to match your local model
-      - /home/<USERNAME>/models/hf_models:/root/.cache/huggingface/hub:ro # CHANGE THIS TO YOUR OWN PATH
+      # Mount all HF models - accessible at /app/models/<model-name>
+      # CHANGE <USERNAME> TO YOUR OWN USERNAME
+      - /home/<USERNAME>/models/hf_models:/app/models:ro
+      # Mount all adapters - accessible at /app/adapters/<adapter-name>
+      # CHANGE <PROJECT_PATH> to your project location
+      - /home/<USERNAME>/<PROJECT_PATH>/adapters:/app/adapters:ro
     networks:
       - mcp-network
     # Enable GPU support - use both GPUs explicitly
