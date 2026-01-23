@@ -10,21 +10,48 @@ Dynamic Model Loading:
 - Auto-unloads after idle timeout to free GPU memory
 """
 
+import os
+# Set CUDA memory allocation to reduce fragmentation (must be before torch import)
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import torch
+
+# Patch for PyTorch < 2.4: Add dummy torch.xpu module for transformers MXFP4 quantizer
+# The MXFP4 quantizer checks torch.xpu.is_available() which doesn't exist in older PyTorch
+if not hasattr(torch, 'xpu'):
+    class DummyXPU:
+        @staticmethod
+        def is_available():
+            return False
+    torch.xpu = DummyXPU()
+
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import json
-import os
 import logging
 import time
 import threading
+import gc
 from datetime import datetime, timedelta
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _force_model_dtype_inplace(model, target_dtype):
+    """Force a consistent dtype across the entire sharded model.
+    This avoids float != bf16/fp16 mixed errors during inference."""
+    with torch.no_grad():
+        for p in model.parameters():
+            if p.is_floating_point() and p.dtype != target_dtype:
+                p.data = p.data.to(dtype=target_dtype)
+        for b in model.buffers():
+            if b.is_floating_point() and b.dtype != target_dtype:
+                b.data = b.data.to(dtype=target_dtype)
+    return model
 
 app = FastAPI(title="HuggingFace Inference Service")
 
@@ -44,26 +71,26 @@ MODELS_PATH = os.getenv("HF_MODELS_PATH", "/app/models")
 ADAPTERS_PATH = os.getenv("HF_ADAPTERS_PATH", "/app/adapters")
 
 # Model registry: maps model names to HuggingFace model IDs and optional adapters
-# Paths are relative to MODELS_PATH and ADAPTERS_PATH, or can be HF model IDs
+# Use local paths when available (faster, no downloads)
 # To add a new model, just add an entry here - no docker-compose changes needed
 MODEL_REGISTRY = {
-    # GPT-OSS models
+    # GPT-OSS models - use local HF cache path
     "gpt-oss-20b": {
-        "hf_model": "openai/gpt-oss-20b",  # HF model ID (will use cache)
+        "hf_model": f"{MODELS_PATH}/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee",
         "adapter": None
     },
     "gpt-oss-20b-finetuned": {
-        "hf_model": "openai/gpt-oss-20b",
+        "hf_model": f"{MODELS_PATH}/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee",
         "adapter": f"{ADAPTERS_PATH}/lora-gpt-oss-20b-1766515801769"
     },
     # GLM models
     "glm-4.5-air": {
-        "hf_model": f"{MODELS_PATH}/glm-4.5-air",  # Local path
+        "hf_model": f"{MODELS_PATH}/glm-4.5-air",
         "adapter": None
     },
     # Add more models here as needed:
     # "model-name": {
-    #     "hf_model": f"{MODELS_PATH}/model-folder" or "org/model-id",
+    #     "hf_model": f"{MODELS_PATH}/model-folder",
     #     "adapter": f"{ADAPTERS_PATH}/adapter-folder" or None
     # },
 }
@@ -148,42 +175,94 @@ def load_model(model_name: str):
             logger.info("Loading tokenizer...")
             # If adapter has its own tokenizer, use that; otherwise use base model's
             tokenizer_path = adapter_path if (adapter_path and os.path.exists(os.path.join(adapter_path, "tokenizer.json"))) else hf_model_path
-            tokenizer = AutoTokenizer.from_pretrained(
-                tokenizer_path, 
-                trust_remote_code=True,
-                cache_dir=cache_dir,
-                local_files_only=is_local_path if tokenizer_path == hf_model_path else True
-            )
+            
+            # Try fast tokenizer first, fall back to slow if it fails
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(
+                    tokenizer_path, 
+                    trust_remote_code=True,
+                    cache_dir=cache_dir,
+                    local_files_only=is_local_path if tokenizer_path == hf_model_path else True
+                )
+            except Exception as e:
+                logger.warning(f"Fast tokenizer failed ({e}), trying slow tokenizer...")
+                tokenizer = AutoTokenizer.from_pretrained(
+                    tokenizer_path, 
+                    trust_remote_code=True,
+                    cache_dir=cache_dir,
+                    local_files_only=is_local_path if tokenizer_path == hf_model_path else True,
+                    use_fast=False
+                )
             logger.info("Loading model (this may take a while if downloading)...")
             
-            # Multi-GPU configuration
+            # Multi-GPU configuration with CPU offload support
             num_gpus = torch.cuda.device_count() if DEVICE == "cuda" else 0
             logger.info(f"Detected {num_gpus} GPU(s)")
             
             if DEVICE == "cuda" and num_gpus > 1:
-                logger.info(f"Using multi-GPU mode: splitting model across {num_gpus} GPUs")
+                logger.info(f"Using multi-GPU mode: loading on CPU first then dispatching to {num_gpus} GPUs")
+                # Load to CPU first to avoid GPU OOM during MXFP4 dequantization
+                # Use bfloat16 for better precision (matches fine-tuning script)
+                logger.info("Step 1: Loading/dequantizing model on CPU (uses RAM, avoids GPU OOM)...")
                 base_model = AutoModelForCausalLM.from_pretrained(
                     hf_model_path,
                     trust_remote_code=True,
-                    torch_dtype=torch.float16,
-                    device_map="auto",
+                    torch_dtype=torch.bfloat16,  # bfloat16 for better precision
+                    device_map="cpu",  # Load entirely on CPU first
                     cache_dir=cache_dir,
                     local_files_only=local_files_only,
                     low_cpu_mem_usage=True,
-                    max_memory={i: "22GiB" for i in range(num_gpus)}
                 )
+                # Force consistent dtype across all parameters
+                base_model = _force_model_dtype_inplace(base_model, torch.bfloat16)
+                
+                logger.info("Step 2: Dispatching model to GPUs...")
+                from accelerate import dispatch_model, infer_auto_device_map
+                max_mem = {i: "20GiB" for i in range(num_gpus)}
+                max_mem["cpu"] = "100GiB"  # Server has 115GB RAM
+                
+                # Use model's no_split_modules if available (prevents splitting transformer layers)
+                no_split = getattr(base_model, "_no_split_modules", None)
+                device_map = infer_auto_device_map(
+                    base_model, 
+                    max_memory=max_mem,
+                    no_split_module_classes=no_split
+                )
+                logger.info(f"Computed device map: {device_map}")
+                base_model = dispatch_model(base_model, device_map=device_map)
+                
+                # Clean up CPU memory after dispatch
+                gc.collect()
+                
                 if hasattr(base_model, 'hf_device_map'):
                     logger.info(f"Model device map: {base_model.hf_device_map}")
             elif DEVICE == "cuda":
-                logger.info("Using single GPU mode")
+                logger.info("Using single GPU mode: loading on CPU first then dispatching")
+                # Load to CPU first to avoid GPU OOM during dequantization
                 base_model = AutoModelForCausalLM.from_pretrained(
                     hf_model_path,
                     trust_remote_code=True,
-                    torch_dtype=torch.float16,
-                    device_map="auto",
+                    torch_dtype=torch.bfloat16,
+                    device_map="cpu",
                     cache_dir=cache_dir,
-                    local_files_only=local_files_only
+                    local_files_only=local_files_only,
+                    low_cpu_mem_usage=True,
                 )
+                base_model = _force_model_dtype_inplace(base_model, torch.bfloat16)
+                
+                logger.info("Dispatching model to GPU...")
+                from accelerate import dispatch_model, infer_auto_device_map
+                num_gpus_single = torch.cuda.device_count()
+                max_mem_single = {i: "20GiB" for i in range(num_gpus_single)}
+                max_mem_single["cpu"] = "100GiB"
+                no_split = getattr(base_model, "_no_split_modules", None)
+                device_map = infer_auto_device_map(
+                    base_model,
+                    max_memory=max_mem_single,
+                    no_split_module_classes=no_split
+                )
+                base_model = dispatch_model(base_model, device_map=device_map)
+                gc.collect()
             else:
                 base_model = AutoModelForCausalLM.from_pretrained(
                     hf_model_path,
@@ -392,7 +471,7 @@ async def chat_completions(request: ChatCompletionRequest):
     
     try:
         # Detect model type for formatting
-        model_type = "glm" if "glm" in MODEL_NAME.lower() else "default"
+        model_type = "glm" if "glm" in model_name.lower() else "default"
         
         # Format messages for the model
         prompt = format_messages_for_model(request.messages, request.tools, model_type)
