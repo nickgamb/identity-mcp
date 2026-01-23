@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
-HuggingFace Inference Service with Tool Support
+HuggingFace Inference Service with Dynamic Model Hot-Swapping
 Provides OpenAI-compatible API for HuggingFace models with proper tool calling support
-Supports GLM, GPT-OSS, and other HF models that support function calling
+
+Dynamic Model Loading:
+- Supports multiple base models (GLM, GPT-OSS, etc.)
+- Hot-swaps between models on demand (unloads current, loads requested)
+- Supports LoRA adapters for fine-tuned models
+- Auto-unloads after idle timeout to free GPU memory
 """
 
 from fastapi import FastAPI, HTTPException
@@ -32,20 +37,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Model configuration
-# Set via HF_MODEL environment variable (default: THUDM/glm-4-5-air)
-# Can be changed to any HuggingFace model that supports tools
-MODEL_NAME = os.getenv("HF_MODEL", "THUDM/glm-4-5-air")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Keep-alive timeout (5 minutes default, like Ollama)
-# Set HF_KEEP_ALIVE environment variable to change (0 = immediate, -1 = never, or seconds)
-KEEP_ALIVE_SECONDS = int(os.getenv("HF_KEEP_ALIVE", "300"))  # 5 minutes default
+# Base paths for models and adapters (mounted directories)
+MODELS_PATH = os.getenv("HF_MODELS_PATH", "/app/models")
+ADAPTERS_PATH = os.getenv("HF_ADAPTERS_PATH", "/app/adapters")
 
-# Global model and tokenizer
+# Model registry: maps model names to HuggingFace model IDs and optional adapters
+# Paths are relative to MODELS_PATH and ADAPTERS_PATH, or can be HF model IDs
+# To add a new model, just add an entry here - no docker-compose changes needed
+MODEL_REGISTRY = {
+    # GPT-OSS models
+    "gpt-oss-20b": {
+        "hf_model": "openai/gpt-oss-20b",  # HF model ID (will use cache)
+        "adapter": None
+    },
+    "gpt-oss-20b-finetuned": {
+        "hf_model": "openai/gpt-oss-20b",
+        "adapter": f"{ADAPTERS_PATH}/lora-gpt-oss-20b-1766515801769"
+    },
+    # GLM models
+    "glm-4.5-air": {
+        "hf_model": f"{MODELS_PATH}/glm-4.5-air",  # Local path
+        "adapter": None
+    },
+    # Add more models here as needed:
+    # "model-name": {
+    #     "hf_model": f"{MODELS_PATH}/model-folder" or "org/model-id",
+    #     "adapter": f"{ADAPTERS_PATH}/adapter-folder" or None
+    # },
+}
+
+# Keep-alive timeout (5 minutes default, like Ollama)
+KEEP_ALIVE_SECONDS = int(os.getenv("HF_KEEP_ALIVE", "300"))
+
+# Global model state
 model = None
 tokenizer = None
 last_used = None
+current_model_name = None  # Tracks which model is currently loaded
 model_lock = threading.Lock()
 
 class ChatMessage(BaseModel):
@@ -71,37 +101,58 @@ class ChatCompletionResponse(BaseModel):
     choices: List[Dict[str, Any]]
     usage: Dict[str, int]
 
-def load_model():
-    """Load HuggingFace model and tokenizer from cache or download (lazy loading)"""
-    global model, tokenizer, last_used
+def load_model(model_name: str):
+    """Load HuggingFace model and tokenizer, with hot-swapping support.
+    
+    Args:
+        model_name: Name of the model to load (must be in MODEL_REGISTRY)
+    """
+    global model, tokenizer, last_used, current_model_name
+    
+    # Look up model in registry
+    if model_name not in MODEL_REGISTRY:
+        raise ValueError(f"Unknown model: {model_name}. Available: {list(MODEL_REGISTRY.keys())}")
+    
+    model_config = MODEL_REGISTRY[model_name]
+    hf_model_path = model_config["hf_model"]
+    adapter_path = model_config.get("adapter")
     
     with model_lock:
-        if model is not None:
+        # Check if requested model is already loaded
+        if model is not None and current_model_name == model_name:
             last_used = datetime.now()
             return
         
-        logger.info(f"Loading HuggingFace model {MODEL_NAME} on {DEVICE}...")
+        # Need to switch models - unload first if something is loaded
+        if model is not None:
+            logger.info(f"Hot-swapping from '{current_model_name}' to '{model_name}'...")
+            _unload_model_internal()
         
-        # Check if MODEL_NAME is a local path
-        is_local_path = os.path.isdir(MODEL_NAME) or os.path.exists(MODEL_NAME)
+        logger.info(f"Loading model '{model_name}' ({hf_model_path}) on {DEVICE}...")
+        if adapter_path:
+            logger.info(f"Will apply LoRA adapter from: {adapter_path}")
+        
+        # Check if model path is local
+        is_local_path = os.path.isdir(hf_model_path) or os.path.exists(hf_model_path)
         
         if is_local_path:
-            logger.info(f"Loading from local path: {MODEL_NAME}")
+            logger.info(f"Loading from local path: {hf_model_path}")
             local_files_only = True
         else:
             logger.info("Loading from HuggingFace (will check cache first, download if needed)")
             local_files_only = False
         
-        # Use the mounted cache directory
         cache_dir = "/root/.cache/huggingface"
         
         try:
             logger.info("Loading tokenizer...")
+            # If adapter has its own tokenizer, use that; otherwise use base model's
+            tokenizer_path = adapter_path if (adapter_path and os.path.exists(os.path.join(adapter_path, "tokenizer.json"))) else hf_model_path
             tokenizer = AutoTokenizer.from_pretrained(
-                MODEL_NAME, 
+                tokenizer_path, 
                 trust_remote_code=True,
                 cache_dir=cache_dir,
-                local_files_only=local_files_only
+                local_files_only=is_local_path if tokenizer_path == hf_model_path else True
             )
             logger.info("Loading model (this may take a while if downloading)...")
             
@@ -110,27 +161,23 @@ def load_model():
             logger.info(f"Detected {num_gpus} GPU(s)")
             
             if DEVICE == "cuda" and num_gpus > 1:
-                # Multi-GPU: Use device_map="auto" to split model across GPUs
-                # This will automatically distribute layers across available GPUs
                 logger.info(f"Using multi-GPU mode: splitting model across {num_gpus} GPUs")
-                model = AutoModelForCausalLM.from_pretrained(
-                    MODEL_NAME,
+                base_model = AutoModelForCausalLM.from_pretrained(
+                    hf_model_path,
                     trust_remote_code=True,
                     torch_dtype=torch.float16,
-                    device_map="auto",  # Automatically splits across all GPUs
+                    device_map="auto",
                     cache_dir=cache_dir,
                     local_files_only=local_files_only,
                     low_cpu_mem_usage=True,
-                    max_memory={i: "22GiB" for i in range(num_gpus)}  # Limit per GPU to avoid OOM
+                    max_memory={i: "22GiB" for i in range(num_gpus)}
                 )
-                # Log which GPUs are being used
-                if hasattr(model, 'hf_device_map'):
-                    logger.info(f"Model device map: {model.hf_device_map}")
+                if hasattr(base_model, 'hf_device_map'):
+                    logger.info(f"Model device map: {base_model.hf_device_map}")
             elif DEVICE == "cuda":
-                # Single GPU
                 logger.info("Using single GPU mode")
-                model = AutoModelForCausalLM.from_pretrained(
-                    MODEL_NAME,
+                base_model = AutoModelForCausalLM.from_pretrained(
+                    hf_model_path,
                     trust_remote_code=True,
                     torch_dtype=torch.float16,
                     device_map="auto",
@@ -138,49 +185,65 @@ def load_model():
                     local_files_only=local_files_only
                 )
             else:
-                # CPU mode
-                model = AutoModelForCausalLM.from_pretrained(
-                    MODEL_NAME,
+                base_model = AutoModelForCausalLM.from_pretrained(
+                    hf_model_path,
                     trust_remote_code=True,
                     torch_dtype=torch.float32,
                     device_map=None,
                     cache_dir=cache_dir,
                     local_files_only=local_files_only
                 )
-                model = model.to(DEVICE)
+                base_model = base_model.to(DEVICE)
             
+            # Apply LoRA adapter if configured
+            if adapter_path:
+                logger.info(f"Applying LoRA adapter from: {adapter_path}")
+                try:
+                    from peft import PeftModel
+                    model = PeftModel.from_pretrained(base_model, adapter_path)
+                    logger.info("LoRA adapter applied successfully!")
+                except ImportError:
+                    logger.error("PEFT library not installed. Install with: pip install peft")
+                    raise
+                except Exception as e:
+                    logger.error(f"Failed to apply LoRA adapter: {e}")
+                    raise
+            else:
+                model = base_model
+            
+            current_model_name = model_name
             last_used = datetime.now()
-            logger.info("Model loaded successfully")
+            logger.info(f"Model '{model_name}' loaded successfully!")
         except Exception as e:
             logger.error(f"Failed to load model: {e}")
-            if is_local_path:
-                logger.error(f"Local model path {MODEL_NAME} not found or invalid")
-            else:
-                logger.info("If the model isn't in cache, it will download from HuggingFace")
             raise
+
+def _unload_model_internal():
+    """Internal unload without lock - caller must hold model_lock"""
+    global model, tokenizer, last_used, current_model_name
+    
+    if model is None:
+        return
+    
+    logger.info(f"Unloading model '{current_model_name}' from GPU memory...")
+    
+    if DEVICE == "cuda":
+        model = model.cpu()
+        torch.cuda.empty_cache()
+    
+    del model
+    del tokenizer
+    model = None
+    tokenizer = None
+    last_used = None
+    current_model_name = None
+    
+    logger.info("Model unloaded successfully")
 
 def unload_model():
     """Unload model from GPU memory to free VRAM"""
-    global model, tokenizer, last_used
-    
     with model_lock:
-        if model is None:
-            return
-        
-        logger.info("Unloading model from GPU memory to free VRAM...")
-        
-        # Move model to CPU and delete
-        if DEVICE == "cuda":
-            model = model.cpu()
-            torch.cuda.empty_cache()
-        
-        del model
-        del tokenizer
-        model = None
-        tokenizer = None
-        last_used = None
-        
-        logger.info("Model unloaded successfully")
+        _unload_model_internal()
 
 def check_and_unload_if_idle():
     """Check if model should be unloaded based on keep-alive timeout"""
@@ -295,12 +358,12 @@ def parse_model_response(text: str, tools: Optional[List[Dict[str, Any]]] = None
 @app.get("/health")
 async def health():
     """Health check endpoint - doesn't load model"""
-    model_loaded = model is not None
     return {
-        "status": "healthy", 
-        "model": MODEL_NAME, 
+        "status": "healthy",
+        "available_models": list(MODEL_REGISTRY.keys()),
+        "current_model": current_model_name,
+        "model_loaded": model is not None,
         "device": DEVICE,
-        "model_loaded": model_loaded,
         "keep_alive_seconds": KEEP_ALIVE_SECONDS
     }
 
@@ -309,11 +372,23 @@ async def chat_completions(request: ChatCompletionRequest):
     """OpenAI-compatible chat completions endpoint"""
     global model, tokenizer, last_used
     
-    # Lazy load model on first request
-    if model is None:
-        load_model()
-    else:
-        last_used = datetime.now()
+    # Normalize model name for lookup
+    requested_model = request.model.lower().replace(":", "-").replace(".", "-")
+    
+    # Find matching model in registry
+    model_name = None
+    for name in MODEL_REGISTRY.keys():
+        if name.lower() in requested_model or requested_model in name.lower():
+            model_name = name
+            break
+    
+    if not model_name:
+        # Default to first available model
+        model_name = list(MODEL_REGISTRY.keys())[0]
+        logger.warning(f"Unknown model '{request.model}', defaulting to '{model_name}'")
+    
+    # Load appropriate model (handles hot-swapping if needed)
+    load_model(model_name)
     
     try:
         # Detect model type for formatting
@@ -384,17 +459,19 @@ async def chat_completions(request: ChatCompletionRequest):
 
 @app.get("/v1/models")
 async def list_models():
-    """List available models"""
+    """List available models from registry"""
+    models = [
+        {
+            "id": name,
+            "object": "model",
+            "created": 1000000000,
+            "owned_by": "hf-service"
+        }
+        for name in MODEL_REGISTRY.keys()
+    ]
     return {
         "object": "list",
-        "data": [
-            {
-                "id": MODEL_NAME.split("/")[-1],
-                "object": "model",
-                "created": 1000000000,
-                "owned_by": "glm-service"
-            }
-        ]
+        "data": models
     }
 
 def background_unload_checker():

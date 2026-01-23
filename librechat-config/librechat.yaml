@@ -15,6 +15,13 @@ modelSpecs:
         endpoint: "LocalOllama"
         model: "gpt-oss:20b"
         modelLabel: "gpt-oss:20b"
+    - name: "gpt-oss-20b-finetuned"
+      label: "GPT-OSS 20B (Fine-tuned)"
+      description: "GPT-OSS 20B with LoRA adapter (Fine-tuned)"
+      preset:
+        endpoint: "HFService"
+        model: "gpt-oss-20b-finetuned"
+        modelLabel: "gpt-oss-20b-finetuned"
     - name: "glm-4.5-air"
       label: "GLM-4.5-Air"
       description: "GLM-4.5-Air (no tools)"
@@ -201,6 +208,8 @@ endpoints:
       baseURL: "http://hf-service:8000/v1"
       models:
         default:
+          - "gpt-oss-20b"
+          - "gpt-oss-20b-finetuned"
           - "glm-4.5-air"
         fetch: false
       titleConvo: false
@@ -208,7 +217,7 @@ endpoints:
       forcePrompt: false
       modelDisplayLabel: "HuggingFace"
       temperature: 0.7
-      max_tokens: 2048
+      max_tokens: 8192
       top_p: 0.9
       frequency_penalty: 0.0
       presence_penalty: 0.0

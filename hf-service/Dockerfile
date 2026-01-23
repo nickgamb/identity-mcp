@@ -7,21 +7,14 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-RUN pip install --no-cache-dir \
-    transformers \
-    torch \
-    fastapi \
-    uvicorn \
-    pydantic \
-    openai \
-    huggingface-hub
+# Copy requirements first for better layer caching
+COPY requirements.txt /app/
+
+# Install Python dependencies with extended timeout for large packages (torch, cuda libs)
+RUN pip install --no-cache-dir --timeout=300 -r requirements.txt
 
 # Copy service files
 COPY hf_api.py /app/
-COPY requirements.txt /app/
-
-RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 8000
 
