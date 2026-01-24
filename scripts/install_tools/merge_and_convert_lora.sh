@@ -117,23 +117,20 @@ fi
 echo ""
 echo "Step 3: Registering with Ollama..."
 
-# Create Modelfile for Ollama (use container path for GGUF file)
+# Create Modelfile by copying template from original gpt-oss:20b model
+# This ensures the chat template, parameters, and special tokens match
 MODELFILE_PATH="${GGUF_OUTPUT_DIR}/${OUTPUT_NAME}.Modelfile"
 CONTAINER_GGUF_FILE="${CONTAINER_GGUF_PATH}/${OUTPUT_NAME}.gguf"
-cat > "${MODELFILE_PATH}" << EOF
-# Fine-tuned GPT-OSS 20B model
-FROM ${CONTAINER_GGUF_FILE}
 
-PARAMETER temperature 0.7
-PARAMETER top_p 0.9
+echo "Extracting template from original gpt-oss:20b model..."
+docker exec ollama-server ollama show gpt-oss:20b --modelfile > /tmp/original-modelfile.txt
 
-TEMPLATE """{{ .System }}
-
-{{ .Prompt }}"""
-EOF
+# Replace the FROM line to point to our fine-tuned GGUF file
+# The original FROM points to a blob hash, we replace it with our GGUF path
+sed 's|^FROM /root/.ollama/models/blobs/.*|FROM '"${CONTAINER_GGUF_FILE}"'|' /tmp/original-modelfile.txt > "${MODELFILE_PATH}"
 
 echo "Created Modelfile at ${MODELFILE_PATH}"
-echo "Modelfile references: ${CONTAINER_GGUF_FILE}"
+echo "Modelfile uses template from gpt-oss:20b with GGUF: ${CONTAINER_GGUF_FILE}"
 
 # Register with Ollama (via docker exec since Ollama runs in container)
 echo ""

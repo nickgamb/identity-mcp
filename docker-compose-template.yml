@@ -253,7 +253,7 @@ services:
       - ALLOW_REGISTRATION=true
       - ALLOW_SOCIAL_LOGIN=false
       - APP_TITLE=Chat
-      - ENABLE_AGENTS=false
+      - ENABLE_AGENTS=true
       - LANGGRAPH_RECURSION_LIMIT=50000
     volumes:
       - ./librechat-config/librechat.yaml:/app/librechat.yaml:ro
