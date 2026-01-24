@@ -102,7 +102,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - OLLAMA_HOST=0.0.0.0
       - OLLAMA_NUM_PARALLEL=1  # Number of parallel requests (can increase for multiple models)
-      - OLLAMA_KEEP_ALIVE=5m  # Unload model after 5 minutes of inactivity (frees GPU memory)
+      # OLLAMA_KEEP_ALIVE not set = keep model loaded (since Ollama and HF are mutually exclusive)
     deploy:
       resources:
         reservations:
@@ -172,7 +172,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - HF_KEEP_ALIVE=300  # Unload after 5 minutes of inactivity (0=immediate, -1=never)
+      - HF_KEEP_ALIVE=-1  # Never unload (since Ollama and HF are mutually exclusive)
       - NVIDIA_VISIBLE_DEVICES=all
       # Base paths for models and adapters (parent directories)
       - HF_MODELS_PATH=/app/models
