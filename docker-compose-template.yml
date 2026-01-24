@@ -1,6 +1,40 @@
-# docker exec ollama-server ollama list
-# docker exec ollama-server ollama pull gpt-oss:20b
-# docker cp ollama-server:/root/.ollama/models/blobs ollama_models/
+# =============================================================================
+# Docker Compose Template - Identity MCP Stack
+# =============================================================================
+#
+# SETUP: Copy this file to docker-compose.yml and replace:
+#   <USERNAME>     → Your Linux username (e.g., nick)
+#   <PROJECT_PATH> → Project folder name (e.g., ai)
+#
+# QUICK START:
+#   docker compose --profile ollama up -d          # Start with Ollama (default)
+#   docker compose --profile hf up -d              # Start with HF service instead
+#   docker compose --profile ollama down           # Stop all services
+#
+# PROFILES (mutually exclusive - pick one):
+#   --profile ollama    Ollama for local inference (faster startup, GGUF models)
+#   --profile hf        HuggingFace service (LoRA hot-swap, multi-GPU sharding)
+#   --profile identity  Identity verification service (optional, adds semantic embeddings)
+#
+# COMMON COMMANDS:
+#   docker compose --profile ollama logs -f                    # Follow all logs
+#   docker compose --profile ollama logs -f librechat-api      # Follow LibreChat logs
+#   docker compose --profile ollama ps                         # List running services
+#   docker compose --profile ollama restart librechat-api      # Restart single service
+#   docker compose --profile ollama up -d --build mcp-server   # Rebuild and restart one service
+#
+# OLLAMA COMMANDS:
+#   docker exec ollama-server ollama list                      # List installed models
+#   docker exec ollama-server ollama pull gpt-oss:20b          # Pull a model
+#   docker exec ollama-server ollama run gpt-oss:20b "Hi"      # Test a model
+#   docker exec ollama-server ollama create <name> -f /imports/<name>.Modelfile  # Import GGUF
+#
+# DEBUGGING:
+#   docker exec -it mcp-server bash                            # Shell into MCP server
+#   docker exec -it ollama-server bash                         # Shell into Ollama
+#   docker logs librechat-api --tail 100                       # Last 100 log lines
+#
+# =============================================================================
 services:
   mcp-server:
     build: .
@@ -38,10 +72,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    depends_on:
-      - ollama
+    # Note: ollama dependency removed - use --profile ollama or --profile hf
 
   ollama:
+    profiles: ["ollama"]  # Use --profile ollama OR --profile hf (not both)
     image: ollama/ollama:latest
     container_name: ollama-server
     ports:
@@ -53,6 +87,8 @@ services:
       # CHANGE <USERNAME> TO YOUR OWN USERNAME
       - /home/<USERNAME>/models/ollama_models/blobs:/root/.ollama/models/blobs
       - /home/<USERNAME>/models/ollama_models/manifests:/root/.ollama/models/manifests
+      # Mount imports directory for GGUF files to be imported into Ollama
+      - /home/<USERNAME>/models/ollama_models/imports:/imports:ro
       # Mount adapters directory so LoRA adapters are accessible from inside the container
       # CHANGE <PROJECT_PATH> to your project location (e.g., /home/<USERNAME>/ai)
       - /home/<USERNAME>/<PROJECT_PATH>/adapters:/app/adapters:ro
@@ -66,6 +102,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - OLLAMA_HOST=0.0.0.0
       - OLLAMA_NUM_PARALLEL=1  # Number of parallel requests (can increase for multiple models)
+      - OLLAMA_KEEP_ALIVE=5m  # Unload model after 5 minutes of inactivity (frees GPU memory)
     deploy:
       resources:
         reservations:
@@ -230,10 +267,7 @@ services:
         condition: service_started
       meilisearch:
         condition: service_started
-      ollama:
-        condition: service_started
-      # hf-service is optional (uses profile) - removed from depends_on
-      # If you need it, start with: docker-compose --profile hf up -d hf-service
+      # ollama and hf-service are mutually exclusive - use --profile ollama OR --profile hf
       mcp-server:
         condition: service_healthy
 

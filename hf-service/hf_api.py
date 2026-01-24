@@ -218,8 +218,9 @@ def load_model(model_name: str):
                 
                 logger.info("Step 2: Dispatching model to GPUs...")
                 from accelerate import dispatch_model, infer_auto_device_map
-                max_mem = {i: "20GiB" for i in range(num_gpus)}
-                max_mem["cpu"] = "100GiB"  # Server has 115GB RAM
+                # Use 22GiB per GPU (P40 has 24GB) to keep lm_head on GPU and avoid meta tensors
+                max_mem = {i: "22GiB" for i in range(num_gpus)}
+                max_mem["cpu"] = "0GiB"  # Avoid CPU offloading which causes meta tensor issues
                 
                 # Use model's no_split_modules if available (prevents splitting transformer layers)
                 no_split = getattr(base_model, "_no_split_modules", None)
@@ -229,7 +230,17 @@ def load_model(model_name: str):
                     no_split_module_classes=no_split
                 )
                 logger.info(f"Computed device map: {device_map}")
-                base_model = dispatch_model(base_model, device_map=device_map)
+                
+                # Create offload folder for CPU-offloaded weights
+                offload_dir = "/tmp/model_offload"
+                os.makedirs(offload_dir, exist_ok=True)
+                
+                base_model = dispatch_model(
+                    base_model, 
+                    device_map=device_map,
+                    offload_dir=offload_dir,
+                    preload_module_classes=["GPTOSSDecoderLayer"] if no_split else None
+                )
                 
                 # Clean up CPU memory after dispatch
                 gc.collect()
@@ -253,15 +264,24 @@ def load_model(model_name: str):
                 logger.info("Dispatching model to GPU...")
                 from accelerate import dispatch_model, infer_auto_device_map
                 num_gpus_single = torch.cuda.device_count()
-                max_mem_single = {i: "20GiB" for i in range(num_gpus_single)}
-                max_mem_single["cpu"] = "100GiB"
+                max_mem_single = {i: "22GiB" for i in range(num_gpus_single)}
+                max_mem_single["cpu"] = "0GiB"  # Avoid CPU offloading
                 no_split = getattr(base_model, "_no_split_modules", None)
                 device_map = infer_auto_device_map(
                     base_model,
                     max_memory=max_mem_single,
                     no_split_module_classes=no_split
                 )
-                base_model = dispatch_model(base_model, device_map=device_map)
+                
+                offload_dir = "/tmp/model_offload"
+                os.makedirs(offload_dir, exist_ok=True)
+                
+                base_model = dispatch_model(
+                    base_model, 
+                    device_map=device_map,
+                    offload_dir=offload_dir,
+                    preload_module_classes=["GPTOSSDecoderLayer"] if no_split else None
+                )
                 gc.collect()
             else:
                 base_model = AutoModelForCausalLM.from_pretrained(
@@ -342,7 +362,7 @@ def check_and_unload_if_idle():
         idle_time = (datetime.now() - last_used).total_seconds()
         if idle_time >= KEEP_ALIVE_SECONDS:
             logger.info(f"Model idle for {idle_time:.0f}s (timeout: {KEEP_ALIVE_SECONDS}s), unloading...")
-            unload_model()
+            _unload_model_internal()  # Use internal version since we already hold the lock
 
 def format_tools_for_model(tools: List[Dict[str, Any]], model_type: str = "glm") -> str:
     """Format tools in the model's expected format"""
@@ -476,8 +496,17 @@ async def chat_completions(request: ChatCompletionRequest):
         # Format messages for the model
         prompt = format_messages_for_model(request.messages, request.tools, model_type)
         
-        # Tokenize
-        inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
+        # Tokenize - send to the model's embedding device
+        # For dispatch_model, use hf_device_map to find where embed_tokens is
+        if hasattr(model, 'hf_device_map') and 'model.embed_tokens' in model.hf_device_map:
+            embed_device = model.hf_device_map['model.embed_tokens']
+            if isinstance(embed_device, int):
+                input_device = f"cuda:{embed_device}"
+            else:
+                input_device = embed_device
+        else:
+            input_device = DEVICE
+        inputs = tokenizer(prompt, return_tensors="pt").to(input_device)
         
         # Generate
         with torch.no_grad():

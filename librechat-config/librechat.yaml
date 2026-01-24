@@ -17,7 +17,14 @@ modelSpecs:
         modelLabel: "gpt-oss:20b"
     - name: "gpt-oss-20b-finetuned"
       label: "GPT-OSS 20B (Fine-tuned)"
-      description: "GPT-OSS 20B with LoRA adapter (Fine-tuned)"
+      description: "GPT-OSS 20B fine-tuned via Ollama (faster, requires merge script)"
+      preset:
+        endpoint: "LocalOllama"
+        model: "gpt-oss-20b-finetuned"
+        modelLabel: "gpt-oss-20b-finetuned"
+    - name: "gpt-oss-20b-finetuned-hf"
+      label: "GPT-OSS 20B (Fine-tuned HF)"
+      description: "GPT-OSS 20B with LoRA adapter via HuggingFace (slower, dynamic loading)"
       preset:
         endpoint: "HFService"
         model: "gpt-oss-20b-finetuned"
@@ -170,6 +177,7 @@ endpoints:
       models:
         default:
           - "gpt-oss:20b"
+          - "gpt-oss-20b-finetuned"
           - "qwen3:30b-a3b"
           - "qwen3:32b"
           - "qwen2.5:32b"
