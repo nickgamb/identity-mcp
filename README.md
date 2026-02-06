@@ -1,6 +1,6 @@
 # Identity MCP
 
-A behavioral identity verification system that creates an "identity fingerprint" from your conversation history. Train a model on how you communicate, then verify if new messages match your identity.
+A behavioral identity verification system that creates an "identity fingerprint" from your conversation history and EEG brainwave patterns. Train a model on how you communicate and how your brain responds, then verify new inputs against your identity.
 
 ## What It Does
 
@@ -8,6 +8,9 @@ A behavioral identity verification system that creates an "identity fingerprint"
 - **Discovers** patterns unique to you (topics, vocabulary, style)
 - **Trains** an embedding model on your communication patterns
 - **Verifies** new messages against your identity fingerprint
+- **Enrolls brainwaves** via EMOTIV Epoc X EEG for neurophysiological identity assurance
+- **Authorizes** live EEG against your enrolled brainwave model as a continuous assurance signal
+- **Visualizes** enrollment and authorization in real-time dashboard modals via SSE streaming
 - **Serves** identity data via MCP protocol (for LibreChat, etc.)
 - **Multi-user and OIDC**: Supports OIDC authentication with complete data isolation per user.
 
@@ -88,7 +91,12 @@ python build_interaction_map.py
 cd ../identity_model
 python train_identity_model.py
 
-# 4. Start services
+# 4. (Optional) EEG brainwave enrollment
+cd ../eeg_identity
+pip install -r requirements.txt
+python enroll_brainwaves.py --synthetic    # or --serial YOUR_SERIAL for hardware
+
+# 5. Start services
 cd ../..
 docker-compose up -d                              # MCP only
 docker-compose --profile identity up -d           # MCP + Identity Service
@@ -99,8 +107,9 @@ docker-compose --profile identity up -d           # MCP + Identity Service
 | Doc | Description |
 |-----|-------------|
 | [Getting Started](docs/GETTING_STARTED.md) | Full setup guide with all options |
-| [MCP Protocol Reference](docs/MCP_README.md) | Complete API reference for all 50 MCP tools |
-| [Identity Verification](docs/IDENTITY_VERIFICATION.md) | How the verification system works |
+| [MCP Protocol Reference](docs/MCP_README.md) | Complete API reference for all MCP tools |
+| [Identity Verification](docs/IDENTITY_VERIFICATION.md) | How the conversation-based verification system works |
+| [EEG Identity Assurance](docs/EEG_IDENTITY_ASSURANCE.md) | EEG brainwave enrollment and live assurance signal |
 | [Multi-User & OIDC Support](docs/MULTI_USER_OIDC.md) | Multi-user data isolation and OIDC authentication |
 | [Docker Setup](docs/DOCKER_SETUP.md) | Container deployment guide |
 | [Environment Variables](docs/ENVIRONMENT_VARIABLES.md) | Complete reference for all configuration options |
@@ -160,6 +169,28 @@ docker-compose --profile identity up -d           # MCP + Identity Service
 │           │                                                              │
 │           ▼                                                              │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  EEG IDENTITY ASSURANCE (scripts/eeg_identity/)                 │    │
+│  │                                                                  │    │
+│  │  enroll_brainwaves.py                                            │    │
+│  │     INPUT: EMOTIV Epoc X EEG (14ch, 128Hz via Bluetooth HID)    │    │
+│  │     TASKS: baseline → meditation → word focus → actions          │    │
+│  │     OUTPUT: models/eeg_identity/                                 │    │
+│  │       ├── config.json (model info, thresholds, statistics)       │    │
+│  │       ├── eeg_centroid.npy (neural "fingerprint")                │    │
+│  │       ├── spectral_profile.json (frequency band powers)          │    │
+│  │       └── feature_scaler.json (normalization parameters)         │    │
+│  │                                                                  │    │
+│  │  authorize_brainwaves.py                                         │    │
+│  │     INPUT: Live EEG stream                                       │    │
+│  │     OUTPUT: Assurance signal (0.0-1.0 confidence score)          │    │
+│  │                                                                  │    │
+│  │  --dashboard mode: emits @@EEG_EVENT SSE lines for visual modals │    │
+│  │     Enrollment → checkerboard, breathing circle, word stimuli    │    │
+│  │     Authorization → spectral overlay, similarity gauge, timeline │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│           │                                                              │
+│           ▼                                                              │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │  RUNTIME SERVICES                                                │    │
 │  │                                                                  │    │
 │  │  ┌──────────────────────┐    ┌────────────────────────────────┐ │    │
@@ -177,6 +208,7 @@ docker-compose --profile identity up -d           # MCP + Identity Service
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │  VERIFICATION (during live conversation)                         │    │
 │  │                                                                  │    │
+│  │  CONVERSATION-BASED:                                             │    │
 │  │  User sends message → MCP calls identity_verify →                │    │
 │  │    IF identity-service running:                                  │    │
 │  │      60% semantic (distance from centroid)                       │    │
@@ -184,21 +216,26 @@ docker-compose --profile identity up -d           # MCP + Identity Service
 │  │      15% vocabulary (distinctive words)                          │    │
 │  │    ELSE fallback:                                                │    │
 │  │      60% stylistic + 40% vocabulary                              │    │
-│  │                                                                  │    │
 │  │  Returns: { verified: true/false, confidence: high/medium/low }  │    │
+│  │                                                                  │    │
+│  │  EEG ASSURANCE (complementary signal):                           │    │
+│  │  Live EEG stream → MCP calls eeg_authorize →                     │    │
+│  │    Feature extraction → cosine similarity to EEG centroid        │    │
+│  │  Returns: { assurance_score: 0.0-1.0, confidence: level }       │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-## MCP Tools (50 total)
+## MCP Tools (54 total)
 
 The MCP server exposes tools for:
 - **Memory** (7 tools) - Read/write/search identity memories
 - **Conversations** (4 tools) - Query parsed conversation history  
 - **Identity Analysis** (5 tools) - Relational patterns, naming events, momentum
 - **Interaction Map** (5 tools) - Human communication patterns, topic/tone analysis, event timeline
-- **Identity Verification** (4 tools) - Verify messages against your fingerprint
+- **Identity Verification** (4 tools) - Verify messages against your conversation fingerprint
+- **EEG Identity Assurance** (4 tools) - Enroll brainwaves, authorize via live EEG, inspect EEG profile
 - **Files** (4 tools) - RAG over your documents
 - **Fine-tuning** (5 tools) - LoRA training and dataset export
 - **Pipeline** (5 tools) - Run processing scripts, check status
@@ -212,10 +249,16 @@ See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for full tool reference.
 The web dashboard provides:
 - **Upload** - Drag & drop conversations.json and memories.json
 - **Status** - Visual indicators for source files and generated data
-- **Pipeline** - Run all processing scripts with real-time output
+- **Pipeline** - Run all processing scripts with real-time SSE streaming output, including:
+  - Conversation processing (parse, analyze, build interaction map)
+  - Identity model training (semantic embedding)
+  - EEG brainwave enrollment with guided visual modal (checkerboard, breathing circle, word stimuli)
+  - EEG authorization with live spectral overlay, similarity gauge, and score timeline
 - **Data Explorer** - Browse, search, and edit:
   - All conversations (with VS Code-like Monaco editor)
   - All memory files (with full CRUD operations)
+  - Identity model visualizations (stylistic profiles, vocabulary, similarity distribution)
+  - EEG model visualizations (spectral band power, enrollment task log, similarity distribution)
   - Files directory (view and manage)
 - **Clean** - Safely remove generated data (keeps source files)
 
@@ -237,8 +280,9 @@ Access at: http://localhost:3001 (after starting dashboard)
 | ✅ | Identity verification via MCP tools |
 | ✅ | Memory files enhance training (boosts distinctive terms) |
 | ✅ | Multi-user support with OIDC authentication and data isolation |
-| ⚠️ | Enroll and Train a model on EEG signal data from EMOTIV and PiEEG |
-| ⚠️ | Live EEG verification assurance signals based on EEG model |
+| ✅ | Enroll and train a model on EEG signal data from EMOTIV Epoc X ([docs](docs/EEG_IDENTITY_ASSURANCE.md)) |
+| ✅ | Live EEG verification assurance signals based on enrolled brainwave model |
+| ✅ | Dashboard visual modals for EEG enrollment (guided experience) and authorization (live spectral overlay) |
 | 🔲 | **Non-conversational data support** - Train on essays, journals, emails, blog posts, social media |
 | 🔲 | Multiple identity profiles (compare/switch between identities) |
 | 🔲 | Identity drift detection (alert when patterns change over time) |

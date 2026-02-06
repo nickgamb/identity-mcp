@@ -12,10 +12,13 @@ import { logger } from "../utils/logger";
 
 /**
  * Find available Python executable
- * Tries python3, python, py in order
+ * On Windows prefer `python` (standard), on Linux/macOS prefer `python3`
  */
 function getPythonCommand(): string {
-  const commands = ["python3", "python", "py"];
+  const isWindows = process.platform === "win32";
+  const commands = isWindows
+    ? ["python", "python3", "py"]
+    : ["python3", "python", "py"];
   
   for (const cmd of commands) {
     try {
@@ -60,6 +63,14 @@ const ALLOWED_SCRIPTS: Record<string, { path: string; description: string }> = {
     path: "scripts/identity_model/train_identity_model.py",
     description: "Train the semantic identity embedding model",
   },
+  enroll_brainwaves: {
+    path: "scripts/eeg_identity/enroll_brainwaves.py",
+    description: "Enroll brainwave identity via EMOTIV Epoc X EEG",
+  },
+  authorize_brainwaves: {
+    path: "scripts/eeg_identity/authorize_brainwaves.py",
+    description: "Test live EEG authorization against enrolled brainwave model",
+  },
 };
 
 interface ScriptResult {
@@ -76,6 +87,9 @@ interface RunningScript {
   startTime: number;
   args: string[];
   process: any;
+  output: string[];
+  finished: boolean;
+  exitCode: number | null;
 }
 
 // Track currently running scripts
@@ -121,6 +135,27 @@ export async function handlePipelineRun({
     };
   }
 
+  // If the script is already running, don't spawn a duplicate
+  const existing = runningScripts.get(script);
+  if (existing && !existing.finished) {
+    logger.info("Pipeline script already running, skipping duplicate start", { script });
+    // Return a pending promise that resolves when the existing run finishes
+    return new Promise((resolve) => {
+      const check = setInterval(() => {
+        if (existing.finished) {
+          clearInterval(check);
+          resolve({
+            success: existing.exitCode === 0,
+            script,
+            output: existing.output,
+            exitCode: existing.exitCode,
+            duration: Date.now() - existing.startTime,
+          });
+        }
+      }, 500);
+    });
+  }
+
   const scriptPath = path.join(config.PROJECT_ROOT, scriptInfo.path);
   logger.info("Running pipeline script", { script, scriptPath, args });
 
@@ -140,30 +175,36 @@ export async function handlePipelineRun({
       env,
     });
 
-    // Track running script
-    runningScripts.set(script, {
+    // Track running script (share the output array so SSE can read it)
+    const runEntry: RunningScript = {
       script,
       startTime,
       args,
       process: proc,
-    });
+      output,
+      finished: false,
+      exitCode: null,
+    };
+    runningScripts.set(script, runEntry);
 
-    proc.stdout.on("data", (data) => {
+    proc.stdout.on("data", (data: Buffer) => {
       const lines = data.toString().split("\n").filter((l: string) => l);
       output.push(...lines);
     });
 
-    proc.stderr.on("data", (data) => {
+    proc.stderr.on("data", (data: Buffer) => {
       const lines = data.toString().split("\n").filter((l: string) => l);
       output.push(...lines.map((l: string) => `[stderr] ${l}`));
     });
 
-    proc.on("error", (error) => {
+    proc.on("error", (error: Error) => {
       const duration = Date.now() - startTime;
       output.push(`[error] Failed to start: ${error.message}`);
       
-      // Remove from running scripts on error
-      runningScripts.delete(script);
+      // Mark finished so SSE clients see it, then clean up after a delay
+      runEntry.finished = true;
+      runEntry.exitCode = null;
+      setTimeout(() => runningScripts.delete(script), 5000);
       
       resolve({
         success: false,
@@ -175,15 +216,17 @@ export async function handlePipelineRun({
       });
     });
 
-    proc.on("close", (code) => {
+    proc.on("close", (code: number | null) => {
       const duration = Date.now() - startTime;
       output.push("");
       output.push(`Process exited with code ${code} (${(duration / 1000).toFixed(1)}s)`);
 
       logger.info("Pipeline script completed", { script, exitCode: code, duration });
 
-      // Remove from running scripts
-      runningScripts.delete(script);
+      // Mark finished so SSE clients see it, then clean up after a delay
+      runEntry.finished = true;
+      runEntry.exitCode = code;
+      setTimeout(() => runningScripts.delete(script), 5000);
 
       resolve({
         success: code === 0,
@@ -247,6 +290,118 @@ export async function handlePipelineListRunning(userId: string | null = null): P
   }));
 
   return { running };
+}
+
+/**
+ * Stream pipeline script output via SSE.
+ * Sends each new output line as an SSE `data:` frame.
+ * Closes when the script finishes.
+ */
+export function handlePipelineStream(scriptId: string, res: any): void {
+  // SSE headers
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+
+  const entry = runningScripts.get(scriptId);
+  if (!entry) {
+    res.write(`data: ${JSON.stringify({ event: "error", message: "Script not running" })}\n\n`);
+    res.end();
+    return;
+  }
+
+  let cursor = 0;
+  const flush = () => {
+    while (cursor < entry.output.length) {
+      const line = entry.output[cursor];
+      res.write(`data: ${JSON.stringify({ line, index: cursor })}\n\n`);
+      cursor++;
+    }
+  };
+
+  // Send any lines already buffered
+  flush();
+
+  // Poll for new lines (50ms for smooth updates)
+  const interval = setInterval(() => {
+    flush();
+
+    if (entry.finished) {
+      // Final flush + close event
+      flush();
+      res.write(`data: ${JSON.stringify({ event: "done", exitCode: entry.exitCode })}\n\n`);
+      clearInterval(interval);
+      res.end();
+    }
+  }, 50);
+
+  // Clean up if client disconnects
+  res.on("close", () => {
+    clearInterval(interval);
+  });
+}
+
+/**
+ * Return buffered pipeline output as JSON (polling-friendly).
+ * The frontend calls this repeatedly with an incrementing cursor.
+ *
+ * Returns `started: false` when the script hasn't registered yet,
+ * so the frontend knows to keep waiting (vs. `done: true` = finished).
+ */
+export function handlePipelineOutput(
+  scriptId: string,
+  cursor: number
+): { lines: Array<{ line: string; index: number }>; started: boolean; done: boolean; exitCode?: number } {
+  const entry = runningScripts.get(scriptId);
+  if (!entry) {
+    // Script not yet registered — tell frontend to keep polling
+    return { lines: [], started: false, done: false };
+  }
+
+  const newLines = entry.output.slice(cursor).map((line, i) => ({
+    line,
+    index: cursor + i,
+  }));
+
+  const result: { lines: Array<{ line: string; index: number }>; started: boolean; done: boolean; exitCode?: number } = {
+    lines: newLines,
+    started: true,
+    done: entry.finished && cursor + newLines.length >= entry.output.length,
+  };
+
+  if (entry.finished) {
+    result.exitCode = entry.exitCode;
+  }
+
+  return result;
+}
+
+/**
+ * Stop a running pipeline script.
+ */
+export async function handlePipelineStop({
+  script,
+}: {
+  script: string;
+}): Promise<{ stopped: boolean; script: string; message: string }> {
+  const entry = runningScripts.get(script);
+  if (!entry) {
+    return { stopped: false, script, message: "Script is not running" };
+  }
+
+  try {
+    // On Windows, SIGTERM calls TerminateProcess which skips Python's finally blocks.
+    // SIGINT simulates Ctrl+C, letting Python handle KeyboardInterrupt for clean shutdown.
+    const signal = process.platform === "win32" ? "SIGINT" : "SIGTERM";
+    entry.process.kill(signal);
+    logger.info("Stopped pipeline script", { script, signal });
+    return { stopped: true, script, message: "Script stopped" };
+  } catch (e) {
+    return { stopped: false, script, message: `Failed to stop: ${e}` };
+  }
 }
 
 /**

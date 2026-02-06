@@ -25,6 +25,7 @@ export interface DataStatusResponse {
     memory: boolean;
     identityModel: boolean;
     interactionMap: boolean;
+    eegIdentityModel: boolean;
   };
   counts: {
     conversationFiles: number;
@@ -38,6 +39,7 @@ export async function handleDataStatus(userId: string | null = null): Promise<Da
   const memoryDir = getUserDataPath(path.join(PROJECT_ROOT, "memory"), userId);
   const filesDir = getUserDataPath(path.join(PROJECT_ROOT, "files"), userId);
   const modelsDir = getUserDataPath(path.join(PROJECT_ROOT, "models", "identity"), userId);
+  const eegModelsDir = getUserDataPath(path.join(PROJECT_ROOT, "models", "eeg_identity"), userId);
   
   const status: DataStatusResponse = {
     sourceFiles: {
@@ -51,6 +53,7 @@ export async function handleDataStatus(userId: string | null = null): Promise<Da
         fs.readdirSync(memoryDir).filter((f: string) => f.endsWith(".jsonl")).length > 0,
       identityModel: fs.existsSync(path.join(modelsDir, "config.json")),
       interactionMap: fs.existsSync(path.join(memoryDir, "interaction_map_index.json")),
+      eegIdentityModel: fs.existsSync(path.join(eegModelsDir, "config.json")),
     },
     counts: {
       conversationFiles: fs.existsSync(conversationsDir) ? 
@@ -90,7 +93,7 @@ export async function handleDataUploadMemories({ data }: { data: string | any },
 }
 
 export async function handleDataClean({ directory }: { directory: string }, userId: string | null = null): Promise<{ success: boolean; message: string; deletedCount: number }> {
-  const allowedDirs = ["conversations", "memory", "models", "training_data", "adapters"];
+  const allowedDirs = ["conversations", "memory", "models_identity", "models_eeg", "training_data", "adapters"];
   
   if (!allowedDirs.includes(directory)) {
     throw new Error("Invalid directory");
@@ -98,8 +101,10 @@ export async function handleDataClean({ directory }: { directory: string }, user
   
   // For models, training_data, and adapters, we need to handle subdirectories
   let baseDir: string;
-  if (directory === "models") {
+  if (directory === "models_identity") {
     baseDir = path.join(PROJECT_ROOT, "models", "identity");
+  } else if (directory === "models_eeg") {
+    baseDir = path.join(PROJECT_ROOT, "models", "eeg_identity");
   } else {
     baseDir = path.join(PROJECT_ROOT, directory);
   }

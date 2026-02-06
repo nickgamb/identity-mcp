@@ -15,12 +15,16 @@ import {
   ChevronRight,
   Eye,
   X,
-  LayoutDashboard
+  LayoutDashboard,
+  Brain,
+  Scan
 } from 'lucide-react'
 import { DataExplorer } from './DataExplorer'
 import { useAuth } from './auth/AuthContext'
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react'
 import { authenticatedFetch } from './utils/api'
+import { EegEnrollmentModal } from './components/eeg/EegEnrollmentModal'
+import { EegAuthorizationModal } from './components/eeg/EegAuthorizationModal'
 
 // Script definitions
 const SCRIPTS = [
@@ -90,6 +94,28 @@ const SCRIPTS = [
     color: 'success',
     order: 6,
   },
+  {
+    id: 'enroll_brainwaves',
+    name: 'Enroll Brainwaves',
+    file: 'enroll_brainwaves.py',
+    path: 'scripts/eeg_identity/',
+    description: 'Guides you through neurofeedback tasks while capturing EEG from an EMOTIV Epoc X to build your brainwave identity model.',
+    outputs: ['models/eeg_identity/config.json', 'models/eeg_identity/eeg_centroid.npy', 'models/eeg_identity/spectral_profile.json'],
+    icon: Brain,
+    color: 'accent',
+    order: 7,
+  },
+  {
+    id: 'authorize_brainwaves',
+    name: 'Authorize Brainwaves',
+    file: 'authorize_brainwaves.py',
+    path: 'scripts/eeg_identity/',
+    description: 'Reads live EEG and compares against your enrolled brainwave model to produce an identity assurance signal.',
+    outputs: ['models/eeg_identity/config.json'],
+    icon: Scan,
+    color: 'success',
+    order: 8,
+  },
 ]
 
 type ScriptStatus = 'idle' | 'running' | 'success' | 'error'
@@ -109,15 +135,20 @@ function App() {
   const [scriptStates, setScriptStates] = useState<Record<string, ScriptState>>({})
   const [selectedScript, setSelectedScript] = useState<string | null>(null)
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string } | null>(null)
+  const [eegModal, setEegModal] = useState<{ type: 'enrollment' | 'authorization' } | null>(null)
   const [mcpStatus, setMcpStatus] = useState<'checking' | 'online' | 'offline'>('checking')
+  const [pipelineLoading, setPipelineLoading] = useState(true)
   
   // Check if any scripts are running
   const hasRunningScripts = Object.values(scriptStates).some(state => state.status === 'running')
 
   // Check MCP status and pipeline completion on mount
   useEffect(() => {
-    checkMcpStatus()
-    checkPipelineCompletion()
+    const initialLoad = async () => {
+      await Promise.all([checkMcpStatus(), checkPipelineCompletion()])
+      setPipelineLoading(false)
+    }
+    initialLoad()
     const interval = setInterval(() => {
       checkMcpStatus()
       checkPipelineCompletion()
@@ -217,6 +248,11 @@ function App() {
         finalStates['train_identity_model'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
       }
       
+      // Enroll Brainwaves - check if EEG identity model exists
+      if (data.generatedData?.eegIdentityModel) {
+        finalStates['enroll_brainwaves'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
+      }
+      
       // COMPLETELY REPLACE state - only scripts with running status or completed files will be in finalStates
       // Scripts without files won't be in finalStates, so they'll show as Ready (idle)
       setScriptStates(finalStates)
@@ -229,42 +265,76 @@ function App() {
     const script = SCRIPTS.find(s => s.id === scriptId)
     if (!script) return
 
-    // Clear output only when a script actually runs (not when just viewing)
+    // ── EEG scripts get a dedicated visual modal ──
+    if (scriptId === 'enroll_brainwaves') {
+      setEegModal({ type: 'enrollment' })
+      return
+    }
+    if (scriptId === 'authorize_brainwaves') {
+      setEegModal({ type: 'authorization' })
+      return
+    }
+
+    // Clear output and mark running
     setScriptStates(prev => ({
       ...prev,
       [scriptId]: { status: 'running', output: [`Starting ${script.file}...`], startTime: Date.now() }
     }))
     setSelectedScript(scriptId)
 
-    try {
-      const res = await authenticatedFetch('/api/mcp/pipeline.run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ script: script.id })
-      })
+    // Fire-and-forget: start the script (response arrives when it finishes)
+    authenticatedFetch('/api/mcp/pipeline.run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ script: script.id })
+    }).catch(() => { /* SSE handles output and completion */ })
 
-      const data = await res.json()
-      
-      setScriptStates(prev => ({
-        ...prev,
-        [scriptId]: {
-          status: data.success ? 'success' : 'error',
-          output: [...(prev[scriptId]?.output || []), ...(data.output || [data.message || 'Script completed'])],
-          startTime: prev[scriptId]?.startTime,
-          endTime: Date.now()
+    // Poll for real-time output (SSE doesn't work through Vite's dev proxy)
+    const pollOutput = async () => {
+      let cursor = 0
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        try {
+          const res = await fetch(`/api/mcp/pipeline.output/${scriptId}?cursor=${cursor}`)
+          const data = await res.json()
+
+          // Script hasn't registered yet — keep waiting
+          if (!data.started && !data.done) {
+            await new Promise(r => setTimeout(r, 300))
+            continue
+          }
+
+          for (const { line, index } of data.lines) {
+            setScriptStates(prev => ({
+              ...prev,
+              [scriptId]: {
+                ...prev[scriptId],
+                output: [...(prev[scriptId]?.output || []), line],
+              }
+            }))
+            cursor = index + 1
+          }
+
+          if (data.done) {
+            const success = data.exitCode === 0
+            setScriptStates(prev => ({
+              ...prev,
+              [scriptId]: {
+                ...prev[scriptId],
+                status: success ? 'success' : 'error',
+                endTime: Date.now(),
+              }
+            }))
+            return
+          }
+        } catch {
+          // Network hiccup — retry
         }
-      }))
-    } catch (error) {
-      setScriptStates(prev => ({
-        ...prev,
-        [scriptId]: {
-          status: 'error',
-          output: [...(prev[scriptId]?.output || []), `Error: ${error}`],
-          startTime: prev[scriptId]?.startTime,
-          endTime: Date.now()
-        }
-      }))
+        await new Promise(r => setTimeout(r, 250))
+      }
     }
+    pollOutput()
   }
 
   const viewFile = async (filePath: string) => {
@@ -446,6 +516,11 @@ function App() {
                   <span>Login</span>
                 </button>
               </div>
+            </div>
+          ) : pipelineLoading ? (
+            <div className="flex flex-col items-center justify-center py-24 gap-4">
+              <div className="w-10 h-10 border-4 border-surface-300 border-t-accent rounded-full animate-spin" />
+              <p className="text-text-muted text-sm">Loading pipeline status...</p>
             </div>
           ) : (
           <>
@@ -630,6 +705,27 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* EEG Enrollment Modal */}
+      {eegModal?.type === 'enrollment' && (
+        <EegEnrollmentModal
+          onClose={() => {
+            setEegModal(null)
+            checkPipelineCompletion()
+          }}
+          authenticatedFetch={authenticatedFetch}
+        />
+      )}
+
+      {/* EEG Authorization Modal */}
+      {eegModal?.type === 'authorization' && (
+        <EegAuthorizationModal
+          onClose={() => {
+            setEegModal(null)
+          }}
+          authenticatedFetch={authenticatedFetch}
+        />
       )}
     </div>
   )

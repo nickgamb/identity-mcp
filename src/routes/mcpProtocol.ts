@@ -85,6 +85,12 @@ import {
   handlePipelineListRunning,
 } from "../mcp/pipelineTools";
 import {
+  handleEegModelStatus,
+  handleEegEnroll,
+  handleEegAuthorize,
+  handleEegProfileSummary,
+} from "../mcp/eegIdentityTools";
+import {
   handleDataStatus,
   handleDataUploadConversations,
   handleDataUploadMemories,
@@ -389,6 +395,58 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
       inputSchema: z.object({}),
     },
     async () => toContent(await handleIdentityProfileSummary(getUserId())),
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // EEG Identity Assurance Tools (brainwave-based identity)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  server.registerTool(
+    "eeg_model_status",
+    {
+      title: "EEG Identity Model Status",
+      description: "Check if the EEG brainwave identity model is enrolled and available.",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(await handleEegModelStatus(getUserId())),
+  );
+
+  server.registerTool(
+    "eeg_enroll",
+    {
+      title: "Enroll Brainwaves",
+      description: "Run EEG brainwave enrollment to create a reference identity model. Guides through neurofeedback tasks while capturing EEG.",
+      inputSchema: z.object({
+        mode: z.enum(["synthetic", "hid"]).optional().describe("Connection mode: 'hid' for hardware, 'synthetic' for testing"),
+        serial: z.string().optional().describe("EMOTIV device serial number (required for HID mode)"),
+        task_duration: z.number().nullish().describe("Duration per task in seconds (default: 20)"),
+      }),
+    },
+    async ({ mode, serial, task_duration }) => toContent(await handleEegEnroll({ mode, serial, task_duration: task_duration ?? undefined }, getUserId())),
+  );
+
+  server.registerTool(
+    "eeg_authorize",
+    {
+      title: "Authorize Brainwaves",
+      description: "Read live EEG and compare against enrolled brainwave model. Returns an assurance signal (0.0-1.0).",
+      inputSchema: z.object({
+        mode: z.enum(["synthetic", "hid"]).optional().describe("Connection mode: 'hid' for hardware, 'synthetic' for testing"),
+        serial: z.string().optional().describe("EMOTIV device serial number (required for HID mode)"),
+        window_seconds: z.number().nullish().describe("EEG capture window in seconds (default: 10)"),
+      }),
+    },
+    async ({ mode, serial, window_seconds }) => toContent(await handleEegAuthorize({ mode, serial, window_seconds: window_seconds ?? undefined }, getUserId())),
+  );
+
+  server.registerTool(
+    "eeg_profile_summary",
+    {
+      title: "EEG Profile Summary",
+      description: "Get summary of the trained EEG identity profile including spectral data, enrollment tasks, and statistics.",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(await handleEegProfileSummary(getUserId())),
   );
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -733,7 +791,7 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
       title: "Clean Directory",
       description: "Clean generated data from a directory. Keeps source files (conversations.json, memories.json). Allowed: conversations, memory, models, training_data, adapters.",
       inputSchema: z.object({
-        directory: z.enum(["conversations", "memory", "models", "training_data", "adapters"]),
+        directory: z.enum(["conversations", "memory", "models_identity", "models_eeg", "training_data", "adapters"]),
       }),
     },
     async ({ directory }) => toContent(await handleDataClean({ directory }, getUserId())),

@@ -78,6 +78,9 @@ import {
   handlePipelineRunAll,
   handlePipelineStatus,
   handlePipelineListRunning,
+  handlePipelineStream,
+  handlePipelineOutput,
+  handlePipelineStop,
 } from "../mcp/pipelineTools";
 import {
   handleIdentityAnalysisSummary,
@@ -99,6 +102,12 @@ import {
   handleIdentityVerifyConversation,
   handleIdentityProfileSummary,
 } from "../mcp/identityVerificationTools";
+import {
+  handleEegModelStatus,
+  handleEegEnroll,
+  handleEegAuthorize,
+  handleEegProfileSummary,
+} from "../mcp/eegIdentityTools";
 import {
   handleDataStatus,
   handleDataUploadConversations,
@@ -721,6 +730,59 @@ mcpRouter.get("/mcp/identity.profile_summary", async (req: Request, res: Respons
   }
 });
 
+// EEG Identity Assurance endpoints
+mcpRouter.get("/mcp/eeg.model_status", async (req: Request, res: Response) => {
+  try {
+    const userContext = getUserContext(req);
+    const result = await handleEegModelStatus(userContext?.userId);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.post("/mcp/eeg.enroll", async (req: Request, res: Response) => {
+  try {
+    const userContext = getUserContext(req);
+    const schema = z.object({
+      mode: z.enum(["synthetic", "hid"]).optional(),
+      serial: z.string().optional(),
+      task_duration: z.number().optional(),
+    });
+    const parsed = schema.parse(req.body);
+    const result = await handleEegEnroll(parsed, userContext?.userId);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.post("/mcp/eeg.authorize", async (req: Request, res: Response) => {
+  try {
+    const userContext = getUserContext(req);
+    const schema = z.object({
+      mode: z.enum(["synthetic", "hid"]).optional(),
+      serial: z.string().optional(),
+      window_seconds: z.number().optional(),
+    });
+    const parsed = schema.parse(req.body);
+    const result = await handleEegAuthorize(parsed, userContext?.userId);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.get("/mcp/eeg.profile_summary", async (req: Request, res: Response) => {
+  try {
+    const userContext = getUserContext(req);
+    const result = await handleEegProfileSummary(userContext?.userId);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 // Pipeline endpoints - for running processing scripts
 mcpRouter.get("/mcp/pipeline.list", async (req: Request, res: Response) => {
   try {
@@ -751,6 +813,31 @@ mcpRouter.post("/mcp/pipeline.run_all", async (req: Request, res: Response) => {
   try {
     const userContext = getUserContext(req);
     const result = await handlePipelineRunAll(userContext?.userId);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// SSE stream for real-time pipeline output
+mcpRouter.get("/mcp/pipeline.stream/:scriptId", (req: Request, res: Response) => {
+  const { scriptId } = req.params;
+  handlePipelineStream(scriptId, res);
+});
+
+// Poll pipeline output (JSON, proxy-friendly alternative to SSE)
+mcpRouter.get("/mcp/pipeline.output/:scriptId", (req: Request, res: Response) => {
+  const { scriptId } = req.params;
+  const cursor = parseInt(req.query.cursor as string) || 0;
+  res.json(handlePipelineOutput(scriptId, cursor));
+});
+
+// Stop a running pipeline script
+mcpRouter.post("/mcp/pipeline.stop", async (req: Request, res: Response) => {
+  try {
+    const schema = z.object({ script: z.string() });
+    const parsed = schema.parse(req.body);
+    const result = await handlePipelineStop(parsed);
     res.json(result);
   } catch (err) {
     handleError(res, err);
@@ -811,7 +898,7 @@ mcpRouter.post("/mcp/data.clean", async (req: Request, res: Response) => {
   try {
     const userContext = getUserContext(req);
     const { directory } = req.body;
-    const allowedDirs = ["conversations", "memory", "models", "training_data", "adapters"];
+    const allowedDirs = ["conversations", "memory", "models_identity", "models_eeg", "training_data", "adapters"];
     
     if (!directory || !allowedDirs.includes(directory)) {
       res.status(400).json({ error: "Invalid directory" });

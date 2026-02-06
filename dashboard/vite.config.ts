@@ -8,10 +8,20 @@ export default defineConfig({
     port: 3001,
     proxy: {
       '/api': {
-        // Use Docker service name (works in both Docker and locally if mcp-server is running)
-        target: 'http://mcp-server:4000',
+        target: 'http://localhost:4000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
+        rewrite: (path) => path.replace(/^\/api/, ''),
+        // Prevent proxy from buffering SSE (Server-Sent Events) responses
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes, req, res) => {
+            // If the backend sends text/event-stream, disable buffering
+            if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
+              // Ensure no compression/buffering on the proxy side
+              res.setHeader('Cache-Control', 'no-cache')
+              res.setHeader('X-Accel-Buffering', 'no')
+            }
+          })
+        }
       }
     }
   }

@@ -1,0 +1,20 @@
+# Requirements for EEG Identity Assurance
+#
+# Install with: pip install -r requirements.txt
+#
+# For EMOTIV hardware support (HID connection):
+#   pip install hidapi pycryptodome
+#
+# For testing without hardware (synthetic mode):
+#   Only numpy and scipy are needed
+
+numpy>=1.24.0
+scipy>=1.10.0
+scikit-learn>=1.3.0
+tqdm>=4.65.0
+
+# EMOTIV HID communication
+hidapi>=0.14.0
+
+# AES decryption for EMOTIV encrypted packets
+pycryptodome>=3.18.0

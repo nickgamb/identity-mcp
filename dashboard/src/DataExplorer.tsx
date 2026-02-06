@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Upload, Trash2, Save, X, FileText, Database, FolderOpen, AlertCircle, Shield, BarChart3, Eye, TrendingUp, TrendingDown, Activity } from 'lucide-react'
+import { Upload, Trash2, Save, X, FileText, Database, FolderOpen, AlertCircle, Shield, BarChart3, Eye, TrendingUp, TrendingDown, Activity, Brain, CheckCircle, XCircle, Cpu } from 'lucide-react'
 import { CodeEditor } from './components/CodeEditor'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, LineChart, Area, AreaChart, ReferenceLine } from 'recharts'
 import { SearchInput } from './components/SearchInput'
@@ -16,6 +16,7 @@ interface DataStatus {
     conversations: boolean
     memory: boolean
     identityModel: boolean
+    eegIdentityModel?: boolean
   }
   counts: {
     conversationFiles: number
@@ -60,6 +61,34 @@ interface IdentityModel {
   }
 }
 
+interface EegModel {
+  available: boolean
+  config?: {
+    mode?: string
+    device_type?: string
+    sample_rate?: number
+    num_channels?: number
+    channels?: string[]
+    num_tasks?: number
+    num_valid_tasks?: number
+    feature_dim?: number
+    model_type?: string
+    created_at?: string
+  }
+  spectral_summary?: Record<string, Record<string, { mean_relative_power: number; std_relative_power: number }>>
+  enrollment_tasks?: Array<{ task: string; quality_passed: boolean; category?: string }>
+  statistics?: {
+    num_samples?: number
+    feature_dim?: number
+    mean_similarity?: number
+    std_similarity?: number
+    similarity_threshold_1std?: number
+    similarity_threshold_2std?: number
+    percentiles?: Record<string, number>
+  }
+  message?: string
+}
+
 interface FileItem {
   path: string
   name: string
@@ -75,19 +104,28 @@ export function DataExplorer() {
   const [memories, setMemories] = useState<Memory[]>([])
   const [files, setFiles] = useState<FileItem[]>([])
   const [identityModel, setIdentityModel] = useState<IdentityModel>({ exists: false })
+  const [eegModel, setEegModel] = useState<EegModel>({ available: false })
   const [selectedItem, setSelectedItem] = useState<any>(null)
   const [editorContent, setEditorContent] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [uploadingFiles, setUploadingFiles] = useState(false)
   const [vocabTab, setVocabTab] = useState<'frequencies' | 'distinctive' | 'bigrams' | 'boosted'>('frequencies')
 
   useEffect(() => {
-    loadStatus()
-    loadConversations()
-    loadMemories()
-    loadFiles()
-    loadIdentityModel()
+    const loadAll = async () => {
+      await Promise.all([
+        loadStatus(),
+        loadConversations(),
+        loadMemories(),
+        loadFiles(),
+        loadIdentityModel(),
+        loadEegModel(),
+      ])
+      setInitialLoading(false)
+    }
+    loadAll()
     
     // Auto-refresh status and counts every 10 seconds
     const interval = setInterval(() => {
@@ -97,6 +135,7 @@ export function DataExplorer() {
       loadMemories()
       loadFiles()
       loadIdentityModel()
+      loadEegModel()
     }, 10000)
     
     return () => clearInterval(interval)
@@ -111,6 +150,7 @@ export function DataExplorer() {
       loadFiles()
     } else if (activeTab === 'identity') {
       loadIdentityModel()
+      loadEegModel()
     }
   }, [activeTab])
 
@@ -235,6 +275,21 @@ export function DataExplorer() {
     }
   }
 
+  const loadEegModel = async () => {
+    try {
+      const res = await fetch('/api/mcp/eeg.profile_summary')
+      if (!res.ok) {
+        setEegModel({ available: false })
+        return
+      }
+      const data = await res.json()
+      setEegModel(data)
+    } catch (error) {
+      console.debug('EEG model not available:', error)
+      setEegModel({ available: false })
+    }
+  }
+
   const handleFilesUpload = async (fileList: FileList) => {
     setUploadingFiles(true)
     const successCount = { count: 0 }
@@ -350,7 +405,16 @@ export function DataExplorer() {
   }
 
   const handleClean = async (directory: string) => {
-    if (!confirm(`Are you sure you want to clean ${directory}? This will remove all generated files.`)) {
+    const dirLabels: Record<string, string> = {
+      conversations: 'parsed conversations',
+      memory: 'memory files',
+      models_identity: 'the conversation identity model (models/identity/)',
+      models_eeg: 'the EEG brainwave identity model (models/eeg_identity/)',
+      training_data: 'training data',
+      adapters: 'adapters',
+    }
+    const label = dirLabels[directory] || directory
+    if (!confirm(`Are you sure you want to delete ${label}? This cannot be undone.`)) {
       return
     }
 
@@ -370,8 +434,10 @@ export function DataExplorer() {
       } else if (directory === 'memory') {
         setMemories([])
         setIdentityModel({ exists: false })
-      } else if (directory === 'models') {
+      } else if (directory === 'models_identity') {
         setIdentityModel({ exists: false })
+      } else if (directory === 'models_eeg') {
+        setEegModel({ available: false })
       }
       
       // Notify parent to refresh pipeline status
@@ -476,6 +542,15 @@ export function DataExplorer() {
 
   // Get unique memory files
   const memoryFiles = Array.from(new Set(memories.map(m => m._file)))
+
+  if (initialLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4">
+        <div className="w-10 h-10 border-4 border-surface-300 border-t-accent rounded-full animate-spin" />
+        <p className="text-text-muted text-sm">Loading data...</p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -662,7 +737,24 @@ export function DataExplorer() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`w-3 h-3 rounded-full ${status.generatedData.identityModel ? 'bg-success' : 'bg-surface-300'}`} />
-                  <button onClick={(e) => { e.stopPropagation(); handleClean('models') }} className="btn btn-ghost text-danger">
+                  <button onClick={(e) => { e.stopPropagation(); handleClean('models_identity') }} className="btn btn-ghost text-danger">
+                    <Trash2 className="w-4 h-4" />
+                    Clean
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg bg-surface-100 hover:bg-surface-200 transition-colors cursor-pointer group">
+                <div onClick={() => setActiveTab('identity')} className="flex-1">
+                  <div className="font-medium group-hover:text-emerald-400 transition-colors flex items-center gap-2">
+                    <Brain className="w-4 h-4 text-emerald-400" />
+                    EEG Identity Model
+                  </div>
+                  <div className="text-sm text-text-muted">Brainwave enrollment model</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`w-3 h-3 rounded-full ${status.generatedData.eegIdentityModel ? 'bg-emerald-400' : 'bg-surface-300'}`} />
+                  <button onClick={(e) => { e.stopPropagation(); handleClean('models_eeg') }} className="btn btn-ghost text-danger">
                     <Trash2 className="w-4 h-4" />
                     Clean
                   </button>
@@ -774,7 +866,7 @@ export function DataExplorer() {
                   <button 
                     onClick={() => {
                       if (confirm('Are you sure you want to delete the identity model? This will remove all model files from models/identity/')) {
-                        handleClean('models')
+                        handleClean('models_identity')
                       }
                     }}
                     className="btn btn-ghost text-danger"
@@ -1588,6 +1680,385 @@ export function DataExplorer() {
                     <Eye className="w-4 h-4" />
                     View Full Report in Editor
                   </button>
+                </CollapsibleSection>
+              )}
+            </>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════ */}
+          {/* EEG BRAINWAVE IDENTITY SECTION                                    */}
+          {/* ══════════════════════════════════════════════════════════════════ */}
+          {eegModel.available && (
+            <>
+              {/* Section Divider */}
+              <div className="relative py-4">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-surface-200" />
+                </div>
+                <div className="relative flex justify-center">
+                  <span className="px-4 bg-surface-50 text-sm font-semibold text-emerald-400 flex items-center gap-2">
+                    <Brain className="w-4 h-4" />
+                    EEG Brainwave Identity
+                  </span>
+                </div>
+              </div>
+
+              {/* A. EEG Model Quality Cards */}
+              {eegModel.config && eegModel.statistics && (
+                <div className="card">
+                  <h3 className="font-display font-semibold text-text-primary mb-4 flex items-center gap-2">
+                    <Brain className="w-5 h-5 text-emerald-400" />
+                    EEG Model Quality & Insights
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-4 rounded-lg bg-surface-100 border border-emerald-500/20">
+                      <div className="text-xs text-text-muted mb-1">Enrollment Quality</div>
+                      <div className="text-2xl font-bold text-text-primary mb-1">
+                        {(eegModel.config.num_valid_tasks ?? 0) >= 8 ? 'Excellent' :
+                         (eegModel.config.num_valid_tasks ?? 0) >= 5 ? 'Good' :
+                         (eegModel.config.num_valid_tasks ?? 0) >= 3 ? 'Fair' : 'Limited'}
+                      </div>
+                      <div className="text-sm text-text-muted">
+                        {eegModel.config.num_valid_tasks ?? 0}/{eegModel.config.num_tasks ?? 0} tasks passed quality check
+                      </div>
+                    </div>
+                    <div className="p-4 rounded-lg bg-surface-100 border border-emerald-500/20">
+                      <div className="text-xs text-text-muted mb-1">Model Stability</div>
+                      <div className="text-2xl font-bold text-text-primary mb-1">
+                        {(eegModel.statistics.std_similarity ?? 1) < 0.05 ? 'High' :
+                         (eegModel.statistics.std_similarity ?? 1) < 0.1 ? 'Medium' : 'Variable'}
+                      </div>
+                      <div className="text-sm text-text-muted">
+                        Std: {eegModel.statistics.std_similarity?.toFixed(4) ?? 'N/A'}
+                      </div>
+                    </div>
+                    <div className="p-4 rounded-lg bg-surface-100 border border-emerald-500/20">
+                      <div className="text-xs text-text-muted mb-1">Assurance Confidence</div>
+                      <div className="text-2xl font-bold text-text-primary mb-1">
+                        {(eegModel.statistics.mean_similarity ?? 0) > 0.9 ? 'High' :
+                         (eegModel.statistics.mean_similarity ?? 0) > 0.75 ? 'Medium' : 'Low'}
+                      </div>
+                      <div className="text-sm text-text-muted">
+                        Mean: {eegModel.statistics.mean_similarity?.toFixed(4) ?? 'N/A'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-4 text-xs text-text-muted">
+                    <span>{eegModel.config.num_channels ?? 0} channels</span>
+                    <span>{eegModel.config.sample_rate ?? 0} Hz</span>
+                    <span>{eegModel.config.feature_dim ?? 0}-dim features</span>
+                    <span>{eegModel.statistics.num_samples ?? 0} samples</span>
+                  </div>
+                </div>
+              )}
+
+              {/* B. Spectral Band Power Chart */}
+              {eegModel.spectral_summary && (
+                <CollapsibleSection
+                  title="Spectral Band Power"
+                  icon={Activity}
+                  defaultExpanded={true}
+                >
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={(() => {
+                          const channels = eegModel.config?.channels || Object.keys(eegModel.spectral_summary || {})
+                          const bands = ['delta', 'theta', 'alpha', 'beta', 'gamma']
+                          return channels.map((ch: string) => {
+                            const chData = eegModel.spectral_summary?.[ch] || {}
+                            const row: Record<string, any> = { channel: ch }
+                            bands.forEach(band => {
+                              row[band] = chData[band]?.mean_relative_power ?? 0
+                              row[`${band}_std`] = chData[band]?.std_relative_power ?? 0
+                            })
+                            return row
+                          })
+                        })()}
+                        margin={{ top: 5, right: 30, left: 20, bottom: 60 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                        <XAxis
+                          dataKey="channel"
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                          stroke="rgba(255,255,255,0.5)"
+                          fontSize={10}
+                        />
+                        <YAxis
+                          stroke="rgba(255,255,255,0.5)"
+                          label={{ value: 'Relative Power', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.7)' }}
+                        />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: 'rgba(0,0,0,0.9)', border: '1px solid rgba(255,255,255,0.2)' }}
+                          labelStyle={{ color: '#fff' }}
+                          formatter={(value: any, name: string, props: any) => {
+                            const std = props.payload?.[`${name}_std`] || 0
+                            return [`${Number(value).toFixed(4)} \u00B1 ${std.toFixed(4)}`, name.charAt(0).toUpperCase() + name.slice(1)]
+                          }}
+                        />
+                        <Bar dataKey="delta" fill="#3b82f6" name="delta" stackId="a" />
+                        <Bar dataKey="theta" fill="#14b8a6" name="theta" stackId="a" />
+                        <Bar dataKey="alpha" fill="#10b981" name="alpha" stackId="a" />
+                        <Bar dataKey="beta" fill="#f59e0b" name="beta" stackId="a" />
+                        <Bar dataKey="gamma" fill="#ef4444" name="gamma" stackId="a" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-4 text-xs">
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-[#3b82f6]" /> Delta (0.5-4 Hz)</span>
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-[#14b8a6]" /> Theta (4-8 Hz)</span>
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-[#10b981]" /> Alpha (8-13 Hz)</span>
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-[#f59e0b]" /> Beta (13-30 Hz)</span>
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-[#ef4444]" /> Gamma (30-45 Hz)</span>
+                  </div>
+                </CollapsibleSection>
+              )}
+
+              {/* C. EEG Similarity Distribution */}
+              {eegModel.statistics && eegModel.statistics.mean_similarity !== undefined && (
+                <CollapsibleSection
+                  title="EEG Similarity Distribution"
+                  icon={BarChart3}
+                  defaultExpanded={true}
+                  detailsContent={
+                    <div className="space-y-2 text-sm">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="text-text-muted mb-1">Percentiles</div>
+                          <div className="space-y-1">
+                            <div>P25: {eegModel.statistics.percentiles?.p25?.toFixed(4) ?? 'N/A'}</div>
+                            <div>P50: {eegModel.statistics.percentiles?.p50?.toFixed(4) ?? 'N/A'}</div>
+                            <div>P75: {eegModel.statistics.percentiles?.p75?.toFixed(4) ?? 'N/A'}</div>
+                            <div>P90: {eegModel.statistics.percentiles?.p90?.toFixed(4) ?? 'N/A'}</div>
+                            <div>P95: {eegModel.statistics.percentiles?.p95?.toFixed(4) ?? 'N/A'}</div>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-text-muted mb-1">Thresholds</div>
+                          <div className="space-y-1">
+                            <div>Mean: {eegModel.statistics.mean_similarity?.toFixed(4) ?? 'N/A'}</div>
+                            <div>Std: {eegModel.statistics.std_similarity?.toFixed(4) ?? 'N/A'}</div>
+                            <div>1-sigma: {eegModel.statistics.similarity_threshold_1std?.toFixed(4) ?? 'N/A'}</div>
+                            <div>2-sigma: {eegModel.statistics.similarity_threshold_2std?.toFixed(4) ?? 'N/A'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  }
+                >
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={(() => {
+                          const mean = eegModel.statistics!.mean_similarity || 0
+                          const std = eegModel.statistics!.std_similarity || 0.1
+                          const points = []
+                          const min = Math.max(0, mean - 3 * std)
+                          const max = Math.min(1, mean + 3 * std)
+                          for (let i = 0; i <= 50; i++) {
+                            const x = min + (max - min) * (i / 50)
+                            const y = Math.exp(-0.5 * Math.pow((x - mean) / std, 2))
+                            points.push({ similarity: x.toFixed(3), density: y })
+                          }
+                          return points
+                        })()}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                        <XAxis
+                          dataKey="similarity"
+                          stroke="rgba(255,255,255,0.5)"
+                          label={{ value: 'Similarity Score', position: 'insideBottom', offset: -5, fill: 'rgba(255,255,255,0.7)' }}
+                        />
+                        <YAxis
+                          stroke="rgba(255,255,255,0.5)"
+                          label={{ value: 'Density', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.7)' }}
+                        />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: 'rgba(0,0,0,0.9)', border: '1px solid rgba(255,255,255,0.2)' }}
+                          labelStyle={{ color: '#fff' }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="density"
+                          stroke="#10b981"
+                          fill="#10b981"
+                          fillOpacity={0.3}
+                        />
+                        {eegModel.statistics!.similarity_threshold_1std && (
+                          <ReferenceLine
+                            x={eegModel.statistics!.similarity_threshold_1std.toFixed(3)}
+                            stroke="#f59e0b"
+                            strokeDasharray="5 5"
+                            label={{ value: '1\u03C3', position: 'top', fill: '#f59e0b' }}
+                          />
+                        )}
+                        {eegModel.statistics!.similarity_threshold_2std && (
+                          <ReferenceLine
+                            x={eegModel.statistics!.similarity_threshold_2std.toFixed(3)}
+                            stroke="#ef4444"
+                            strokeDasharray="5 5"
+                            label={{ value: '2\u03C3', position: 'top', fill: '#ef4444' }}
+                          />
+                        )}
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="mt-4 text-sm text-text-muted space-y-1">
+                    <div>Mean: {eegModel.statistics.mean_similarity?.toFixed(4)} \u00B1 {eegModel.statistics.std_similarity?.toFixed(4)}</div>
+                    <div className="flex gap-4">
+                      <span>1\u03C3 Threshold: <span className="text-amber-500">{eegModel.statistics.similarity_threshold_1std?.toFixed(4)}</span></span>
+                      <span>2\u03C3 Threshold: <span className="text-red-500">{eegModel.statistics.similarity_threshold_2std?.toFixed(4)}</span></span>
+                    </div>
+                  </div>
+                </CollapsibleSection>
+              )}
+
+              {/* D. Enrollment Task Log */}
+              {eegModel.enrollment_tasks && eegModel.enrollment_tasks.length > 0 && (
+                <CollapsibleSection
+                  title="Enrollment Task Log"
+                  icon={CheckCircle}
+                  defaultExpanded={true}
+                >
+                  <div className="space-y-2">
+                    {(() => {
+                      const tasks = eegModel.enrollment_tasks!
+                      // Group tasks by category
+                      const categoryMap: Record<string, typeof tasks> = {}
+                      const categoryLabels: Record<string, string> = {
+                        resting: 'Resting State',
+                        relaxation: 'Relaxation',
+                        cognitive: 'Cognitive',
+                        motor: 'Motor Imagery',
+                        expression: 'Facial Expression',
+                      }
+
+                      tasks.forEach(t => {
+                        const cat = t.category || 'uncategorized'
+                        if (!categoryMap[cat]) categoryMap[cat] = []
+                        categoryMap[cat].push(t)
+                      })
+
+                      const categoryOrder = ['resting', 'relaxation', 'cognitive', 'motor', 'expression', 'uncategorized']
+                      const orderedCategories = categoryOrder.filter(c => categoryMap[c])
+
+                      return orderedCategories.map(cat => (
+                        <div key={cat} className="p-3 rounded-lg bg-surface-100">
+                          <div className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">
+                            {categoryLabels[cat] || cat}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {categoryMap[cat].map((t, idx) => (
+                              <div
+                                key={idx}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${
+                                  t.quality_passed
+                                    ? 'bg-emerald-500/10 text-emerald-400'
+                                    : 'bg-red-500/10 text-red-400'
+                                }`}
+                              >
+                                {t.quality_passed ? (
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                ) : (
+                                  <XCircle className="w-3.5 h-3.5" />
+                                )}
+                                {t.task.replace(/_/g, ' ')}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    })()}
+                  </div>
+                  <div className="mt-4 text-sm text-text-muted">
+                    {eegModel.enrollment_tasks!.filter(t => t.quality_passed).length} of {eegModel.enrollment_tasks!.length} tasks passed quality check
+                  </div>
+                </CollapsibleSection>
+              )}
+
+              {/* E. EEG Model Configuration */}
+              {eegModel.config && (
+                <CollapsibleSection
+                  title="EEG Model Configuration"
+                  icon={Cpu}
+                  detailsContent={
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="p-3 rounded-lg bg-surface-100">
+                        <div className="text-sm text-text-muted mb-1">Device Type</div>
+                        <div className="font-medium text-text-primary">{eegModel.config.device_type ?? 'N/A'}</div>
+                      </div>
+                      <div className="p-3 rounded-lg bg-surface-100">
+                        <div className="text-sm text-text-muted mb-1">Sample Rate</div>
+                        <div className="font-medium text-text-primary">{eegModel.config.sample_rate ?? 'N/A'} Hz</div>
+                      </div>
+                      <div className="p-3 rounded-lg bg-surface-100">
+                        <div className="text-sm text-text-muted mb-1">Channels</div>
+                        <div className="font-medium text-text-primary">{eegModel.config.num_channels ?? 'N/A'}</div>
+                      </div>
+                      <div className="p-3 rounded-lg bg-surface-100">
+                        <div className="text-sm text-text-muted mb-1">Feature Dimensions</div>
+                        <div className="font-medium text-text-primary">{eegModel.config.feature_dim ?? 'N/A'}</div>
+                      </div>
+                      <div className="p-3 rounded-lg bg-surface-100">
+                        <div className="text-sm text-text-muted mb-1">Model Type</div>
+                        <div className="font-medium text-text-primary">{eegModel.config.model_type ?? 'N/A'}</div>
+                      </div>
+                      <div className="p-3 rounded-lg bg-surface-100">
+                        <div className="text-sm text-text-muted mb-1">Mode</div>
+                        <div className="font-medium text-text-primary">{eegModel.config.mode ?? 'N/A'}</div>
+                      </div>
+                      <div className="p-3 rounded-lg bg-surface-100">
+                        <div className="text-sm text-text-muted mb-1">Enrollment Tasks</div>
+                        <div className="font-medium text-text-primary">{eegModel.config.num_valid_tasks ?? 0} / {eegModel.config.num_tasks ?? 0}</div>
+                      </div>
+                      {eegModel.statistics?.similarity_threshold_1std !== undefined && (
+                        <div className="p-3 rounded-lg bg-surface-100">
+                          <div className="text-sm text-text-muted mb-1">Threshold (1{'\u03C3'})</div>
+                          <div className="font-medium text-text-primary">{eegModel.statistics.similarity_threshold_1std.toFixed(4)}</div>
+                        </div>
+                      )}
+                      {eegModel.statistics?.similarity_threshold_2std !== undefined && (
+                        <div className="p-3 rounded-lg bg-surface-100">
+                          <div className="text-sm text-text-muted mb-1">Threshold (2{'\u03C3'})</div>
+                          <div className="font-medium text-text-primary">{eegModel.statistics.similarity_threshold_2std.toFixed(4)}</div>
+                        </div>
+                      )}
+                      <div className="p-3 rounded-lg bg-surface-100">
+                        <div className="text-sm text-text-muted mb-1">Created</div>
+                        <div className="font-medium text-text-primary">
+                          {eegModel.config.created_at ? new Date(eegModel.config.created_at).toLocaleDateString() : 'N/A'}
+                        </div>
+                      </div>
+                      {eegModel.config.channels && (
+                        <div className="p-3 rounded-lg bg-surface-100 md:col-span-2 lg:col-span-3">
+                          <div className="text-sm text-text-muted mb-1">Channel Names</div>
+                          <div className="font-medium text-text-primary text-sm">{eegModel.config.channels.join(', ')}</div>
+                        </div>
+                      )}
+                    </div>
+                  }
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="p-4 rounded-lg bg-surface-100 border border-emerald-500/20">
+                      <div className="text-xs text-text-muted mb-1">Device</div>
+                      <div className="font-semibold text-text-primary">{eegModel.config.device_type ?? 'N/A'}</div>
+                      <div className="text-xs text-text-muted mt-1">{eegModel.config.num_channels ?? 0} channels @ {eegModel.config.sample_rate ?? 0} Hz</div>
+                    </div>
+                    <div className="p-4 rounded-lg bg-surface-100 border border-emerald-500/20">
+                      <div className="text-xs text-text-muted mb-1">Enrollment</div>
+                      <div className="font-semibold text-text-primary">{eegModel.config.num_valid_tasks ?? 0} tasks</div>
+                      <div className="text-xs text-text-muted mt-1">{eegModel.statistics?.num_samples ?? 0} feature samples</div>
+                    </div>
+                    <div className="p-4 rounded-lg bg-surface-100 border border-emerald-500/20">
+                      <div className="text-xs text-text-muted mb-1">Created</div>
+                      <div className="font-semibold text-text-primary">
+                        {eegModel.config.created_at ? new Date(eegModel.config.created_at).toLocaleDateString() : 'N/A'}
+                      </div>
+                      <div className="text-xs text-text-muted mt-1">{eegModel.config.model_type ?? 'centroid'} model</div>
+                    </div>
+                  </div>
                 </CollapsibleSection>
               )}
             </>
