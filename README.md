@@ -237,6 +237,8 @@ Access at: http://localhost:3001 (after starting dashboard)
 | ✅ | Identity verification via MCP tools |
 | ✅ | Memory files enhance training (boosts distinctive terms) |
 | ✅ | Multi-user support with OIDC authentication and data isolation |
+| ⚠️ | Enroll and Train a model on EEG signal data from EMOTIV and PiEEG |
+| ⚠️ | Live EEG verification assurance signals based on EEG model |
 | 🔲 | **Non-conversational data support** - Train on essays, journals, emails, blog posts, social media |
 | 🔲 | Multiple identity profiles (compare/switch between identities) |
 | 🔲 | Identity drift detection (alert when patterns change over time) |
