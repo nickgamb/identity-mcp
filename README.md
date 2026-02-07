@@ -10,7 +10,7 @@ A behavioral identity verification system that creates an "identity fingerprint"
 - **Verifies** new messages against your identity fingerprint
 - **Enrolls brainwaves** via EMOTIV Epoc X EEG for neurophysiological identity assurance
 - **Authorizes** live EEG against your enrolled brainwave model as a continuous assurance signal
-- **Visualizes** enrollment and authorization in real-time dashboard modals via SSE streaming
+- **Visualizes** enrollment and authorization in real-time dashboard modals via output polling
 - **Serves** identity data via MCP protocol (for LibreChat, etc.)
 - **Multi-user and OIDC**: Supports OIDC authentication with complete data isolation per user.
 
@@ -94,7 +94,7 @@ python train_identity_model.py
 # 4. (Optional) EEG brainwave enrollment
 cd ../eeg_identity
 pip install -r requirements.txt
-python enroll_brainwaves.py --synthetic    # or --serial YOUR_SERIAL for hardware
+python enroll_brainwaves.py --synthetic    # or just `python enroll_brainwaves.py` with dongle
 
 # 5. Start services
 cd ../..
@@ -184,9 +184,10 @@ docker-compose --profile identity up -d           # MCP + Identity Service
 │  │     INPUT: Live EEG stream                                       │    │
 │  │     OUTPUT: Assurance signal (0.0-1.0 confidence score)          │    │
 │  │                                                                  │    │
-│  │  --dashboard mode: emits @@EEG_EVENT SSE lines for visual modals │    │
+│  │  --dashboard mode: emits @@EEG_EVENT lines for visual modals     │    │
 │  │     Enrollment → checkerboard, breathing circle, word stimuli    │    │
 │  │     Authorization → spectral overlay, similarity gauge, timeline │    │
+│  │     Frontend polls /pipeline.output/:id every 100ms              │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │           │                                                              │
 │           ▼                                                              │
@@ -249,7 +250,7 @@ See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for full tool reference.
 The web dashboard provides:
 - **Upload** - Drag & drop conversations.json and memories.json
 - **Status** - Visual indicators for source files and generated data
-- **Pipeline** - Run all processing scripts with real-time SSE streaming output, including:
+- **Pipeline** - Run all processing scripts with real-time output streaming, including:
   - Conversation processing (parse, analyze, build interaction map)
   - Identity model training (semantic embedding)
   - EEG brainwave enrollment with guided visual modal (checkerboard, breathing circle, word stimuli)

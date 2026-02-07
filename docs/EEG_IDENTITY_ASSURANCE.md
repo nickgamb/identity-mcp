@@ -69,7 +69,7 @@ The system is built around the EMOTIV Epoc X consumer EEG headset:
 | **Electrode System** | International 10-20 |
 | **Sampling Rate** | 128 Hz |
 | **Resolution** | 14-bit per channel |
-| **Connection** | Bluetooth HID or USB direct |
+| **Connection** | USB wireless dongle (auto-detected) |
 | **Packet Format** | 64 bytes, AES-ECB encrypted |
 | **Decryption** | AES-128 key derived from device serial number |
 
@@ -77,11 +77,10 @@ The system is built around the EMOTIV Epoc X consumer EEG headset:
 
 The `emotiv_reader.py` abstraction supports:
 
-- **Bluetooth HID** — Pair the headset via your OS Bluetooth settings. It appears as a standard HID device. This is the primary supported method.
-- **USB Direct** — Connect via USB cable. Same HID protocol, different transport.
+- **USB Wireless Dongle (primary)** — Plug in the EMOTIV USB dongle. The reader auto-detects it, derives the AES key from the dongle serial, and handles the EPOC X protocol (XOR preprocessing, 2-byte channel parsing, motion packet filtering). No `--serial` flag needed — it reads the serial from the dongle automatically.
 - **Synthetic** — No hardware needed. Generates realistic EEG with configurable "identity seeds" for testing the full pipeline without a headset.
 
-> **Note:** The EMOTIV USB wireless dongle is **not supported** due to known driver issues. Use Bluetooth pairing or USB cable instead.
+> **Note:** The USB wireless dongle must be connected to the machine running the scripts. When using Docker, the dongle is not accessible from inside the container — run the scripts locally instead (see [Local Development](#local-development) below). Bluetooth HID and direct USB cable are not currently supported due to Windows driver limitations with the EPOC X.
 
 ## File Structure
 
@@ -226,14 +225,14 @@ pip install -r requirements.txt
 ### Enrollment
 
 ```bash
-# With EMOTIV hardware
-python enroll_brainwaves.py --serial YOUR_SERIAL_NUMBER
+# With EMOTIV hardware (dongle auto-detected)
+python enroll_brainwaves.py
 
 # Synthetic mode for testing the full pipeline
 python enroll_brainwaves.py --synthetic
 
 # Research edition device with shorter tasks
-python enroll_brainwaves.py --serial SN1234 --device-type research --task-duration 15
+python enroll_brainwaves.py --device-type research --task-duration 15
 
 # Custom durations
 python enroll_brainwaves.py --synthetic --task-duration 10 --word-duration 5 --action-duration 5
@@ -242,14 +241,14 @@ python enroll_brainwaves.py --synthetic --task-duration 10 --word-duration 5 --a
 ### Authorization
 
 ```bash
-# Single check with hardware
-python authorize_brainwaves.py --serial YOUR_SERIAL_NUMBER
+# Single check with hardware (dongle auto-detected)
+python authorize_brainwaves.py
 
 # Synthetic mode
 python authorize_brainwaves.py --synthetic
 
 # Continuous monitoring
-python authorize_brainwaves.py --serial SN1234 --continuous --interval 10
+python authorize_brainwaves.py --continuous --interval 10
 
 # JSON output for script/tool integration
 python authorize_brainwaves.py --synthetic --json
@@ -257,6 +256,28 @@ python authorize_brainwaves.py --synthetic --json
 # Simulate a DIFFERENT person (to test rejection)
 python authorize_brainwaves.py --synthetic --different-person
 ```
+
+### Local Development
+
+The EEG scripts need direct access to the USB dongle, which is not available inside Docker containers on Windows. To run with hardware:
+
+```bash
+# Terminal 1: Start the MCP server locally
+npm run build
+$env:PROJECT_ROOT = "."
+$env:MEMORY_DIR = "./memory"
+$env:FILES_DIR = "./files"
+$env:PORT = "4000"
+node dist/index.js
+
+# Terminal 2: Start the dashboard
+cd dashboard
+npm run dev    # http://localhost:3001
+```
+
+Ensure `dashboard/vite.config.ts` has the proxy target set to `http://localhost:4000` (not the Docker service name).
+
+The server auto-detects the correct Python command (`python` on Windows, `python3` on Linux/macOS).
 
 ### Via Dashboard
 
@@ -280,7 +301,9 @@ Both scripts appear as pipeline cards in the dashboard. When launched from the U
 - Live reading progress indicator
 - Stop button to terminate the session
 
-Both modals communicate with the running Python scripts via **Server-Sent Events (SSE)**: the scripts emit structured `@@EEG_EVENT:` JSON lines to stdout, the Node.js backend streams them to the browser in real time, and the React components render the experience based on the event type.
+Both modals communicate with the running Python scripts via **output polling**: the scripts emit structured `@@EEG_EVENT:` JSON lines to stdout, the Node.js backend buffers them, and the React components poll `GET /api/mcp/pipeline.output/:scriptId?cursor=N` every 100ms to receive new lines and render the experience based on the event type.
+
+> **Why polling instead of SSE?** The Vite development proxy buffers and caches `text/event-stream` responses, preventing real-time delivery. JSON polling through the same proxy works reliably with ~100ms latency.
 
 The scripts run in `--dashboard` mode automatically when launched from the UI. Terminal mode (no flag) remains unchanged for CLI use.
 
@@ -303,32 +326,33 @@ Four tools are registered:
 | `/api/mcp/eeg.enroll` | POST | Run enrollment |
 | `/api/mcp/eeg.authorize` | POST | Run authorization |
 | `/api/mcp/eeg.profile_summary` | GET | Get profile summary |
-| `/api/mcp/pipeline.stream/:id` | GET | SSE stream of real-time script output (used by dashboard modals) |
+| `/api/mcp/pipeline.output/:id?cursor=N` | GET | Poll buffered script output from cursor position (used by dashboard modals) |
+| `/api/mcp/pipeline.stream/:id` | GET | SSE stream of script output (alternative, may be buffered by proxies) |
 | `/api/mcp/pipeline.stop` | POST | Terminate a running pipeline script |
 
 ## Dashboard Visual Architecture
 
-When the scripts run from the dashboard, they use a real-time event streaming architecture:
+When the scripts run from the dashboard, they use a real-time output polling architecture:
 
 ```
 ┌──────────────┐     ┌───────────────┐     ┌─────────────────┐
-│  React Modal │◄────│  Node.js SSE  │◄────│  Python Script  │
+│  React Modal │◄────│  Node.js API  │◄────│  Python Script  │
 │              │     │  /pipeline    │     │                 │
-│  Renders:    │     │  .stream/:id  │     │  Emits:         │
-│  • Visuals   │  ←  │               │  ←  │  @@EEG_EVENT:   │
-│  • Charts    │  SSE│  Polls output │  stdout  JSON lines   │
-│  • Gauges    │     │  array @50ms  │     │                 │
+│  Renders:    │     │  .output/:id  │     │  Emits:         │
+│  • Visuals   │ poll│               │     │  @@EEG_EVENT:   │
+│  • Charts    │@100ms  Buffers stdout  ←  │  JSON lines     │
+│  • Gauges    │     │  lines array  │     │                 │
 └──────────────┘     └───────────────┘     └─────────────────┘
 ```
 
 **Event flow:**
 
 1. Dashboard opens the modal and POSTs to `/api/mcp/pipeline.run` with `--dashboard` flag
-2. Modal subscribes to `GET /api/mcp/pipeline.stream/:scriptId` (SSE)
+2. Modal polls `GET /api/mcp/pipeline.output/:scriptId?cursor=N` every 100ms
 3. Python script emits events like `@@EEG_EVENT:{"event":"task_start","visual":"checkerboard",...}`
-4. Backend detects these lines in stdout and streams them as SSE `data:` frames
-5. React modal interprets the event type and renders the corresponding visual component
-6. When the script finishes, the SSE stream sends a `done` event and closes
+4. Backend buffers stdout lines; polling endpoint returns new lines since the cursor position
+5. React modal finds `@@EEG_EVENT:` markers in each line and renders the corresponding visual component
+6. When `done: true` is returned, the modal shows the completion screen
 
 **Key events (enrollment):** `enrollment_start`, `task_start`, `recording_progress`, `task_complete`, `enrollment_complete`
 
@@ -376,8 +400,9 @@ A sophisticated impersonator might mimic writing style, but reproducing someone'
 ## Troubleshooting
 
 ### "No EMOTIV devices found"
-- Ensure the headset is powered on (solid green LED)
-- Pair via Bluetooth in your OS settings before running the script
+- Ensure the USB wireless dongle is plugged in
+- Ensure the headset is powered on (solid green LED) and paired with the dongle
+- On Windows, make sure you're running the scripts locally (not inside Docker — containers can't access USB HID devices)
 - On Linux, check udev rules for HID permissions
 
 ### Low assurance scores for the enrolled user
