@@ -1,0 +1,607 @@
+<svg width="1400" height="1150" viewBox="0 0 1400 1150"
+xmlns="http://www.w3.org/2000/svg"
+font-family="Inter, system-ui, Arial, sans-serif">
+
+  <defs>
+    <marker id="arr-purple" markerWidth="7" markerHeight="5" refX="7" refY="2.5"
+            orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#818cf8"/></marker>
+    <marker id="arr-blue" markerWidth="7" markerHeight="5" refX="7" refY="2.5"
+            orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#38bdf8"/></marker>
+    <marker id="arr-cyan" markerWidth="7" markerHeight="5" refX="7" refY="2.5"
+            orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#22d3ee"/></marker>
+    <marker id="arr-amber" markerWidth="7" markerHeight="5" refX="7" refY="2.5"
+            orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#f59e0b"/></marker>
+    <marker id="arr-green" markerWidth="7" markerHeight="5" refX="7" refY="2.5"
+            orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#34d399"/></marker>
+    <marker id="arr-red" markerWidth="7" markerHeight="5" refX="7" refY="2.5"
+            orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#f87171"/></marker>
+
+```
+<filter id="gl-p" x="-15%" y="-15%" width="130%" height="130%">
+  <feGaussianBlur stdDeviation="2.5" result="b"/>
+  <feFlood flood-color="#6366f1" flood-opacity="0.12"/><feComposite in2="b" operator="in"/>
+  <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+</filter>
+<filter id="gl-c" x="-15%" y="-15%" width="130%" height="130%">
+  <feGaussianBlur stdDeviation="2.5" result="b"/>
+  <feFlood flood-color="#06b6d4" flood-opacity="0.12"/><feComposite in2="b" operator="in"/>
+  <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+</filter>
+<filter id="gl-a" x="-15%" y="-15%" width="130%" height="130%">
+  <feGaussianBlur stdDeviation="2.5" result="b"/>
+  <feFlood flood-color="#f59e0b" flood-opacity="0.12"/><feComposite in2="b" operator="in"/>
+  <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+</filter>
+```
+
+  </defs>
+
+  <!-- Background -->
+
+  <rect width="1400" height="1100" fill="#0a0e13"/>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- TITLE BAR                                           -->
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <rect x="0" y="0" width="1400" height="52" fill="#0f1318" opacity="0.9"/>
+  <text x="36" y="33" font-size="16" fill="#f1f5f9" font-weight="700" letter-spacing="0.3">
+    EEG Out-of-Band MFA &amp; Human-in-the-Loop Authorization
+  </text>
+  <text x="1364" y="33" text-anchor="end" font-size="10" fill="#475569">
+    "Duo Push, but the proof is neural coherence"
+  </text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- SWIM LANE HEADERS (vertical columns)                -->
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- Column positions: User=80, Device/App=280, EEG=480, IdP/Gateway=740, Agent=980, Resource=1180 -->
+
+  <!-- Lane dividers -->
+
+  <line x1="200" y1="52" x2="200" y2="1150" stroke="#1e293b" stroke-width="0.5" opacity="0.5"/>
+  <line x1="400" y1="52" x2="400" y2="1150" stroke="#1e293b" stroke-width="0.5" opacity="0.5"/>
+  <line x1="620" y1="52" x2="620" y2="1150" stroke="#1e293b" stroke-width="0.5" opacity="0.5"/>
+  <line x1="870" y1="52" x2="870" y2="1150" stroke="#1e293b" stroke-width="0.5" opacity="0.5"/>
+  <line x1="1080" y1="52" x2="1080" y2="1150" stroke="#1e293b" stroke-width="0.5" opacity="0.5"/>
+
+  <!-- Lane headers -->
+
+  <rect x="0" y="52" width="1400" height="36" fill="#111827" opacity="0.6"/>
+  <text x="100" y="75" text-anchor="middle" font-size="10" fill="#94a3b8" font-weight="700" letter-spacing="0.8">USER</text>
+  <text x="300" y="75" text-anchor="middle" font-size="10" fill="#94a3b8" font-weight="700" letter-spacing="0.8">EEG AUTH APP</text>
+  <text x="510" y="75" text-anchor="middle" font-size="10" fill="#94a3b8" font-weight="700" letter-spacing="0.8">EEG DEVICE</text>
+  <text x="745" y="75" text-anchor="middle" font-size="10" fill="#94a3b8" font-weight="700" letter-spacing="0.8">IDENTITY PROVIDER</text>
+  <text x="975" y="75" text-anchor="middle" font-size="10" fill="#94a3b8" font-weight="700" letter-spacing="0.8">AI AGENT</text>
+  <text x="1240" y="75" text-anchor="middle" font-size="10" fill="#94a3b8" font-weight="700" letter-spacing="0.8">RESOURCE / MCP</text>
+
+  <!-- Trust zone shading -->
+
+  <!-- Human Trust Zone (User + App + EEG) -->
+
+  <rect x="0" y="88" width="620" height="1062" fill="#6366f1" opacity="0.02"/>
+  <text x="8" y="102" font-size="8" fill="#6366f1" opacity="0.5" font-weight="600" letter-spacing="0.5">
+    HUMAN TRUST ZONE
+  </text>
+
+  <!-- Control Plane (IdP) -->
+
+  <rect x="620" y="88" width="250" height="1062" fill="#06b6d4" opacity="0.02"/>
+  <text x="628" y="102" font-size="8" fill="#06b6d4" opacity="0.5" font-weight="600" letter-spacing="0.5">
+    CONTROL PLANE
+  </text>
+
+  <!-- Execution Plane (Agent + Resource) -->
+
+  <rect x="870" y="88" width="530" height="1062" fill="#f59e0b" opacity="0.02"/>
+  <text x="878" y="102" font-size="8" fill="#f59e0b" opacity="0.5" font-weight="600" letter-spacing="0.5">
+    EXECUTION PLANE
+  </text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- FLOW 1: ENROLLMENT                                  -->
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="20" y="114" width="1360" height="240" rx="0"
+fill="#818cf8" opacity="0.03"/>
+<text x="36" y="140" font-size="13" fill="#818cf8" font-weight="700" letter-spacing="0.5">
+① ENROLLMENT
+</text>
+<text x="170" y="140" font-size="10" fill="#64748b">
+Bind this brain to this device — one-time or periodic
+</text>
+
+  <!-- Step boxes -->
+
+  <!-- 1a: User launches app -->
+
+<rect x="44" y="160" width="112" height="44" rx="8"
+fill="#111827" stroke="#6366f1" stroke-width="1.2" filter="url(#gl-p)"/>
+<text x="100" y="178" text-anchor="middle" fill="#e5e7eb" font-size="10" font-weight="500">User</text>
+<text x="100" y="194" text-anchor="middle" fill="#64748b" font-size="8">launches app</text>
+
+  <!-- 1b: App connects to EEG -->
+
+<rect x="244" y="160" width="112" height="44" rx="8"
+fill="#111827" stroke="#6366f1" stroke-width="1.2" filter="url(#gl-p)"/>
+<text x="300" y="178" text-anchor="middle" fill="#e5e7eb" font-size="10" font-weight="500">EEG Auth App</text>
+<text x="300" y="194" text-anchor="middle" fill="#64748b" font-size="8">connects device</text>
+
+  <!-- 1c: EEG captures -->
+
+<rect x="454" y="160" width="112" height="44" rx="8"
+fill="#111827" stroke="#6366f1" stroke-width="1.2" filter="url(#gl-p)"/>
+<text x="510" y="178" text-anchor="middle" fill="#e5e7eb" font-size="10" font-weight="500">EEG Device</text>
+<text x="510" y="194" text-anchor="middle" fill="#64748b" font-size="8">guided capture</text>
+
+  <!-- Flow arrows: User → App → EEG -->
+
+<line x1="156" y1="182" x2="244" y2="182"
+stroke="#818cf8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-purple)">
+<animate attributeName="stroke-dashoffset" from="0" to="-9" dur="1s" repeatCount="indefinite"/>
+</line>
+<line x1="356" y1="182" x2="454" y2="182"
+stroke="#818cf8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-purple)">
+<animate attributeName="stroke-dashoffset" from="0" to="-9" dur="1s" repeatCount="indefinite"/>
+</line>
+
+  <!-- EEG returns raw signal to App -->
+
+<line x1="454" y1="196" x2="356" y2="196"
+stroke="#818cf8" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-purple)">
+<animate attributeName="stroke-dashoffset" from="0" to="7" dur="1s" repeatCount="indefinite"/>
+</line>
+<text x="405" y="210" text-anchor="middle" fill="#818cf8" font-size="7.5" opacity="0.7">raw signal</text>
+
+  <!-- Step 1d: App derives template -->
+
+<rect x="244" y="228" width="112" height="44" rx="8"
+fill="#111827" stroke="#6366f1" stroke-width="1.2" filter="url(#gl-p)"/>
+<text x="300" y="246" text-anchor="middle" fill="#e5e7eb" font-size="10" font-weight="500">Derive Template</text>
+<text x="300" y="260" text-anchor="middle" fill="#64748b" font-size="8">feature vectors</text>
+
+<line x1="300" y1="204" x2="300" y2="228"
+stroke="#818cf8" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-purple)">
+<animate attributeName="stroke-dashoffset" from="0" to="-7" dur="0.8s" repeatCount="indefinite"/>
+</line>
+
+  <!-- Step 1e: Store in secure storage -->
+
+<rect x="244" y="296" width="112" height="44" rx="8"
+fill="#111827" stroke="#6366f1" stroke-width="1.2" filter="url(#gl-p)"/>
+<text x="300" y="312" text-anchor="middle" fill="#e5e7eb" font-size="10" font-weight="500">Secure Storage</text>
+<text x="300" y="328" text-anchor="middle" fill="#64748b" font-size="8">Keychain / TPM</text>
+
+<line x1="300" y1="272" x2="300" y2="296"
+stroke="#818cf8" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-purple)">
+<animate attributeName="stroke-dashoffset" from="0" to="-7" dur="0.8s" repeatCount="indefinite"/>
+</line>
+<text x="316" y="288" fill="#818cf8" font-size="7.5" opacity="0.7">template</text>
+
+  <!-- Step 1f: Register with IdP -->
+
+<rect x="689" y="228" width="112" height="44" rx="8"
+fill="#022c22" stroke="#06b6d4" stroke-width="1.2" filter="url(#gl-c)"/>
+<text x="745" y="244" text-anchor="middle" fill="#ecfeff" font-size="10" font-weight="500">IdP / Gateway</text>
+<text x="745" y="260" text-anchor="middle" fill="#64748b" font-size="8">register MFA method</text>
+
+<line x1="356" y1="250" x2="689" y2="250"
+stroke="#818cf8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-purple)">
+<animate attributeName="stroke-dashoffset" from="0" to="-9" dur="1.2s" repeatCount="indefinite"/>
+</line>
+<text x="522" y="244" text-anchor="middle" fill="#818cf8" font-size="7.5" opacity="0.7">
+“EEG MFA available” (no EEG data)
+</text>
+
+  <!-- Privacy callout -->
+
+<rect x="440" y="296" width="200" height="36" rx="6"
+fill="#0f172a" stroke="#f87171" stroke-width="0.8" opacity="0.9"/>
+<text x="540" y="312" text-anchor="middle" fill="#f87171" font-size="9" font-weight="600">
+🔒 Raw EEG never leaves device
+</text>
+<text x="540" y="324" text-anchor="middle" fill="#64748b" font-size="8">
+IdP knows: MFA provider = EEG App, assurance = X
+</text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- FLOW 2: USER AUTHENTICATION                         -->
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="20" y="360" width="1360" height="250" rx="0"
+fill="#38bdf8" opacity="0.025"/>
+<text x="36" y="386" font-size="13" fill="#38bdf8" font-weight="700" letter-spacing="0.5">
+② AUTHENTICATION
+</text>
+<text x="200" y="386" font-size="10" fill="#64748b">
+Standard OOB MFA — like Duo Push, but the proof is neural coherence
+</text>
+
+  <!-- 2a: User attempts login -->
+
+<rect x="44" y="406" width="112" height="44" rx="8"
+fill="#111827" stroke="#38bdf8" stroke-width="1.2"/>
+<text x="100" y="424" text-anchor="middle" fill="#e5e7eb" font-size="10" font-weight="500">User</text>
+<text x="100" y="440" text-anchor="middle" fill="#64748b" font-size="8">attempts login</text>
+
+  <!-- Relying App -->
+
+<rect x="689" y="406" width="112" height="44" rx="8"
+fill="#022c22" stroke="#06b6d4" stroke-width="1.2" filter="url(#gl-c)"/>
+<text x="745" y="424" text-anchor="middle" fill="#ecfeff" font-size="10" font-weight="500">Relying App</text>
+<text x="745" y="440" text-anchor="middle" fill="#64748b" font-size="8">redirects to IdP</text>
+
+  <!-- 2a flow: User → Relying App -->
+
+<line x1="156" y1="428" x2="689" y2="428"
+stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-blue)">
+<animate attributeName="stroke-dashoffset" from="0" to="-9" dur="1.4s" repeatCount="indefinite"/>
+</line>
+<text x="420" y="422" text-anchor="middle" fill="#38bdf8" font-size="7.5" opacity="0.7">login request</text>
+
+  <!-- 2b: IdP evaluates policy -->
+
+<rect x="689" y="470" width="112" height="50" rx="8"
+fill="#022c22" stroke="#06b6d4" stroke-width="1.2" filter="url(#gl-c)"/>
+<text x="745" y="488" text-anchor="middle" fill="#ecfeff" font-size="10" font-weight="500">IdP / Gateway</text>
+<text x="745" y="504" text-anchor="middle" fill="#64748b" font-size="8">policy: high risk</text>
+<text x="745" y="514" text-anchor="middle" fill="#64748b" font-size="8">→ require EEG MFA</text>
+
+<line x1="745" y1="450" x2="745" y2="470"
+stroke="#06b6d4" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-cyan)">
+<animate attributeName="stroke-dashoffset" from="0" to="-7" dur="0.8s" repeatCount="indefinite"/>
+</line>
+
+  <!-- 2c: IdP → EEG Auth App (OOB challenge) -->
+
+<rect x="244" y="470" width="112" height="44" rx="8"
+fill="#111827" stroke="#6366f1" stroke-width="1.2" filter="url(#gl-p)"/>
+<text x="300" y="488" text-anchor="middle" fill="#e5e7eb" font-size="10" font-weight="500">EEG Auth App</text>
+<text x="300" y="504" text-anchor="middle" fill="#64748b" font-size="8">OOB challenge</text>
+
+<line x1="689" y1="495" x2="356" y2="495"
+stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arr-blue)">
+<animate attributeName="stroke-dashoffset" from="0" to="10" dur="1.2s" repeatCount="indefinite"/>
+</line>
+<text x="522" y="489" text-anchor="middle" fill="#38bdf8" font-size="7.5" opacity="0.7">
+OIDC redirect / push (like duo://)
+</text>
+
+  <!-- 2d: App reads EEG -->
+
+<rect x="454" y="470" width="112" height="44" rx="8"
+fill="#111827" stroke="#6366f1" stroke-width="1.2" filter="url(#gl-p)"/>
+<text x="510" y="488" text-anchor="middle" fill="#e5e7eb" font-size="10" font-weight="500">EEG Device</text>
+<text x="510" y="504" text-anchor="middle" fill="#64748b" font-size="8">live read</text>
+
+<line x1="356" y1="488" x2="454" y2="488"
+stroke="#818cf8" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-purple)">
+<animate attributeName="stroke-dashoffset" from="0" to="-7" dur="0.8s" repeatCount="indefinite"/>
+</line>
+
+  <!-- 2e: App computes match, returns result -->
+
+<rect x="244" y="536" width="112" height="50" rx="8"
+fill="#111827" stroke="#6366f1" stroke-width="1.2" filter="url(#gl-p)"/>
+<text x="300" y="554" text-anchor="middle" fill="#e5e7eb" font-size="10" font-weight="500">Match & Verify</text>
+<text x="300" y="570" text-anchor="middle" fill="#64748b" font-size="8">score vs template</text>
+<text x="300" y="580" text-anchor="middle" fill="#64748b" font-size="8">from secure storage</text>
+
+<line x1="300" y1="514" x2="300" y2="536"
+stroke="#818cf8" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-purple)">
+<animate attributeName="stroke-dashoffset" from="0" to="-7" dur="0.8s" repeatCount="indefinite"/>
+</line>
+
+  <!-- 2f: Result → IdP -->
+
+<line x1="356" y1="561" x2="689" y2="530"
+stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-cyan)">
+<animate attributeName="stroke-dashoffset" from="0" to="-9" dur="1.2s" repeatCount="indefinite"/>
+</line>
+<text x="522" y="540" text-anchor="middle" fill="#22d3ee" font-size="7.5" opacity="0.7">
+pass/fail + assurance metadata
+</text>
+
+  <!-- 2g: IdP → User logged in -->
+
+<rect x="689" y="536" width="112" height="44" rx="8"
+fill="#022c22" stroke="#34d399" stroke-width="1.2"/>
+<text x="745" y="554" text-anchor="middle" fill="#a7f3d0" font-size="10" font-weight="500">Auth Complete</text>
+<text x="745" y="568" text-anchor="middle" fill="#64748b" font-size="8">token issued</text>
+
+<line x1="745" y1="520" x2="745" y2="536"
+stroke="#34d399" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-green)">
+<animate attributeName="stroke-dashoffset" from="0" to="-7" dur="0.8s" repeatCount="indefinite"/>
+</line>
+
+  <!-- IdP perspective callout -->
+
+<rect x="828" y="470" width="180" height="36" rx="6"
+fill="#0f172a" stroke="#22d3ee" stroke-width="0.8" opacity="0.8"/>
+<text x="918" y="484" text-anchor="middle" fill="#22d3ee" font-size="8.5" font-weight="600">
+✅ From IdP’s perspective:
+</text>
+<text x="918" y="498" text-anchor="middle" fill="#64748b" font-size="8">
+Just another MFA signal. No EEG awareness.
+</text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- FLOW 3: AI AGENT HITL AUTHORIZATION                 -->
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="20" y="618" width="1360" height="340" rx="0"
+fill="#facc15" opacity="0.02"/>
+<text x="36" y="644" font-size="13" fill="#facc15" font-weight="700" letter-spacing="0.5">
+③ AI AGENT HUMAN-IN-THE-LOOP
+</text>
+<text x="310" y="644" font-size="10" fill="#64748b">
+“Is a real, coherent, consenting human present right now?”
+</text>
+
+  <!--
+    Layout strategy: everything routes through one tall Gateway box.
+    Left side (MFA) uses Y=700-760 band.
+    Right side (Agent/MCP) uses Y=820-880 band.
+    No diagonals cross.
+
+    Y layout:
+      666-670: Agent → Gateway (request)         — top of right side
+      700-760: Gateway ↔ EEG Auth App ↔ EEG      — left side MFA band
+      780:     Gateway internal: issue token
+      820-840: Gateway → MCP → Gateway            — lower right side
+      870:     Gateway → Agent (response)          — bottom of right side
+      900:     Deny path
+  -->
+
+  <!-- ── GATEWAY (single tall box, center of everything) ── -->
+
+<rect x="689" y="660" width="112" height="240" rx="10"
+fill="#022c22" stroke="#06b6d4" stroke-width="1.5" filter="url(#gl-c)"/>
+
+  <!-- Internal section labels -->
+
+<text x="745" y="680" text-anchor="middle" fill="#ecfeff" font-size="11" font-weight="600">Gateway</text>
+<line x1="697" y1="688" x2="793" y2="688" stroke="#06b6d4" stroke-width="0.4" opacity="0.4"/>
+<text x="745" y="704" text-anchor="middle" fill="#64748b" font-size="8">① Receive request</text>
+<text x="745" y="718" text-anchor="middle" fill="#64748b" font-size="8">policy: HITL required</text>
+<line x1="697" y1="726" x2="793" y2="726" stroke="#06b6d4" stroke-width="0.3" opacity="0.3"/>
+<text x="745" y="742" text-anchor="middle" fill="#64748b" font-size="8">② Trigger OOB MFA</text>
+<line x1="697" y1="750" x2="793" y2="750" stroke="#06b6d4" stroke-width="0.3" opacity="0.3"/>
+<text x="745" y="766" text-anchor="middle" fill="#64748b" font-size="8">③ Receive approval</text>
+<line x1="697" y1="774" x2="793" y2="774" stroke="#06b6d4" stroke-width="0.3" opacity="0.3"/>
+<text x="745" y="792" text-anchor="middle" fill="#22d3ee" font-size="9" font-weight="600">Issue Token</text>
+<text x="745" y="806" text-anchor="middle" fill="#64748b" font-size="8">task-bound ephemeral</text>
+<line x1="697" y1="814" x2="793" y2="814" stroke="#06b6d4" stroke-width="0.3" opacity="0.3"/>
+<text x="745" y="830" text-anchor="middle" fill="#64748b" font-size="8">④ Forward to MCP</text>
+<line x1="697" y1="838" x2="793" y2="838" stroke="#06b6d4" stroke-width="0.3" opacity="0.3"/>
+<text x="745" y="854" text-anchor="middle" fill="#64748b" font-size="8">⑤ Return to Agent</text>
+<line x1="697" y1="862" x2="793" y2="862" stroke="#06b6d4" stroke-width="0.3" opacity="0.3"/>
+<text x="745" y="878" text-anchor="middle" fill="#f87171" font-size="8">or: deny / timeout</text>
+
+  <!-- ── RIGHT SIDE: Agent + MCP ── -->
+
+  <!-- AI Agent -->
+
+<rect x="919" y="660" width="112" height="44" rx="8"
+fill="#1a1a2e" stroke="#f59e0b" stroke-width="1.2" filter="url(#gl-a)"/>
+<text x="975" y="678" text-anchor="middle" fill="#fde68a" font-size="10" font-weight="500">AI Agent</text>
+<text x="975" y="692" text-anchor="middle" fill="#64748b" font-size="8">requests action</text>
+
+  <!-- MCP Server -->
+
+<rect x="919" y="810" width="112" height="44" rx="8"
+fill="#1a1a2e" stroke="#f59e0b" stroke-width="1.2" filter="url(#gl-a)"/>
+<text x="975" y="828" text-anchor="middle" fill="#fde68a" font-size="10" font-weight="500">MCP Server</text>
+<text x="975" y="842" text-anchor="middle" fill="#64748b" font-size="8">enterprise resource</text>
+
+  <!-- Agent → Gateway (action request) — horizontal at y=676 -->
+
+<line x1="919" y1="676" x2="801" y2="676"
+stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-amber)">
+<animate attributeName="stroke-dashoffset" from="0" to="9" dur="1s" repeatCount="indefinite"/>
+</line>
+<text x="860" y="670" text-anchor="middle" fill="#f59e0b" font-size="7.5" opacity="0.8">action request</text>
+
+  <!-- Gateway → MCP (forward + ephemeral token) — horizontal at y=826 -->
+
+<line x1="801" y1="826" x2="919" y2="826"
+stroke="#34d399" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-green)">
+<animate attributeName="stroke-dashoffset" from="0" to="-9" dur="1s" repeatCount="indefinite"/>
+</line>
+<text x="860" y="820" text-anchor="middle" fill="#34d399" font-size="7.5" opacity="0.8">forward + ephemeral token</text>
+
+  <!-- MCP → Gateway (result) — horizontal at y=842 -->
+
+<line x1="919" y1="842" x2="801" y2="842"
+stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-cyan)">
+<animate attributeName="stroke-dashoffset" from="0" to="9" dur="1s" repeatCount="indefinite"/>
+</line>
+<text x="860" y="856" text-anchor="middle" fill="#22d3ee" font-size="7.5" opacity="0.8">result</text>
+
+  <!-- Gateway → Agent (response) — horizontal at y=692 -->
+
+<line x1="801" y1="692" x2="919" y2="692"
+stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-cyan)">
+<animate attributeName="stroke-dashoffset" from="0" to="-9" dur="1s" repeatCount="indefinite"/>
+</line>
+<text x="860" y="706" text-anchor="middle" fill="#22d3ee" font-size="7.5" opacity="0.8">response</text>
+
+  <!-- ── LEFT SIDE: MFA flow ── -->
+
+  <!-- EEG Auth App -->
+
+<rect x="244" y="706" width="112" height="44" rx="8"
+fill="#111827" stroke="#facc15" stroke-width="1.2"/>
+<text x="300" y="724" text-anchor="middle" fill="#fde68a" font-size="10" font-weight="500">EEG Auth App</text>
+<text x="300" y="740" text-anchor="middle" fill="#64748b" font-size="8">consent challenge</text>
+
+  <!-- EEG Device -->
+
+<rect x="454" y="706" width="112" height="44" rx="8"
+fill="#111827" stroke="#6366f1" stroke-width="1.2" filter="url(#gl-p)"/>
+<text x="510" y="724" text-anchor="middle" fill="#e5e7eb" font-size="10" font-weight="500">EEG Device</text>
+<text x="510" y="740" text-anchor="middle" fill="#64748b" font-size="8">presence check</text>
+
+  <!-- Verify -->
+
+<rect x="244" y="776" width="112" height="50" rx="8"
+fill="#111827" stroke="#6366f1" stroke-width="1.2" filter="url(#gl-p)"/>
+<text x="300" y="794" text-anchor="middle" fill="#e5e7eb" font-size="10" font-weight="500">Verify</text>
+<text x="300" y="808" text-anchor="middle" fill="#64748b" font-size="8">✓ Presence</text>
+<text x="300" y="820" text-anchor="middle" fill="#64748b" font-size="8">✓ Coherence ✓ Consent</text>
+
+  <!-- Gateway → EEG Auth App (OOB challenge) — starts high on gateway, right-angles down into app -->
+
+<path d="M689,680 L300,680 L300,706"
+fill="none" stroke="#facc15" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arr-amber)">
+<animate attributeName="stroke-dashoffset" from="0" to="10" dur="1.4s" repeatCount="indefinite"/>
+</path>
+<text x="500" y="674" text-anchor="middle" fill="#facc15" font-size="7.5" opacity="0.8">
+OOB push + action context
+</text>
+
+  <!-- EEG Auth App → EEG Device — horizontal at y=722 -->
+
+<line x1="356" y1="728" x2="454" y2="728"
+stroke="#818cf8" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-purple)">
+<animate attributeName="stroke-dashoffset" from="0" to="-7" dur="0.8s" repeatCount="indefinite"/>
+</line>
+
+  <!-- EEG Auth App ← EEG Device (signal return) — horizontal at y=738 -->
+
+<line x1="454" y1="738" x2="356" y2="738"
+stroke="#818cf8" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-purple)">
+<animate attributeName="stroke-dashoffset" from="0" to="7" dur="0.8s" repeatCount="indefinite"/>
+</line>
+
+  <!-- EEG Auth App → Verify (vertical) -->
+
+<line x1="300" y1="750" x2="300" y2="776"
+stroke="#818cf8" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-purple)">
+<animate attributeName="stroke-dashoffset" from="0" to="-7" dur="0.8s" repeatCount="indefinite"/>
+</line>
+
+  <!-- Verify → Gateway (signed approval) — horizontal at y=762 -->
+
+<line x1="356" y1="800" x2="689" y2="762"
+stroke="#34d399" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-green)">
+<animate attributeName="stroke-dashoffset" from="0" to="-9" dur="1.2s" repeatCount="indefinite"/>
+</line>
+<text x="522" y="774" text-anchor="middle" fill="#34d399" font-size="7.5" opacity="0.8">
+signed approval
+</text>
+
+  <!-- ── CALLOUTS ── -->
+
+  <!-- HITL callout -->
+
+<rect x="96" y="860" width="210" height="50" rx="6"
+fill="#0f172a" stroke="#facc15" stroke-width="0.8" opacity="0.8"/>
+<text x="201" y="876" text-anchor="middle" fill="#facc15" font-size="8.5" font-weight="600">
+🔑 Same MFA path as user login
+</text>
+<text x="201" y="890" text-anchor="middle" fill="#64748b" font-size="8">
+Gateway issues its own ephemeral token.
+</text>
+<text x="201" y="902" text-anchor="middle" fill="#64748b" font-size="8">
+AI Agent never touches human auth signals.
+</text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- KEY INSIGHT BAR                                     -->
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="20" y="990" width="1360" height="50" rx="0"
+fill="#111827" opacity="0.5"/>
+
+  <!-- Three key points -->
+
+  <text x="100" y="1020" text-anchor="middle" fill="#818cf8" font-size="10" font-weight="600">
+    EEG ≠ biometric gimmick
+  </text>
+  <text x="100" y="1032" text-anchor="middle" fill="#64748b" font-size="8">
+    Real-time human assurance
+  </text>
+
+  <line x1="260" y1="998" x2="260" y2="1032" stroke="#1e293b" stroke-width="0.5"/>
+
+  <text x="460" y="1020" text-anchor="middle" fill="#38bdf8" font-size="10" font-weight="600">
+    Works for users + agents
+  </text>
+  <text x="460" y="1032" text-anchor="middle" fill="#64748b" font-size="8">
+    Same path, different initiators
+  </text>
+
+  <line x1="660" y1="998" x2="660" y2="1032" stroke="#1e293b" stroke-width="0.5"/>
+
+  <text x="860" y="1020" text-anchor="middle" fill="#facc15" font-size="10" font-weight="600">
+    Fits existing IAM architectures
+  </text>
+  <text x="860" y="1032" text-anchor="middle" fill="#64748b" font-size="8">
+    Standard OIDC / OAuth. No special infra.
+  </text>
+
+  <line x1="1060" y1="998" x2="1060" y2="1032" stroke="#1e293b" stroke-width="0.5"/>
+
+  <text x="1240" y="1020" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">
+    Identity assurance, not cognition
+  </text>
+  <text x="1240" y="1032" text-anchor="middle" fill="#64748b" font-size="8">
+    No ML internals. No mind reading.
+  </text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- LEGEND                                              -->
+
+  <!-- ═══════════════════════════════════════════════════ -->
+
+<rect x="20" y="1054" width="1360" height="80" rx="0"
+fill="#0f1318" opacity="0.6"/>
+<text x="36" y="1076" font-size="9" fill="#94a3b8" font-weight="700" letter-spacing="0.8">LEGEND</text>
+
+  <!-- Flow colors -->
+
+  <line x1="36" y1="1098" x2="60" y2="1098" stroke="#818cf8" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="68" y="1102" font-size="9" fill="#cbd5e1">Enrollment</text>
+
+  <line x1="156" y1="1098" x2="180" y2="1098" stroke="#38bdf8" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="188" y="1102" font-size="9" fill="#cbd5e1">OOB Challenge</text>
+
+  <line x1="296" y1="1098" x2="320" y2="1098" stroke="#22d3ee" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="328" y="1102" font-size="9" fill="#cbd5e1">Response</text>
+
+  <line x1="416" y1="1098" x2="440" y2="1098" stroke="#facc15" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="448" y="1102" font-size="9" fill="#cbd5e1">HITL Consent</text>
+
+  <line x1="556" y1="1098" x2="580" y2="1098" stroke="#34d399" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="588" y="1102" font-size="9" fill="#cbd5e1">Approved Exec</text>
+
+  <line x1="696" y1="1098" x2="720" y2="1098" stroke="#f87171" stroke-width="2" stroke-dasharray="3 3"/>
+  <text x="728" y="1102" font-size="9" fill="#cbd5e1">Denied</text>
+
+  <!-- Trust zones -->
+
+  <rect x="836" y="1090" width="14" height="14" rx="3" fill="#6366f1" opacity="0.15" stroke="#6366f1" stroke-width="0.5"/>
+  <text x="858" y="1102" font-size="9" fill="#cbd5e1">Human Trust Zone</text>
+
+  <rect x="976" y="1090" width="14" height="14" rx="3" fill="#06b6d4" opacity="0.15" stroke="#06b6d4" stroke-width="0.5"/>
+  <text x="998" y="1102" font-size="9" fill="#cbd5e1">Control Plane</text>
+
+  <rect x="1096" y="1090" width="14" height="14" rx="3" fill="#f59e0b" opacity="0.15" stroke="#f59e0b" stroke-width="0.5"/>
+  <text x="1118" y="1102" font-size="9" fill="#cbd5e1">Execution Plane</text>
+
+</svg>
