@@ -133,7 +133,7 @@
   <!-- EEG returns raw signal to App -->
   <line x1="454" y1="196" x2="356" y2="196"
         stroke="#818cf8" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-purple)">
-    <animate attributeName="stroke-dashoffset" from="0" to="7" dur="1s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-dashoffset" from="0" to="-7" dur="1s" repeatCount="indefinite"/>
   </line>
   <text x="405" y="210" text-anchor="middle" fill="#818cf8" font-size="7.5" opacity="0.7">raw signal</text>
 
@@ -237,7 +237,7 @@
 
   <line x1="689" y1="495" x2="356" y2="495"
         stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arr-blue)">
-    <animate attributeName="stroke-dashoffset" from="0" to="10" dur="1.2s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-dashoffset" from="0" to="-10" dur="1.2s" repeatCount="indefinite"/>
   </line>
   <text x="522" y="489" text-anchor="middle" fill="#38bdf8" font-size="7.5" opacity="0.7">
     OIDC redirect / push (like duo://)
@@ -364,7 +364,7 @@
   <!-- Agent → Gateway (action request) — horizontal at y=676 -->
   <line x1="919" y1="676" x2="801" y2="676"
         stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-amber)">
-    <animate attributeName="stroke-dashoffset" from="0" to="9" dur="1s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-dashoffset" from="0" to="-9" dur="1s" repeatCount="indefinite"/>
   </line>
   <text x="860" y="670" text-anchor="middle" fill="#f59e0b" font-size="7.5" opacity="0.8">action request</text>
 
@@ -378,7 +378,7 @@
   <!-- MCP → Gateway (result) — horizontal at y=842 -->
   <line x1="919" y1="842" x2="801" y2="842"
         stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr-cyan)">
-    <animate attributeName="stroke-dashoffset" from="0" to="9" dur="1s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-dashoffset" from="0" to="-9" dur="1s" repeatCount="indefinite"/>
   </line>
   <text x="860" y="856" text-anchor="middle" fill="#22d3ee" font-size="7.5" opacity="0.8">result</text>
 
@@ -413,7 +413,7 @@
   <!-- Gateway → EEG Auth App (OOB challenge) — starts high on gateway, right-angles down into app -->
   <path d="M689,680 L300,680 L300,706"
         fill="none" stroke="#facc15" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arr-amber)">
-    <animate attributeName="stroke-dashoffset" from="0" to="10" dur="1.4s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-dashoffset" from="0" to="-10" dur="1.4s" repeatCount="indefinite"/>
   </path>
   <text x="500" y="674" text-anchor="middle" fill="#facc15" font-size="7.5" opacity="0.8">
     OOB push + action context
@@ -428,7 +428,7 @@
   <!-- EEG Auth App ← EEG Device (signal return) — horizontal at y=738 -->
   <line x1="454" y1="738" x2="356" y2="738"
         stroke="#818cf8" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-purple)">
-    <animate attributeName="stroke-dashoffset" from="0" to="7" dur="0.8s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-dashoffset" from="0" to="-7" dur="0.8s" repeatCount="indefinite"/>
   </line>
 
   <!-- EEG Auth App → Verify (vertical) -->
