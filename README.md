@@ -99,7 +99,6 @@ python enroll_brainwaves.py --synthetic    # or just `python enroll_brainwaves.p
 # 5. Start services
 cd ../..
 docker-compose up -d                              # MCP only
-docker-compose --profile identity up -d           # MCP + Identity Service
 ```
 
 ## Documentation

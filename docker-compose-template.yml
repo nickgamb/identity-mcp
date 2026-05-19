@@ -11,10 +11,12 @@
 #   docker compose --profile hf up -d              # Start with HF service instead
 #   docker compose --profile ollama down           # Stop all services
 #
-# PROFILES (mutually exclusive - pick one):
+# PROFILES (mutually exclusive LLM - pick one):
 #   --profile ollama    Ollama for local inference (faster startup, GGUF models)
 #   --profile hf        HuggingFace service (LoRA hot-swap, multi-GPU sharding)
-#   --profile identity  Identity verification service (optional, adds semantic embeddings)
+#
+# CORE (no profile): mcp-server, identity-service, dashboard, LibreChat deps
+#   identity-service provides semantic embeddings for identity.verify (always on with stack)
 #
 # COMMON COMMANDS:
 #   docker compose --profile ollama logs -f                    # Follow all logs
@@ -66,6 +68,9 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    depends_on:
+      identity-service:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4000/health"]
       interval: 10s
@@ -118,16 +123,9 @@ services:
       start_period: 120s
 
   # Identity Verification Service with Semantic Embeddings
-  # Uses sentence-transformers for deep semantic identity verification
-  # 
-  # NOTE: This service uses a Docker Compose profile so it doesn't start by default.
-  # To start it: docker-compose --profile identity up -d identity-service
-  # Or start with all optional services: docker-compose --profile identity --profile hf up -d
-  #
-  # When running, the MCP will automatically use it for enhanced verification.
-  # If not running, MCP falls back to stylistic-only verification.
+  # Uses sentence-transformers for deep semantic identity verification.
+  # Starts with the core stack (no profile). mcp-server waits for it to be healthy.
   identity-service:
-    profiles: ["identity"]  # Only start when --profile identity is used
     build:
       context: ./identity_service
       dockerfile: Dockerfile
@@ -136,6 +134,7 @@ services:
       - "4001:4001"
     environment:
       - PORT=4001
+      - PROJECT_ROOT=/app
       - NVIDIA_VISIBLE_DEVICES=all
     volumes:
       - ./models:/app/models
@@ -144,10 +143,10 @@ services:
     runtime: nvidia  # Enable GPU support for faster embeddings
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4001/health')"]
-      interval: 30s
+      interval: 15s
       timeout: 10s
-      retries: 5
-      start_period: 30s
+      retries: 8
+      start_period: 120s
 
   # HuggingFace Inference Service with Dynamic Model Hot-Swapping
   # Supports multiple models and adapters with automatic hot-swapping

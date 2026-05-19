@@ -402,6 +402,17 @@ def save_eeg_identity_model(
     }
     with open(output_dir / "config.json", 'w') as f:
         json.dump(config_data, f, indent=2)
+
+    # Prefer centroid replay for headset-free synthetic authorize (live HID enrollments)
+    if config.get("mode") == "hid":
+        try:
+            from demo_calibration import update_config_demo_fields
+            update_config_demo_fields(
+                output_dir,
+                {"demo_replay_preferred": True},
+            )
+        except Exception:
+            pass
     
     # Save enrollment log
     with open(output_dir / "enrollment_log.json", 'w') as f:

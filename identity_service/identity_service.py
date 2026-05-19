@@ -54,7 +54,18 @@ except ImportError:
 
 # Paths
 SCRIPT_DIR = Path(__file__).parent
-PROJECT_ROOT = SCRIPT_DIR.parent.parent
+
+
+def _resolve_project_root() -> Path:
+    """Repo root locally; /app in Docker (WORKDIR) where models are mounted."""
+    if os.environ.get("PROJECT_ROOT"):
+        return Path(os.environ["PROJECT_ROOT"])
+    if (SCRIPT_DIR / "models" / "identity" / "config.json").is_file():
+        return SCRIPT_DIR
+    return SCRIPT_DIR.parent
+
+
+PROJECT_ROOT = _resolve_project_root()
 BASE_MODELS_DIR = PROJECT_ROOT / "models" / "identity"
 
 # Global model storage (per-user cache)

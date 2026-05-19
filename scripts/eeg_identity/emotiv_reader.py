@@ -122,6 +122,19 @@ class ConnectionMode(Enum):
     SYNTHETIC = "synthetic"
 
 
+def is_emotiv_dongle_available() -> bool:
+    """Return True if an EMOTIV USB dongle is visible (no connection opened)."""
+    try:
+        import hid
+    except ImportError:
+        return False
+    try:
+        devices = hid.enumerate(EMOTIV_VENDOR_ID, EMOTIV_PRODUCT_ID)
+        return bool(devices)
+    except Exception:
+        return False
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # AES key derivation  (EPOC X — different from original EPOC)
 # ─────────────────────────────────────────────────────────────────────────────

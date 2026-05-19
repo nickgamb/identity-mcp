@@ -105,6 +105,7 @@ MODELS_DIR = get_user_dir(PROJECT_ROOT / "models" / "eeg_identity", USER_ID)
 sys.path.insert(0, str(SCRIPT_DIR))
 from emotiv_reader import (
     EmotivReader, EEG_CHANNELS, NUM_CHANNELS, SAMPLE_RATE, FREQ_BANDS,
+    is_emotiv_dongle_available,
     preprocess_eeg,
 )
 from enroll_brainwaves import extract_eeg_features
@@ -263,6 +264,52 @@ def compute_assurance(
         },
         "timestamp": datetime.now().isoformat(),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mode resolution (auto-detect dongle vs enrollment-matched demo replay)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def resolve_authorize_plan(
+    *,
+    force_synthetic: bool,
+    force_hid: bool,
+    demo_replay_flag: bool,
+    live_synthetic: bool,
+    different_person: bool,
+    model_config: dict,
+) -> tuple[str, bool, str]:
+    """
+    Choose connection mode and whether to use centroid demo replay.
+
+    Returns (mode, use_demo_replay, resolution_note).
+    """
+    step_mode = os.environ.get("EEG_STEP_UP_MODE", "auto").lower()
+
+    if force_synthetic or step_mode == "synthetic":
+        mode = "synthetic"
+        note = "forced_synthetic"
+    elif force_hid or step_mode in ("live", "hid"):
+        mode = "hid"
+        note = "forced_hid"
+    elif is_emotiv_dongle_available():
+        mode = "hid"
+        note = "auto_hid"
+    else:
+        mode = "synthetic"
+        note = "auto_no_dongle"
+
+    if mode == "hid" or live_synthetic or different_person:
+        return mode, False, note
+
+    if demo_replay_flag:
+        return mode, True, f"{note}_demo_replay"
+
+    replay_env = os.environ.get("EEG_DEMO_REPLAY", "1").lower() in ("1", "true", "yes")
+    if mode == "synthetic" and (replay_env or model_config.get("demo_replay_preferred")):
+        return mode, True, f"{note}_demo_replay"
+
+    return mode, False, note
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -430,7 +477,11 @@ def main():
     )
     parser.add_argument(
         "--synthetic", action="store_true",
-        help="Use synthetic data (no hardware needed)"
+        help="Force synthetic path (default is auto: dongle if present, else demo replay)",
+    )
+    parser.add_argument(
+        "--hid", action="store_true",
+        help="Force live EMOTIV dongle capture (fail if unavailable)",
     )
     parser.add_argument(
         "--device-type", choices=["consumer", "research"], default="consumer",
@@ -457,6 +508,21 @@ def main():
         help="Random seed for synthetic identity (synthetic mode only)"
     )
     parser.add_argument(
+        "--demo-replay",
+        action="store_true",
+        help="Replay enrolled EEG signature (no headset; uses saved centroid)",
+    )
+    parser.add_argument(
+        "--live-synthetic",
+        action="store_true",
+        help="Use synthetic generator instead of enrollment-matched demo replay",
+    )
+    parser.add_argument(
+        "--calibrate-demo-seed",
+        action="store_true",
+        help="Search for a synthetic seed matching enrollment, save to config.json, then exit",
+    )
+    parser.add_argument(
         "--different-person", action="store_true",
         help="(Synthetic only) Use a different seed to simulate a non-enrolled person"
     )
@@ -474,16 +540,7 @@ def main():
     # Check dependencies
     check_dependencies()
     
-    mode = "synthetic" if args.synthetic else "hid"
     verbose = not args.json
-    
-    if verbose:
-        print("=" * 60)
-        print("EEG BRAINWAVE AUTHORIZATION")
-        print("=" * 60)
-        print(f"\n   Mode: {mode}")
-        print(f"   Capture window: {args.window}s")
-        print(f"   Continuous: {args.continuous}")
     
     # ── Load enrolled model ──
     if verbose:
@@ -524,6 +581,53 @@ def main():
                        if k != "percentiles"},
         "spectral_profile": spectral_data,
     })
+
+    # ── Calibrate demo synthetic seed (optional one-shot) ──
+    if args.calibrate_demo_seed:
+        from demo_calibration import calibrate_demo_synthetic_seed, update_config_demo_fields
+
+        if verbose:
+            print("\n   Calibrating demo synthetic seed against enrollment...")
+        cal = calibrate_demo_synthetic_seed(MODELS_DIR)
+        cal["demo_replay_preferred"] = False
+        path = update_config_demo_fields(MODELS_DIR, cal)
+        if args.json:
+            print(json.dumps({"calibration": cal, "config_path": str(path)}))
+        else:
+            print(f"   Saved demo_synthetic_seed={cal['demo_synthetic_seed']} "
+                  f"(similarity {cal['calibration_similarity']}) to {path}")
+        return
+
+    mode, use_demo_replay, mode_note = resolve_authorize_plan(
+        force_synthetic=args.synthetic,
+        force_hid=args.hid,
+        demo_replay_flag=args.demo_replay,
+        live_synthetic=args.live_synthetic,
+        different_person=args.different_person,
+        model_config=model["config"],
+    )
+
+    if verbose:
+        print("=" * 60)
+        print("EEG BRAINWAVE AUTHORIZATION")
+        print("=" * 60)
+        print(f"\n   Mode: {mode} ({mode_note})")
+        print(f"   Demo replay: {use_demo_replay}")
+        print(f"   Capture window: {args.window}s")
+        print(f"   Continuous: {args.continuous}")
+
+    if use_demo_replay:
+        from demo_calibration import assurance_from_centroid_demo
+
+        if verbose:
+            print("\n   Demo replay: using enrolled EEG centroid (no headset capture)")
+        result = assurance_from_centroid_demo(model)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(format_assurance_display(result))
+        emit_event("auth_stopped", {"message": "Demo replay authorization complete"})
+        return
     
     # ── Connect to device ──
     if verbose:
@@ -531,6 +635,15 @@ def main():
     
     # For the --different-person flag, use a different synthetic seed
     synthetic_seed = args.synthetic_seed
+    if (
+        mode == "synthetic"
+        and not args.different_person
+        and args.synthetic_seed == 42
+        and model["config"].get("demo_synthetic_seed") is not None
+    ):
+        synthetic_seed = int(model["config"]["demo_synthetic_seed"])
+        if verbose:
+            print(f"   Using enrolled demo_synthetic_seed={synthetic_seed}")
     if args.different_person:
         synthetic_seed = args.synthetic_seed + 999  # Completely different identity
         if verbose:
@@ -544,6 +657,21 @@ def main():
     )
     
     if not reader.connect():
+        if mode == "hid" and not args.hid:
+            from demo_calibration import assurance_from_centroid_demo
+
+            if verbose:
+                print("\n   Dongle not reachable — falling back to enrollment demo replay")
+            result = assurance_from_centroid_demo(model)
+            result["fallback_from"] = "hid"
+            result["resolution"] = mode_note
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(format_assurance_display(result))
+            emit_event("auth_stopped", {"message": "HID fallback to demo replay"})
+            return
+
         if args.json:
             print(json.dumps({"error": "Failed to connect", "assurance_score": 0.0}))
         else:

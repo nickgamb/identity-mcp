@@ -417,7 +417,7 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
       title: "Enroll Brainwaves",
       description: "Run EEG brainwave enrollment to create a reference identity model. Guides through neurofeedback tasks while capturing EEG.",
       inputSchema: z.object({
-        mode: z.enum(["synthetic", "hid"]).optional().describe("Connection mode: 'hid' for hardware, 'synthetic' for testing"),
+        mode: z.enum(["auto", "synthetic", "hid"]).optional().describe("Connection mode: auto (default) probes for EMOTIV dongle, else enrollment demo replay; 'hid' or 'synthetic' to force"),
         serial: z.string().optional().describe("EMOTIV device serial number (required for HID mode)"),
         task_duration: z.number().nullish().describe("Duration per task in seconds (default: 20)"),
       }),
@@ -431,7 +431,7 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
       title: "Authorize Brainwaves",
       description: "Read live EEG and compare against enrolled brainwave model. Returns an assurance signal (0.0-1.0).",
       inputSchema: z.object({
-        mode: z.enum(["synthetic", "hid"]).optional().describe("Connection mode: 'hid' for hardware, 'synthetic' for testing"),
+        mode: z.enum(["auto", "synthetic", "hid"]).optional().describe("Connection mode: auto (default) probes for EMOTIV dongle, else enrollment demo replay; 'hid' or 'synthetic' to force"),
         serial: z.string().optional().describe("EMOTIV device serial number (required for HID mode)"),
         window_seconds: z.number().nullish().describe("EEG capture window in seconds (default: 10)"),
       }),

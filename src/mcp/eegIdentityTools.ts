@@ -166,18 +166,24 @@ export async function handleEegAuthorize(
   userId: string | null = null
 ): Promise<any> {
   const args: string[] = ["--json"];  // Always get JSON output for MCP
-  
-  if (mode === "synthetic" || (!serial && !mode)) {
+
+  if (mode === "synthetic") {
     args.push("--synthetic");
+  } else if (mode === "hid") {
+    args.push("--hid");
   } else if (serial) {
     args.push("--serial", serial);
   }
-  
+  // default / "auto": Python probes for EMOTIV dongle, else enrollment demo replay
+
   if (window_seconds) {
     args.push("--window", String(window_seconds));
   }
-  
-  logger.info("Starting EEG authorization via pipeline", { args });
+
+  logger.info("Starting EEG authorization via pipeline", {
+    args,
+    mode: mode ?? "auto",
+  });
   return handlePipelineRun({ script: "authorize_brainwaves", args }, userId);
 }
 

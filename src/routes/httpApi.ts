@@ -745,7 +745,7 @@ mcpRouter.post("/mcp/eeg.enroll", async (req: Request, res: Response) => {
   try {
     const userContext = getUserContext(req);
     const schema = z.object({
-      mode: z.enum(["synthetic", "hid"]).optional(),
+      mode: z.enum(["auto", "synthetic", "hid"]).optional(),
       serial: z.string().optional(),
       task_duration: z.number().optional(),
     });
@@ -761,7 +761,7 @@ mcpRouter.post("/mcp/eeg.authorize", async (req: Request, res: Response) => {
   try {
     const userContext = getUserContext(req);
     const schema = z.object({
-      mode: z.enum(["synthetic", "hid"]).optional(),
+      mode: z.enum(["auto", "synthetic", "hid"]).optional(),
       serial: z.string().optional(),
       window_seconds: z.number().optional(),
     });
