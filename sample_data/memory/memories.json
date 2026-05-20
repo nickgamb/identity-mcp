@@ -1,0 +1,356 @@
+{
+  "memories": [
+    {
+      "id": "3718a20aaacf4b71",
+      "content": "Is a platform engineer at a fintech company working primarily in Go and Python. Builds event-driven microservices.",
+      "updated_at": "2025-03-15"
+    },
+    {
+      "id": "24855c23a52e4a38",
+      "content": "Has about 8 years of experience in distributed systems and backend engineering. Previously worked at a cloud infrastructure startup.",
+      "updated_at": "2025-03-10"
+    },
+    {
+      "id": "ffdcc8b152b347fb",
+      "content": "Prefers Go for performance-critical services and Python for data pipelines and scripting.",
+      "updated_at": "2025-03-08"
+    },
+    {
+      "id": "dc337ea4099a4f61",
+      "content": "Uses Kubernetes, Argo CD, and Temporal in production. Strong opinions about service mesh design.",
+      "updated_at": "2025-04-01"
+    },
+    {
+      "id": "71d82f85a3f748ba",
+      "content": "Currently migrating their team's architecture from synchronous REST to event-driven patterns using Kafka.",
+      "updated_at": "2025-04-20"
+    },
+    {
+      "id": "182fc23eafc947e2",
+      "content": "Is passionate about observability \u2014 uses Prometheus, Grafana, Loki, and is adding distributed tracing with OpenTelemetry and Tempo.",
+      "updated_at": "2025-04-15"
+    },
+    {
+      "id": "8acd3b0863ee4379",
+      "content": "Strong believer in schema-first API design using Protocol Buffers and gRPC for internal services.",
+      "updated_at": "2025-03-22"
+    },
+    {
+      "id": "2a95d8e493ee40be",
+      "content": "Read Designing Data-Intensive Applications by Kleppmann and considers it the best technical book they've encountered.",
+      "updated_at": "2025-02-28"
+    },
+    {
+      "id": "23d12b87924d45fd",
+      "content": "Is an avid sourdough baker. Maintains an active starter and bakes 2-3 loaves per week.",
+      "updated_at": "2025-01-15"
+    },
+    {
+      "id": "a5603ffcb14a4218",
+      "content": "Built a proofing box using a seedling heat mat and Inkbird temperature controller for consistent fermentation.",
+      "updated_at": "2025-02-01"
+    },
+    {
+      "id": "87073f077eba4379",
+      "content": "Prefers a cold retard baking schedule that fits around their work schedule \u2014 mix in the evening, fridge overnight, bake in the morning.",
+      "updated_at": "2025-03-05"
+    },
+    {
+      "id": "638af42969344edb",
+      "content": "Runs their home automation on Home Assistant with Zigbee2MQTT and ESPHome sensors, all communicating over MQTT.",
+      "updated_at": "2025-02-20"
+    },
+    {
+      "id": "69755a487b47433c",
+      "content": "Has approximately 30 ESPHome sensor nodes throughout their house monitoring temperature, humidity, motion, and door states.",
+      "updated_at": "2025-03-12"
+    },
+    {
+      "id": "616f17e3f8244dbf",
+      "content": "Recently migrated smart home devices from WiFi to Zigbee for better reliability and local-only control.",
+      "updated_at": "2025-04-05"
+    },
+    {
+      "id": "fcf2cb92ff484ed8",
+      "content": "Is building a whole-house energy monitoring system using SCT-013 CT clamps, ADS1115 ADCs, and ESPHome.",
+      "updated_at": "2025-04-18"
+    },
+    {
+      "id": "bbcfc87edd8642a6",
+      "content": "Signed up for a 50K trail race in the Cascades with 6,500 feet of elevation gain. Training with stair repeats and weekend trail runs.",
+      "updated_at": "2025-04-25"
+    },
+    {
+      "id": "a79df1998a604e31",
+      "content": "Runs 30-40 miles per week, transitioning from road to trail training for the ultramarathon.",
+      "updated_at": "2025-04-22"
+    },
+    {
+      "id": "9d9dab8fbd464359",
+      "content": "Uses systems thinking analogies for everything \u2014 baking, running, home automation. Frequently draws parallels between engineering and other domains.",
+      "updated_at": "2025-03-30"
+    },
+    {
+      "id": "42c133f4662c4219",
+      "content": "Has a distinctive writing style: uses em-dashes, starts thoughts with 'the thing is' or 'fundamentally', and is concise but precise.",
+      "updated_at": "2025-01-20"
+    },
+    {
+      "id": "f8646d40897c46cd",
+      "content": "Is mentoring a junior developer on the team, focusing on teaching clean code and function extraction through pairing sessions.",
+      "updated_at": "2025-04-10"
+    },
+    {
+      "id": "7636a138c0dc4665",
+      "content": "Believes in two-tier on-call alerting: page-worthy (customer-impacting, immediate action) and ticket-worthy (next business day).",
+      "updated_at": "2025-04-08"
+    },
+    {
+      "id": "ff46f0eebdb34c5c",
+      "content": "Had a P1 incident caused by a config change that bypassed canary deployment checks. Now advocates for config changes going through the same canary process as code changes.",
+      "updated_at": "2025-04-28"
+    },
+    {
+      "id": "7b488da4a8bf4fed",
+      "content": "Is evaluating Temporal as a replacement for their current workflow system built from cron jobs, SQS, and DynamoDB.",
+      "updated_at": "2025-04-12"
+    },
+    {
+      "id": "eca63fab76424bcc",
+      "content": "Building a CLI tool in Go (using Cobra and Charm) to manage sourdough baking schedules with temperature-dependent fermentation calculations.",
+      "updated_at": "2025-03-25"
+    },
+    {
+      "id": "7566739d2c064408",
+      "content": "Redesigned their home network with VLANs using OPNsense \u2014 separate trusted, IoT, and guest networks with explicit firewall rules between them.",
+      "updated_at": "2025-02-10"
+    },
+    {
+      "id": "ed5d7fcf74fd47b9",
+      "content": "Prefers to reason about systems in terms of feedback loops: observe, measure, adjust. Applies this to engineering, baking, and training.",
+      "updated_at": "2025-02-15"
+    },
+    {
+      "id": "f5d5fc935b844e4d",
+      "content": "Lives in the Pacific Northwest. Kitchen temperature drops to 66\u00b0F in fall, affecting starter and fermentation timing.",
+      "updated_at": "2025-01-25"
+    },
+    {
+      "id": "171e458ca05a4b04",
+      "content": "Uses PgBouncer for Postgres connection pooling in transaction mode to handle connection oversubscription during peak traffic.",
+      "updated_at": "2025-03-18"
+    },
+    {
+      "id": "6d4a6623951745a7",
+      "content": "Proposed replacing the team's custom service discovery with Consul and using Consul Connect for service mesh with mTLS.",
+      "updated_at": "2025-04-02"
+    },
+    {
+      "id": "39b507d8090a4d88",
+      "content": "Prefers sourdough at 75% hydration with bread flour. Working on improving crumb openness through longer autolyse and extended bulk fermentation.",
+      "updated_at": "2025-02-25"
+    },
+    {
+      "id": "26efc29840704b88",
+      "content": "Uses the principle 'change one variable at a time' in both debugging and baking experiments.",
+      "updated_at": "2025-03-01"
+    },
+    {
+      "id": "9cd03274dab84c9f",
+      "content": "Ran a controlled experiment baking three loaves at different temperatures (72\u00b0F, 78\u00b0F, 85\u00b0F) with blind taste testing.",
+      "updated_at": "2025-04-30"
+    },
+    {
+      "id": "37f5b87e94354c08",
+      "content": "Makes pizza dough using sourdough discard at 68% hydration, cold-fermented for 48 hours, baked on a steel at 550\u00b0F.",
+      "updated_at": "2025-04-27"
+    },
+    {
+      "id": "c5fea109e4224fa8",
+      "content": "Spouse is tolerant of the engineering approach to baking but occasionally points out the over-engineering.",
+      "updated_at": "2025-02-05"
+    },
+    {
+      "id": "6fa3c44ad2ae4e6f",
+      "content": "Proposed implementing rate limiting using token bucket algorithm in Envoy with tiered limits per API key.",
+      "updated_at": "2025-04-15"
+    },
+    {
+      "id": "9ce9585ac3fa4db4",
+      "content": "Experienced a retry storm from a partner integration that sent 50K requests per second. Uses this as a teaching example for backpressure design.",
+      "updated_at": "2025-04-14"
+    },
+    {
+      "id": "ab4e004ee0d44a27",
+      "content": "Values the principle 'guardrails over guidelines' \u2014 systems should enforce constraints rather than relying on humans to remember them.",
+      "updated_at": "2025-04-29"
+    },
+    {
+      "id": "95a65bc4f8cc4f1e",
+      "content": "Favorite technical concept: 'a log is the fundamental data structure \u2014 tables are just materialized views of a log.'",
+      "updated_at": "2025-03-02"
+    },
+    {
+      "id": "2fb205be32c6433a",
+      "content": "Plans to do a team book club reading DDIA one chapter per week.",
+      "updated_at": "2025-03-03"
+    },
+    {
+      "id": "fed29d19261b4b51",
+      "content": "Next technical book on the reading list is Database Internals by Petrov.",
+      "updated_at": "2025-03-04"
+    },
+    {
+      "id": "2f74aa0a84b5438b",
+      "content": "Thinks about ESPHome sensor nodes as microservices: single responsibility, well-defined MQTT interface, independently deployable via OTA.",
+      "updated_at": "2025-03-13"
+    },
+    {
+      "id": "24093423c318464a",
+      "content": "Uses Grafana for both work dashboards and home energy monitoring visualizations.",
+      "updated_at": "2025-04-19"
+    },
+    {
+      "id": "9987c46404f84f4c",
+      "content": "Standard error handling pattern: machine-readable code, human-readable message, wrappable cause chain that serializes to JSON.",
+      "updated_at": "2025-03-20"
+    },
+    {
+      "id": "b32e6f39bc954f9b",
+      "content": "Running OPNsense with Suricata IDS/IPS on a fanless PC as their home firewall.",
+      "updated_at": "2025-02-12"
+    },
+    {
+      "id": "a55821a8f52c41e3",
+      "content": "Has a Sonoff Zigbee coordinator running Zigbee2MQTT on a Raspberry Pi alongside Home Assistant.",
+      "updated_at": "2025-02-22"
+    },
+    {
+      "id": "335ecbc4466d4cf3",
+      "content": "Trains for the 50K by doing stair repeats (10x8 floors) at a parking garage near work.",
+      "updated_at": "2025-04-23"
+    },
+    {
+      "id": "2cd46b53b3ea4a7c",
+      "content": "Believes in the run-hike strategy for ultramarathons: optimize for total time, not per-mile pace.",
+      "updated_at": "2025-04-24"
+    },
+    {
+      "id": "819a71073c6b4ca9",
+      "content": "Describes their engineering philosophy as: 'the system should make it hard to introduce the same class of failure twice.'",
+      "updated_at": "2025-04-29"
+    },
+    {
+      "id": "64295e9a3ef54b01",
+      "content": "Uses Argo CD for GitOps-style deployments including monitoring alerting rules.",
+      "updated_at": "2025-03-14"
+    },
+    {
+      "id": "e4b5a51fe50f4882",
+      "content": "Working on standardizing Go error handling across all services with a shared error package.",
+      "updated_at": "2025-03-21"
+    },
+    {
+      "id": "c754a27e6d4846e6",
+      "content": "Has three kids. Spouse and neighbors participate as blind taste testers for baking experiments.",
+      "updated_at": "2025-01-10"
+    },
+    {
+      "id": "72de72dafe9f43cb",
+      "content": "Kitchen is equipped with a baking steel, digital scale, and proofing box. Takes cross-section photos of every loaf for crumb analysis.",
+      "updated_at": "2025-02-02"
+    },
+    {
+      "id": "ee0904e9e0e84680",
+      "content": "Stores bake session data in a local SQLite database through their custom CLI tool to track results over time.",
+      "updated_at": "2025-03-26"
+    },
+    {
+      "id": "8473113048dc44d6",
+      "content": "Describes circuit breakers as needing backpressure in the half-open state: exponential ramp-up, not instant close.",
+      "updated_at": "2025-03-16"
+    },
+    {
+      "id": "9964daca42c24911",
+      "content": "Compares Zigbee routers to Envoy sidecars in a service mesh \u2014 each mains-powered device routes messages for battery-powered end devices.",
+      "updated_at": "2025-04-06"
+    },
+    {
+      "id": "8cc0ac29822048d2",
+      "content": "Uses the phrase 'same principle as' frequently when drawing analogies between different domains.",
+      "updated_at": "2025-01-18"
+    },
+    {
+      "id": "af1ae7252fb3452e",
+      "content": "Prefers phased migrations: run new and old systems in parallel, migrate incrementally, then decommission. Calls it 'blue-green at the infrastructure level.'",
+      "updated_at": "2025-04-03"
+    },
+    {
+      "id": "1baa836599734390",
+      "content": "Thinks about baking as debugging: 'the crumb doesn't lie' \u2014 outcome data tells the truth regardless of what you thought you did.",
+      "updated_at": "2025-02-06"
+    },
+    {
+      "id": "921b702a374a4752",
+      "content": "Is reading Neurofeedback literature for personal interest, particularly around focus and creativity.",
+      "updated_at": "2025-01-28"
+    },
+    {
+      "id": "2eb87abff2a74c1b",
+      "content": "Has a strong preference for local-first tools and privacy: runs Home Assistant locally, avoids cloud IoT, uses OPNsense instead of consumer routers.",
+      "updated_at": "2025-02-13"
+    },
+    {
+      "id": "febdebbfdaa2424f",
+      "content": "Listens to technical podcasts during trail runs. Favorites include Software Engineering Daily and Oxide and Friends.",
+      "updated_at": "2025-04-21"
+    },
+    {
+      "id": "d5a5d07615cd4dc0",
+      "content": "Uses SQLite for personal projects and ClickHouse for analytics workloads at work.",
+      "updated_at": "2025-03-19"
+    },
+    {
+      "id": "0ae295d24a6d4b78",
+      "content": "Applies the SRE book's framework for determining page-worthy alerts: 'what action do I need to take right now that can't wait 8 hours?'",
+      "updated_at": "2025-04-09"
+    },
+    {
+      "id": "d2b62a0722a449f4",
+      "content": "Teaches junior developers using the Socratic method \u2014 asks questions rather than prescribing solutions.",
+      "updated_at": "2025-04-11"
+    },
+    {
+      "id": "1c97c6daa4284329",
+      "content": "Motto for code review: 'green tests first, then refactor' \u2014 get it working, then make it clean.",
+      "updated_at": "2025-04-11"
+    },
+    {
+      "id": "173b298109c14572",
+      "content": "Uses BME280 sensors for temperature and humidity in all ESPHome nodes.",
+      "updated_at": "2025-03-12"
+    },
+    {
+      "id": "62a4d1d8a2a44427",
+      "content": "Has an automation that alerts if the garage door is open for more than 30 minutes.",
+      "updated_at": "2025-03-13"
+    },
+    {
+      "id": "fd0613216969453c",
+      "content": "Considers the sourdough autolyse analogous to a warm-up phase in distributed systems \u2014 preparation that improves the main operation.",
+      "updated_at": "2025-02-26"
+    },
+    {
+      "id": "518e403209d44d24",
+      "content": "Works remotely. Daily standup is at 8:30am which constrains baking schedules.",
+      "updated_at": "2025-01-22"
+    },
+    {
+      "id": "f462ce17fce54a84",
+      "content": "Has completed the Designing Data-Intensive Applications book club with the team and is considering Database Internals as the next one.",
+      "updated_at": "2025-05-01"
+    }
+  ],
+  "memory_max_tokens": 10000,
+  "memory_num_tokens": 2346
+}
