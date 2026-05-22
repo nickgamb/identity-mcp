@@ -14,33 +14,47 @@ domains, concise and precise phrasing.
 
 ## Contents
 
-- `conversations/` -- 25 JSONL conversation files (~107 user messages)
+- `conversations.json` -- ChatGPT export format (25 conversations, tree structure)
+- `conversations/` -- 25 pre-parsed JSONL files (~107 user messages)
 - `memory/memories.json` -- 70 ChatGPT-style memory entries
 
 ## Usage
 
-Copy the sample data into the project's data directories:
+### Option A: Full pipeline (recommended)
+
+Upload `conversations.json` through the dashboard or copy it manually, then run
+the full processing pipeline:
 
 ```bash
 # From the project root
+cp sample_data/conversations.json conversations/conversations.json
+cp sample_data/memory/memories.json memory/memories.json
+```
+
+Then from the dashboard or CLI:
+
+1. **Parse conversations**: Run `parse_conversations` to convert the ChatGPT
+   export into per-conversation JSONL files.
+2. **Parse memories**: Run `parse_memories` to generate `memory/user.context.jsonl`.
+3. **Analyze patterns**: Run `analyze_patterns` to discover keywords and topics.
+4. **Train identity model**: Run `train_identity_model` to build the behavioral
+   fingerprint.
+
+### Option B: Skip parsing
+
+If you want to skip the parsing step, copy the pre-parsed JSONL files directly:
+
+```bash
 cp sample_data/conversations/*.jsonl conversations/
 cp sample_data/memory/memories.json memory/memories.json
 ```
 
-Then run the training pipeline:
+Then run `train_identity_model` directly.
 
-1. **Parse memories** (optional): From the dashboard or CLI, run `parse_memories`
-   to generate `memory/user.context.jsonl` from the memories file.
+### Verify
 
-2. **Analyze patterns** (optional): Run `analyze_patterns` to generate
-   `memory/patterns.jsonl` with discovered keywords and topics.
-
-3. **Train identity model**: Run `train_identity_model` to build the behavioral
-   fingerprint from the conversation data. This creates the centroid, stylistic
-   profile, and vocabulary profile in `models/identity/`.
-
-4. **Test verification**: Send a message in Morgan's style and verify it scores
-   high confidence. Send an unrelated message and verify it scores low.
+Send a message in Morgan's style and verify it scores high confidence. Send an
+unrelated message and verify it scores low.
 
 ## Regenerating
 

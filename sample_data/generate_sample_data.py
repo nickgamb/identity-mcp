@@ -438,7 +438,114 @@ def generate_conversation_id():
     return str(uuid.uuid4())
 
 
+def build_chatgpt_mapping(messages, conv_start):
+    """Build a ChatGPT-style mapping tree from a flat message list.
+
+    The ChatGPT export uses a tree where each node has an id, optional message,
+    a parent pointer, and children list.  We build a simple linear chain:
+      root (no message) -> system -> msg1 -> msg2 -> ...
+    """
+    mapping = {}
+    node_ids = [str(uuid.uuid4()) for _ in range(len(messages) + 2)]
+
+    # Root node (no message)
+    root_id = node_ids[0]
+    system_id = node_ids[1]
+    mapping[root_id] = {
+        "id": root_id,
+        "message": None,
+        "parent": None,
+        "children": [system_id],
+    }
+
+    # System node
+    mapping[system_id] = {
+        "id": system_id,
+        "message": {
+            "id": system_id,
+            "author": {"role": "system", "name": None, "metadata": {}},
+            "create_time": None,
+            "update_time": None,
+            "content": {"content_type": "text", "parts": [""]},
+            "status": "finished_successfully",
+            "end_turn": True,
+            "weight": 0,
+            "metadata": {"is_visually_hidden_from_conversation": True},
+            "recipient": "all",
+            "channel": None,
+        },
+        "parent": root_id,
+        "children": [node_ids[2]] if messages else [],
+    }
+
+    # Message nodes
+    for j, (role, content) in enumerate(messages):
+        nid = node_ids[j + 2]
+        msg_time = conv_start + timedelta(minutes=j * 2 + 1)
+        child_id = node_ids[j + 3] if j + 3 < len(node_ids) else None
+
+        mapping[nid] = {
+            "id": nid,
+            "message": {
+                "id": nid,
+                "author": {"role": role, "name": None, "metadata": {}},
+                "create_time": msg_time.timestamp(),
+                "update_time": None,
+                "content": {"content_type": "text", "parts": [content]},
+                "status": "finished_successfully",
+                "end_turn": role == "assistant",
+                "weight": 1,
+                "metadata": {
+                    "request_id": uuid.uuid4().hex[:16] + "-SFO",
+                    "message_source": None,
+                    "timestamp_": "absolute",
+                    "message_type": None,
+                },
+                "recipient": "all",
+                "channel": None,
+            },
+            "parent": node_ids[j + 1],
+            "children": [child_id] if child_id else [],
+        }
+
+    return mapping
+
+
+def generate_conversations_json(out_dir):
+    """Generate a single conversations.json in ChatGPT export format.
+
+    This is the file users upload to the dashboard. parse_conversations.py
+    converts it into per-conversation JSONL files.
+    """
+    base_time = datetime(2024, 9, 1, 10, 0, 0)
+    export = []
+
+    for i, conv in enumerate(CONVERSATIONS):
+        conv_start = base_time + timedelta(days=i * 3, hours=i % 8)
+        conv_end = conv_start + timedelta(minutes=len(conv["messages"]) * 2 + 5)
+
+        mapping = build_chatgpt_mapping(conv["messages"], conv_start)
+
+        export.append({
+            "title": conv["topic"].replace("-", " ").title(),
+            "create_time": conv_start.timestamp(),
+            "update_time": conv_end.timestamp(),
+            "mapping": mapping,
+            "moderation_results": [],
+            "current_node": list(mapping.keys())[-1],
+            "conversation_id": str(uuid.uuid4()),
+        })
+
+    filepath = os.path.join(out_dir, "conversations.json")
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(export, f, indent=2)
+
+    print(f"  Generated conversations.json ({len(export)} conversations) in {filepath}")
+    return len(export)
+
+
 def generate_conversations(out_dir):
+    """Generate per-conversation JSONL files (the parsed output format)."""
     conv_dir = os.path.join(out_dir, "conversations")
     os.makedirs(conv_dir, exist_ok=True)
 
@@ -473,7 +580,7 @@ def generate_conversations(out_dir):
                 }
                 f.write(json.dumps(msg) + "\n")
 
-    print(f"  Generated {len(CONVERSATIONS)} conversation files in {conv_dir}")
+    print(f"  Generated {len(CONVERSATIONS)} JSONL files in {conv_dir}")
     return len(CONVERSATIONS)
 
 
@@ -520,17 +627,26 @@ def main():
     print(f"  Output: {args.out}")
     print()
 
+    n_export = generate_conversations_json(args.out)
     n_conv = generate_conversations(args.out)
     n_mem = generate_memories(args.out)
     n_user = count_user_messages()
 
     print()
-    print(f"Done. {n_conv} conversations, {n_user} user messages, {n_mem} memories.")
+    print(f"Done. {n_export} conversations in conversations.json, {n_conv} JSONL files,")
+    print(f"      {n_user} user messages, {n_mem} memories.")
     print()
     print("To use this data:")
-    print("  1. Copy sample_data/conversations/* -> conversations/")
-    print("  2. Copy sample_data/memory/memories.json -> memory/memories.json")
-    print("  3. Run the training pipeline from the dashboard or CLI")
+    print("  Option A (full pipeline):")
+    print("    1. Copy sample_data/conversations.json -> conversations/conversations.json")
+    print("    2. Copy sample_data/memory/memories.json -> memory/memories.json")
+    print("    3. Run parse_conversations from the dashboard to generate JSONL files")
+    print("    4. Run the rest of the pipeline (analyze_patterns, train_identity_model)")
+    print()
+    print("  Option B (skip parsing):")
+    print("    1. Copy sample_data/conversations/*.jsonl -> conversations/")
+    print("    2. Copy sample_data/memory/memories.json -> memory/memories.json")
+    print("    3. Run train_identity_model directly")
 
 
 if __name__ == "__main__":

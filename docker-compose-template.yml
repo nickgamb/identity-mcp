@@ -86,9 +86,9 @@ services:
     ports:
       - "11434:11434"
     volumes:
+      # ollama-data holds keys/config only; model weights MUST use host bind mounts below
       - ollama-data:/root/.ollama
-      # Mount local ollama_models to persist downloaded models (read-write so new models can be saved)
-      # Models are stored in /home/<USERNAME>/models/ollama_models on the host
+      # Persist pulls under /home/<USERNAME>/models/ollama_models/ (same tree as HF models)
       # CHANGE <USERNAME> TO YOUR OWN USERNAME
       - /home/<USERNAME>/models/ollama_models/blobs:/root/.ollama/models/blobs
       - /home/<USERNAME>/models/ollama_models/manifests:/root/.ollama/models/manifests
@@ -106,6 +106,7 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_MODELS=/root/.ollama/models
       - OLLAMA_NUM_PARALLEL=1  # Number of parallel requests (can increase for multiple models)
       # OLLAMA_KEEP_ALIVE not set = keep model loaded (since Ollama and HF are mutually exclusive)
     deploy:
@@ -293,6 +294,8 @@ services:
       - "3001:3001"
     environment:
       - VITE_OIDC_ENABLED=false
+      # Vite dev proxy target (must be Docker service name, not localhost)
+      - VITE_API_TARGET=http://mcp-server:4000
     volumes:
       - ./dashboard:/app
       - /app/node_modules

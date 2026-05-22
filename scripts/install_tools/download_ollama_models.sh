@@ -1,5 +1,8 @@
-#!/bin/bash
-# Script to download all Ollama models configured in librechat.yaml
+#!/usr/bin/env bash
+# Download all Ollama models from librechat.yaml.
+# Weights persist on the host when docker-compose bind-mounts:
+#   ~/models/ollama_models/blobs
+#   ~/models/ollama_models/manifests
 
 echo "=== Downloading Ollama Models ==="
 echo "This will download all models configured in librechat.yaml"
@@ -7,13 +10,24 @@ echo ""
 
 # Models from librechat.yaml
 MODELS=(
+    # Coding (2026 — replaces ancient codellama:7b / deepseek-coder:6.7b)
+    "devstral:24b"          # agentic coding: multi-file edits, codebase tools (Mistral + All Hands)
+    "qwen2.5-coder:32b"     # local coding king (~GPT-4o on Aider); fits 1x P40
+    "qwen3-coder-next"      # newest MoE coder: 80B/3B-active, 256K ctx; ~52GB, light RAM offload
+
+    # Newer additions (see librechat-config/MODELS.md)
+    "qwen3.6:35b"
+    "gemma4:31b"
+    "gemma4:26b"            # Gemma 4 26B-A4B MoE (4B active) — fast, +vision, 256K ctx
+    "deepseek-r1:32b"
+    "qwq:32b"
+    "llama3.3:70b"
     "gpt-oss:20b"
     "qwen3:30b-a3b"
     "qwen3:32b"
     "qwen2.5:32b"
     "qwen2.5:14b"
     "qwen2.5:7b"
-    "glm-4.5-air"
     "codellama:7b"
     "deepseek-coder:6.7b"
     "deepseek-r1"
@@ -69,39 +83,11 @@ for model in "${MODELS[@]}"; do
     if $OLLAMA_CMD list | grep -q "^$model"; then
         echo "  ✓ $model already exists"
     else
-        # Special handling for GLM-4.5-Air (needs to be imported from HuggingFace)
-        if [ "$model" = "glm-4.5-air" ]; then
-            echo "  → GLM-4.5-Air requires import from HuggingFace (unsloth GGUF)"
-            echo "  → Checking if model exists in HF cache..."
-            
-            # Check HF cache for GLM model
-            GLM_HF_PATH="/home/nick/models/hf_models/glm-4.5-air"
-            GLM_HUB_PATH="/home/nick/models/hf_models/models--zai-org--GLM-4.5-Air"
-            
-            if [ -d "$GLM_HF_PATH" ] || [ -d "$GLM_HUB_PATH" ]; then
-                echo "  → Found GLM model in HF cache"
-                echo "  → Note: To import to Ollama, you need to:"
-                echo "     1. Convert to GGUF using unsloth or llama.cpp"
-                echo "     2. Use 'ollama create glm-4.5-air -f Modelfile' to import"
-                echo "  → For now, use the HF service endpoint for GLM-4.5-Air"
-                echo "  → Attempting direct pull (may not be available)..."
-                if $OLLAMA_CMD pull "$model" 2>/dev/null; then
-                    echo "  ✓ Successfully pulled $model from Ollama registry"
-                else
-                    echo "  ⚠ GLM-4.5-Air not in Ollama registry - use HF service endpoint"
-                fi
-            else
-                echo "  → GLM model not found in HF cache"
-                echo "  → Download from HuggingFace first using download_hf_models.sh"
-                echo "  → Then convert to GGUF and import to Ollama"
-            fi
+        echo "  → Downloading $model (this may take a while)..."
+        if $OLLAMA_CMD pull "$model"; then
+            echo "  ✓ Successfully downloaded $model"
         else
-            echo "  → Downloading $model (this may take a while)..."
-            if $OLLAMA_CMD pull "$model"; then
-                echo "  ✓ Successfully downloaded $model"
-            else
-                echo "  ✗ Failed to download $model"
-            fi
+            echo "  ✗ Failed to download $model"
         fi
     fi
 done

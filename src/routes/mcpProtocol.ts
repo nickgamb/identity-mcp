@@ -981,8 +981,8 @@ mcpProtocolRouter.post("/", async (req: Request, res: Response) => {
 
       transport = newTransport;
       logger.info("MCP Protocol: Created new session transport");
-    } else {
-      // 3) Invalid request (no session for non-initialize)
+    } else if (!transport) {
+      // No existing session and not an initialize request
       logger.warn(
         "MCP Protocol: POST without valid session ID or initialize payload",
       );

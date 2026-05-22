@@ -70,6 +70,20 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODELS_PATH = os.getenv("HF_MODELS_PATH", "/app/models")
 ADAPTERS_PATH = os.getenv("HF_ADAPTERS_PATH", "/app/adapters")
 
+
+def _hf_path(short_name: str, repo_id: str) -> str:
+    """Prefer ~/models/hf_models/<short_name>/, else latest hub snapshot."""
+    direct = os.path.join(MODELS_PATH, short_name)
+    if os.path.isdir(direct) and os.listdir(direct):
+        return direct
+    hub = os.path.join(MODELS_PATH, "models--" + repo_id.replace("/", "--"), "snapshots")
+    if os.path.isdir(hub):
+        revs = sorted(os.listdir(hub))
+        if revs:
+            return os.path.join(hub, revs[-1])
+    return direct
+
+
 # Model registry: maps model names to HuggingFace model IDs and optional adapters
 # Use local paths when available (faster, no downloads)
 # To add a new model, just add an entry here - no docker-compose changes needed
@@ -83,16 +97,24 @@ MODEL_REGISTRY = {
         "hf_model": f"{MODELS_PATH}/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee",
         "adapter": f"{ADAPTERS_PATH}/lora-gpt-oss-20b-1766515801769"
     },
-    # GLM models
+    # GLM — MoE; HF + CPU offload (too large for Ollama on 2× P40)
     "glm-4.5-air": {
         "hf_model": f"{MODELS_PATH}/glm-4.5-air",
         "adapter": None
     },
-    # Add more models here as needed:
-    # "model-name": {
-    #     "hf_model": f"{MODELS_PATH}/model-folder",
-    #     "adapter": f"{ADAPTERS_PATH}/adapter-folder" or None
-    # },
+    # HF-only / oversized (see scripts/install_tools/download_hf_models.sh)
+    "qwen3.5-397b-fp8": {
+        "hf_model": _hf_path("qwen3.5-397b-fp8", "Qwen/Qwen3.5-397B-A17B-FP8"),
+        "adapter": None,
+    },
+    "mixtral-8x22b-instruct": {
+        "hf_model": _hf_path("mixtral-8x22b-instruct", "mistralai/Mixtral-8x22B-Instruct-v0.1"),
+        "adapter": None,
+    },
+    "deepseek-v3": {
+        "hf_model": _hf_path("deepseek-v3", "deepseek-ai/DeepSeek-V3"),
+        "adapter": None,
+    },
 }
 
 # Keep-alive timeout (5 minutes default, like Ollama)
@@ -220,7 +242,13 @@ def load_model(model_name: str):
                 from accelerate import dispatch_model, infer_auto_device_map
                 # Use 22GiB per GPU (P40 has 24GB) to keep lm_head on GPU and avoid meta tensors
                 max_mem = {i: "22GiB" for i in range(num_gpus)}
-                max_mem["cpu"] = "0GiB"  # Avoid CPU offloading which causes meta tensor issues
+                # CPU offload ENABLED: spill layers beyond GPU VRAM into host RAM (112GB box).
+                # NOTE: the from_pretrained(device_map="cpu") step above still loads the WHOLE
+                # model into RAM first, so usable HF models cap at ~what fits in 112GB BF16
+                # (~50B params). Bigger models (e.g. GLM-4.5-Air 106B) must run as GGUF in Ollama.
+                # BF16 on Pascal is slow regardless — prefer Ollama GGUF for anything with a GGUF.
+                # offload_dir below catches any overflow beyond this RAM budget (to disk, slow).
+                max_mem["cpu"] = "96GiB"
                 
                 # Use model's no_split_modules if available (prevents splitting transformer layers)
                 no_split = getattr(base_model, "_no_split_modules", None)
@@ -265,7 +293,7 @@ def load_model(model_name: str):
                 from accelerate import dispatch_model, infer_auto_device_map
                 num_gpus_single = torch.cuda.device_count()
                 max_mem_single = {i: "22GiB" for i in range(num_gpus_single)}
-                max_mem_single["cpu"] = "0GiB"  # Avoid CPU offloading
+                max_mem_single["cpu"] = "96GiB"  # CPU offload ENABLED (see multi-GPU note above)
                 no_split = getattr(base_model, "_no_split_modules", None)
                 device_map = infer_auto_device_map(
                     base_model,

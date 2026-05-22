@@ -2,57 +2,119 @@ version: 1.3.1
 
 cache: true
 
-# Set default endpoint and model
+# Presets synced with:
+#   scripts/install_tools/download_ollama_models.sh
+#   scripts/install_tools/download_hf_models.sh
+# Ollama first (./switch-model-provider.sh ollama). HF last (./switch-model-provider.sh hf).
 modelSpecs:
   enforce: false
   prioritize: true
   list:
-    - name: "default"
+    # ========== Ollama (download_ollama_models.sh) ==========
+    # --- Coding (2026) ---
+    - name: "devstral-24b"
+      label: "Devstral 24B (Coding Agent)"
+      description: "Agentic coding — multi-file edits + codebase tools; fits 1x P40"
+      preset:
+        endpoint: "LocalOllama"
+        model: "devstral:24b"
+        modelLabel: "devstral:24b"
+    - name: "qwen2.5-coder-32b"
+      label: "Qwen2.5 Coder 32B"
+      description: "Local coding king — ~GPT-4o on Aider; fits 1x P40"
+      preset:
+        endpoint: "LocalOllama"
+        model: "qwen2.5-coder:32b"
+        modelLabel: "qwen2.5-coder:32b"
+    - name: "qwen3-coder-next"
+      label: "Qwen3-Coder-Next (80B-A3B)"
+      description: "Newest MoE coder — 3B active, 256K ctx; light RAM offload"
+      preset:
+        endpoint: "LocalOllama"
+        model: "qwen3-coder-next"
+        modelLabel: "qwen3-coder-next"
+    # --- Frontier MoE (GGUF import via download_ollama_gguf_imports.sh; RAM offload) ---
+    - name: "minimax-m2.5"
+      label: "MiniMax M2.5 (230B-A10B)"
+      description: "Frontier MoE, 10B active — GGUF Q3, RAM offload; GPQA ~53"
+      preset:
+        endpoint: "LocalOllama"
+        model: "minimax-m2.5"
+        modelLabel: "minimax-m2.5"
+    - name: "qwen3.5-397b"
+      label: "Qwen3.5 397B-A17B"
+      description: "Highest-ranked open model that fits — GGUF Q2_K_XL, RAM offload"
+      preset:
+        endpoint: "LocalOllama"
+        model: "qwen3.5-397b"
+        modelLabel: "qwen3.5-397b"
+    - name: "glm-4.6-local"
+      label: "GLM-4.6 (357B, local GGUF)"
+      description: "Frontier tools+reasoning — GGUF Q2_K_XL, RAM offload"
+      preset:
+        endpoint: "LocalOllama"
+        model: "glm-4.6"
+        modelLabel: "glm-4.6"
+    - name: "qwen3.6-35b"
+      label: "Qwen3.6 35B (MoE)"
+      description: "Newest Qwen — agentic coding + tools (~24 GB; 35B-A3B class)"
+      preset:
+        endpoint: "LocalOllama"
+        model: "qwen3.6:35b"
+        modelLabel: "qwen3.6:35b"
+    - name: "gemma4-31b"
+      label: "Gemma 4 31B"
+      description: "Gemma 4 dense — tools, vision, reasoning"
+      preset:
+        endpoint: "LocalOllama"
+        model: "gemma4:31b"
+        modelLabel: "gemma4:31b"
+    - name: "gemma4-26b"
+      label: "Gemma 4 26B-A4B"
+      description: "Gemma 4 MoE (4B active) — fast, +vision, 256K ctx"
+      preset:
+        endpoint: "LocalOllama"
+        model: "gemma4:26b"
+        modelLabel: "gemma4:26b"
+    - name: "deepseek-r1-32b"
+      label: "DeepSeek R1 32B"
+      description: "R1 distilled 32B — deep reasoning/math"
+      preset:
+        endpoint: "LocalOllama"
+        model: "deepseek-r1:32b"
+        modelLabel: "deepseek-r1:32b"
+    - name: "qwq-32b"
+      label: "QwQ 32B"
+      description: "Qwen reasoning — tools; 40K context"
+      preset:
+        endpoint: "LocalOllama"
+        model: "qwq:32b"
+        modelLabel: "qwq:32b"
+    - name: "llama3.3-70b"
+      label: "Llama 3.3 70B"
+      description: "Meta 70B — 2× P40; native tool-use"
+      preset:
+        endpoint: "LocalOllama"
+        model: "llama3.3:70b"
+        modelLabel: "llama3.3:70b"
+    - name: "gpt-oss-20b"
       label: "GPT-OSS 20B"
-      description: "GPT-OSS 20B"
-      default: true
+      description: "GPT-OSS 20B — fast; name MCP tools explicitly"
       preset:
         endpoint: "LocalOllama"
         model: "gpt-oss:20b"
         modelLabel: "gpt-oss:20b"
-    - name: "gpt-oss-20b-finetuned"
-      label: "GPT-OSS 20B (Fine-tuned)"
-      description: "GPT-OSS 20B fine-tuned via Ollama (faster, requires merge script)"
-      preset:
-        endpoint: "LocalOllama"
-        model: "gpt-oss-20b-finetuned"
-        modelLabel: "gpt-oss-20b-finetuned"
-    - name: "gpt-oss-20b-finetuned-hf"
-      label: "GPT-OSS 20B (Fine-tuned HF)"
-      description: "GPT-OSS 20B with LoRA adapter via HuggingFace (slower, dynamic loading)"
-      preset:
-        endpoint: "HFService"
-        model: "gpt-oss-20b-finetuned"
-        modelLabel: "gpt-oss-20b-finetuned"
-    - name: "glm-4.5-air"
-      label: "GLM-4.5-Air"
-      description: "GLM-4.5-Air (no tools)"
-      preset:
-        endpoint: "LocalOllama"
-        model: "glm-4.5-air"
-        modelLabel: "glm-4.5-air"
-    - name: "glm-with-tools"
-      label: "GLM-4.5-Air (Tools)"
-      description: "GLM-4.5-Air with tool support"
-      preset:
-        endpoint: "HFService"
-        model: "glm-4.5-air"
-        modelLabel: "glm-4.5-air"
-    - name: "qwen3-32b"
-      label: "Qwen3 32B"
-      description: "Qwen3 32B"
+    - name: "qwen3-32b-mcp"
+      label: "Qwen3 32B (MCP)"
+      description: "Proven Agents + identity-mcp tools"
+      default: true
       preset:
         endpoint: "LocalOllama"
         model: "qwen3:32b"
         modelLabel: "qwen3:32b"
     - name: "qwen3-30b-a3b"
       label: "Qwen3 30B-A3B"
-      description: "Qwen3 30B-A3B"
+      description: "Qwen3 MoE"
       preset:
         endpoint: "LocalOllama"
         model: "qwen3:30b-a3b"
@@ -73,7 +135,7 @@ modelSpecs:
         modelLabel: "qwen2.5:14b"
     - name: "qwen2.5-7b"
       label: "Qwen2.5 7B"
-      description: "Qwen2.5 7B"
+      description: "Qwen2.5 7B — fast"
       preset:
         endpoint: "LocalOllama"
         model: "qwen2.5:7b"
@@ -93,15 +155,15 @@ modelSpecs:
         model: "deepseek-coder:6.7b"
         modelLabel: "deepseek-coder:6.7b"
     - name: "deepseek-r1"
-      label: "DeepSeek R1"
-      description: "DeepSeek R1 (reasoning model)"
+      label: "DeepSeek R1 (default tag)"
+      description: "May resolve to 8B — prefer deepseek-r1:32b"
       preset:
         endpoint: "LocalOllama"
         model: "deepseek-r1"
         modelLabel: "deepseek-r1"
     - name: "gemma2-9b"
       label: "Gemma 2 9B"
-      description: "Gemma 2 9B (newer)"
+      description: "Gemma 2 9B"
       preset:
         endpoint: "LocalOllama"
         model: "gemma2:9b"
@@ -115,28 +177,28 @@ modelSpecs:
         modelLabel: "gemma2:27b"
     - name: "llama3.1-8b"
       label: "Llama 3.1 8B"
-      description: "Llama 3.1 8B"
+      description: "Reliable Ollama tool calling"
       preset:
         endpoint: "LocalOllama"
         model: "llama3.1:8b"
         modelLabel: "llama3.1:8b"
     - name: "llama3.1-70b"
       label: "Llama 3.1 70B"
-      description: "Llama 3.1 70B (best quality)"
+      description: "Llama 3.1 70B — 2× P40"
       preset:
         endpoint: "LocalOllama"
         model: "llama3.1:70b"
         modelLabel: "llama3.1:70b"
     - name: "llama3.2-3b"
       label: "Llama 3.2 3B"
-      description: "Llama 3.2 3B (fast)"
+      description: "Llama 3.2 3B — fast"
       preset:
         endpoint: "LocalOllama"
         model: "llama3.2:3b"
         modelLabel: "llama3.2:3b"
     - name: "llama3.2-11b"
       label: "Llama 3.2 11B"
-      description: "Llama 3.2 11B (balanced)"
+      description: "Llama 3.2 11B"
       preset:
         endpoint: "LocalOllama"
         model: "llama3.2:11b"
@@ -150,7 +212,7 @@ modelSpecs:
         modelLabel: "mistral:latest"
     - name: "mistral-nemo"
       label: "Mistral Nemo"
-      description: "Mistral Nemo (12B)"
+      description: "Mistral Nemo 12B"
       preset:
         endpoint: "LocalOllama"
         model: "mistral-nemo"
@@ -164,11 +226,44 @@ modelSpecs:
         modelLabel: "mixtral:8x7b"
     - name: "phi3.5-3.8b"
       label: "Phi-3.5 3.8B"
-      description: "Phi-3.5 3.8B (newer)"
+      description: "Phi-3.5 3.8B"
       preset:
         endpoint: "LocalOllama"
         model: "phi3.5:3.8b"
         modelLabel: "phi3.5:3.8b"
+
+    # Ollama fine-tune (not in download script; keep if imported on server)
+    - name: "gpt-oss-20b-finetuned"
+      label: "GPT-OSS 20B (Fine-tuned Ollama)"
+      description: "Identity fine-tune via Ollama import"
+      preset:
+        endpoint: "LocalOllama"
+        model: "gpt-oss-20b-finetuned"
+        modelLabel: "gpt-oss-20b-finetuned"
+
+    # ========== HuggingFace (download_hf_models.sh) ==========
+    - name: "glm-with-tools"
+      label: "GLM-4.5-Air (HF + Tools)"
+      description: "Best HF MCP/agent formatting — stop Ollama first"
+      preset:
+        endpoint: "HFService"
+        model: "glm-4.5-air"
+        modelLabel: "glm-4.5-air"
+    - name: "gpt-oss-20b-hf"
+      label: "GPT-OSS 20B (HF)"
+      description: "Base GPT-OSS on hf-service"
+      preset:
+        endpoint: "HFService"
+        model: "gpt-oss-20b"
+        modelLabel: "gpt-oss-20b"
+    - name: "gpt-oss-20b-finetuned-hf"
+      label: "GPT-OSS 20B Fine-tuned (HF)"
+      description: "Identity LoRA on hf-service"
+      preset:
+        endpoint: "HFService"
+        model: "gpt-oss-20b-finetuned"
+        modelLabel: "gpt-oss-20b-finetuned"
+
 endpoints:
   custom:
     - name: "LocalOllama"
@@ -176,14 +271,24 @@ endpoints:
       baseURL: "http://ollama:11434/v1"
       models:
         default:
+          - "devstral:24b"
+          - "qwen2.5-coder:32b"
+          - "qwen3-coder-next"
+          - "minimax-m2.5"
+          - "qwen3.5-397b"
+          - "glm-4.6"
+          - "qwen3.6:35b"
+          - "gemma4:31b"
+          - "gemma4:26b"
+          - "deepseek-r1:32b"
+          - "qwq:32b"
+          - "llama3.3:70b"
           - "gpt-oss:20b"
-          - "gpt-oss-20b-finetuned"
-          - "qwen3:30b-a3b"
           - "qwen3:32b"
+          - "qwen3:30b-a3b"
           - "qwen2.5:32b"
           - "qwen2.5:14b"
           - "qwen2.5:7b"
-          - "glm-4.5-air"
           - "codellama:7b"
           - "deepseek-coder:6.7b"
           - "deepseek-r1"
@@ -197,11 +302,12 @@ endpoints:
           - "mistral-nemo"
           - "mixtral:8x7b"
           - "phi3.5:3.8b"
+          - "gpt-oss-20b-finetuned"
         fetch: true
       titleConvo: false
-      titleModel: "gpt-oss:20b"
+      titleModel: "qwen3:32b"
       summarize: false
-      summaryModel: "gpt-oss:20b"
+      summaryModel: "qwen3:32b"
       forcePrompt: false
       modelDisplayLabel: "Local Ollama"
       temperature: 0.6
@@ -209,16 +315,16 @@ endpoints:
       top_p: 0.9
       frequency_penalty: 0.0
       presence_penalty: 0.0
-      context_length: 128000
-  
+      context_length: 256000
+
     - name: "HFService"
       apiKey: "not-needed"
       baseURL: "http://hf-service:8000/v1"
       models:
         default:
+          - "glm-4.5-air"
           - "gpt-oss-20b"
           - "gpt-oss-20b-finetuned"
-          - "glm-4.5-air"
         fetch: false
       titleConvo: false
       summarize: false
@@ -230,18 +336,22 @@ endpoints:
       frequency_penalty: 0.0
       presence_penalty: 0.0
       context_length: 128000
-  
+
   agents:
     recursionLimit: 50000
     maxRecursionLimit: 50000
     disableBuilder: false
 
+mcpSettings:
+  allowedDomains:
+    - "mcp-server"
+    - "http://mcp-server:4000"
+
 mcpServers:
   identity-mcp:
-    type: http
+    type: streamable-http
     url: http://mcp-server:4000/mcp-protocol
     timeout: 300000
     reconnect: true
     reconnectDelay: 2000
     maxReconnectAttempts: 10
-
