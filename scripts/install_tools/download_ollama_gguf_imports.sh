@@ -38,7 +38,7 @@ OLLAMA="docker exec ollama-server ollama"
 MODEL_SPECS=(
   # --- Tier B: frontier MoE that RUNS at usable speed (RAM offload) ---
   "unsloth/MiniMax-M2.5-GGUF|UD-Q3_K_XL|minimax-m2.5"        # 230B/10B-active, ~101GB
-  "unsloth/Qwen3.5-397B-A17B-GGUF|UD-Q2_K_XL|qwen3.5-397b"   # 397B/17B-active, ~120-135GB
+  "unsloth/Qwen3.5-397B-A17B-GGUF|UD-IQ2_M|qwen3.5-397b"     # 397B/17B-active, ~120GB (repo has no UD-Q2_K_XL)
   "unsloth/GLM-4.6-GGUF|UD-Q2_K_XL|glm-4.6"                  # 357B MoE, ~135GB, strong tools
 
   # --- Tier C: ARK archive (huge; archival + occasional use). Auto-skips if no GGUF yet. ---
@@ -72,7 +72,8 @@ download_quant() {
   HF_REPO="$repo_id" HF_QUANT="$quant" DEST="$IMPORTS_DIR/$name" REMAINING_GB="$remaining_gb" \
     HF_HUB_DISABLE_XET=1 \
     "$VENV_DIR/bin/python" -u <<'PY'
-import os, sys
+import os, sys, time
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "120")  # default 10s is too short for this link
 from huggingface_hub import HfApi, hf_hub_download
 
 repo = os.environ["HF_REPO"]
@@ -106,7 +107,18 @@ files = sorted(s.rfilename for s in matched)
 print(f"  {len(files)} shard(s), {total_gb:.0f}GB", flush=True)
 for i, fn in enumerate(files, 1):
     print(f"  [{i}/{len(files)}] {fn}", flush=True)
-    hf_hub_download(repo_id=repo, filename=fn, local_dir=dest, token=token)
+    # Retry-with-resume: hf_hub_download resumes from the partial .incomplete file each call,
+    # so we can survive timeouts / RemoteProtocolError mid-shard on a flaky link.
+    for attempt in range(1, 13):
+        try:
+            hf_hub_download(repo_id=repo, filename=fn, local_dir=dest, token=token)
+            break
+        except Exception as e:
+            print(f"    attempt {attempt}/12 failed ({type(e).__name__}); resuming in 15s", flush=True)
+            time.sleep(15)
+    else:
+        print("FAIL_AFTER_RETRIES", flush=True)
+        sys.exit(1)
 
 # First shard is what the Modelfile FROM points at (Ollama auto-loads sibling shards).
 print(f"FROM={os.path.join(dest, files[0])}", flush=True)
