@@ -6,6 +6,15 @@
 
 import { config } from "../config";
 import { logger } from "../utils/logger";
+import {
+  type ArchivalPassageType,
+  matchesArchivalTypeFilter,
+  passageDateKey,
+  passageMatchesDateRange,
+  preferNewestScanForType,
+} from "../utils/archivalPassage";
+
+export type ArchivalTypeFilter = ArchivalPassageType;
 
 function toOllamaHandle(nameOrHandle: string): string {
   const trimmed = nameOrHandle.trim();
@@ -197,47 +206,18 @@ export interface LettaArchivalPage {
   error?: string;
 }
 
-// ── Archival passage type matching (mirrors frontend parsePassageType) ──
-
-export type ArchivalTypeFilter =
-  | "conversation"
-  | "file"
-  | "memory"
-  | "analysis"
-  | "other";
-
-function matchesArchivalType(
-  text: string,
-  filter: ArchivalTypeFilter
-): boolean {
-  if (!text.startsWith("[")) return filter === "other";
-  const bracket = text.split("]")[0].replace("[", "");
-  const parts = bracket.split("|");
-  if (parts.length < 2) return filter === "other";
-  const cat = parts[0].trim();
-  const kind = parts[1].trim().split(/\s/)[0];
-
-  const isDate = /^\d{4}-\d{2}-\d{2}/.test(cat);
-  switch (filter) {
-    case "conversation":
-      return isDate && kind === "conversation";
-    case "file":
-      return cat === "file" || cat === "tabular";
-    case "memory":
-      return cat === "user.context" || cat === "chatgpt_memory";
-    case "analysis":
-      return cat.startsWith("identity") || cat.startsWith("pattern");
-    case "other": {
-      if (isDate && kind === "conversation") return false;
-      if (cat === "file" || cat === "tabular") return false;
-      if (cat === "user.context" || cat === "chatgpt_memory") return false;
-      if (cat.startsWith("identity") || cat.startsWith("pattern"))
-        return false;
-      return true;
-    }
-    default:
-      return true;
-  }
+function sortPassagesByDate<T extends { text: string; created_at?: string }>(
+  items: T[],
+  sort: "oldest" | "newest"
+): T[] {
+  return [...items].sort((a, b) => {
+    const da = passageDateKey(a.text, a.created_at) ?? "";
+    const db = passageDateKey(b.text, b.created_at) ?? "";
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return sort === "newest" ? db.localeCompare(da) : da.localeCompare(db);
+  });
 }
 
 export interface LettaMessage {
@@ -428,7 +408,9 @@ export async function getLettaArchival(
   limit: number = 50,
   cursor?: string,
   sort: "oldest" | "newest" = "oldest",
-  typeFilter?: ArchivalTypeFilter
+  typeFilter?: ArchivalTypeFilter,
+  dateFrom?: string,
+  dateTo?: string
 ): Promise<LettaArchivalPage> {
   const agentId = await getAgentId();
   if (!agentId) {
@@ -440,8 +422,27 @@ export async function getLettaArchival(
   }
 
   try {
+    const hasDateFilter = !!(dateFrom || dateTo);
+
+    const mapPassage = (p: any) => ({
+      id: p.id || "",
+      text: p.content || p.text || "",
+      created_at: p.created_at || p.timestamp,
+      metadata: p.metadata || {},
+    });
+
+    const passageOk = (text: string, createdAt?: string) => {
+      if (typeFilter && !matchesArchivalTypeFilter(text, typeFilter)) {
+        return false;
+      }
+      if (hasDateFilter && !passageMatchesDateRange(text, createdAt, dateFrom, dateTo)) {
+        return false;
+      }
+      return true;
+    };
+
     // ── Unfiltered path (fast — single request) ──────────────────
-    if (!typeFilter) {
+    if (!typeFilter && !hasDateFilter) {
       let url = `/v1/agents/${agentId}/archival-memory?limit=${limit}`;
       if (sort === "newest") url += `&ascending=false`;
       if (cursor) {
@@ -453,12 +454,7 @@ export async function getLettaArchival(
 
       const data = await lettaFetch(url);
       const raw = Array.isArray(data) ? data : data.passages || [];
-      const passages = raw.map((p: any) => ({
-        id: p.id || "",
-        text: p.content || p.text || "",
-        created_at: p.created_at || p.timestamp,
-        metadata: p.metadata || {},
-      }));
+      const passages = raw.map(mapPassage);
 
       const nextCursor =
         raw.length > 0 ? raw[raw.length - 1].id : undefined;
@@ -473,8 +469,12 @@ export async function getLettaArchival(
     }
 
     // ── Filtered path — scan & filter server-side ────────────────
+    // file/memory/analysis ingest after conversations — scan from newest unless
+    // filtering conversations only.
+    const scanNewest = preferNewestScanForType(typeFilter);
+    const scanSort: "oldest" | "newest" = scanNewest ? "newest" : sort;
     const BATCH_SIZE = 500;
-    const MAX_SCAN = 10_000;
+    const MAX_SCAN = 25_000;
     let scanned = 0;
     let scanCursor = cursor;
     let exhausted = false;
@@ -482,10 +482,10 @@ export async function getLettaArchival(
 
     while (matched.length < limit && scanned < MAX_SCAN) {
       let url = `/v1/agents/${agentId}/archival-memory?limit=${BATCH_SIZE}`;
-      if (sort === "newest") url += `&ascending=false`;
+      if (scanSort === "newest") url += `&ascending=false`;
       if (scanCursor) {
         url +=
-          sort === "newest"
+          scanSort === "newest"
             ? `&before=${encodeURIComponent(scanCursor)}`
             : `&after=${encodeURIComponent(scanCursor)}`;
       }
@@ -499,7 +499,8 @@ export async function getLettaArchival(
 
       for (const p of batch) {
         const text = p.content || p.text || "";
-        if (matchesArchivalType(text, typeFilter)) {
+        const createdAt = p.created_at || p.timestamp;
+        if (passageOk(text, createdAt)) {
           matched.push(p);
           if (matched.length >= limit) break;
         }
@@ -511,12 +512,10 @@ export async function getLettaArchival(
       }
     }
 
-    const passages = matched.map((p: any) => ({
-      id: p.id || "",
-      text: p.content || p.text || "",
-      created_at: p.created_at || p.timestamp,
-      metadata: p.metadata || {},
-    }));
+    let passages = sortPassagesByDate(
+      matched.map(mapPassage),
+      sort
+    );
 
     return {
       available: true,

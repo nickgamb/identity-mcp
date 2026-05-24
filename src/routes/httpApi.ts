@@ -1169,7 +1169,16 @@ mcpRouter.get("/mcp/letta.archival", async (req: Request, res: Response) => {
       typeRaw && ARCHIVAL_TYPE_FILTERS.has(typeRaw)
         ? (typeRaw as ArchivalTypeFilter)
         : undefined;
-    const result = await getLettaArchival(limit, cursor, sort, typeFilter);
+    const dateFrom = (req.query.dateFrom as string) || undefined;
+    const dateTo = (req.query.dateTo as string) || undefined;
+    const result = await getLettaArchival(
+      limit,
+      cursor,
+      sort,
+      typeFilter,
+      dateFrom,
+      dateTo
+    );
     res.json(result);
   } catch (err) {
     handleError(res, err);

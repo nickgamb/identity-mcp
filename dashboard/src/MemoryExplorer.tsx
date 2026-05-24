@@ -25,6 +25,12 @@ import {
   Calendar,
 } from 'lucide-react'
 import { authenticatedFetch } from './utils/api'
+import {
+  classifyArchivalPassage,
+  passageDateKey,
+  passageMatchesDateRange,
+  type ArchivalPassageType,
+} from './utils/archivalPassage'
 import { EmptyState } from './components/EmptyState'
 import { MemoryMaintenance } from './components/MemoryMaintenance'
 
@@ -101,31 +107,12 @@ interface LettaMessage {
 
 // ── Archival passage type helpers ────────────────────────────────────────
 
-type ArchivalType = 'conversation' | 'file' | 'memory' | 'analysis' | 'other'
-
-const ARCHIVAL_TYPE_CONFIG: Record<ArchivalType, { label: string; className: string }> = {
+const ARCHIVAL_TYPE_CONFIG: Record<ArchivalPassageType, { label: string; className: string }> = {
   conversation: { label: 'Conversation', className: 'bg-blue-500/15 text-blue-400' },
   file:         { label: 'File',         className: 'bg-emerald-500/15 text-emerald-400' },
   memory:       { label: 'Memory',       className: 'bg-purple-500/15 text-purple-400' },
   analysis:     { label: 'Analysis',     className: 'bg-amber-500/15 text-amber-400' },
   other:        { label: 'Other',        className: 'bg-surface-200 text-text-muted' },
-}
-
-function parsePassageType(text: string): ArchivalType {
-  if (!text.startsWith('[')) return 'other'
-  const bracket = text.split(']')[0].replace('[', '')
-  const parts = bracket.split('|')
-  if (parts.length < 2) return 'other'
-  const cat = parts[0].trim()
-  const kind = parts[1].trim().split(/\s/)[0]
-  // Date prefix means conversation format: [2024-01-01 | conversation ...]
-  if (/^\d{4}-\d{2}-\d{2}/.test(cat)) {
-    return kind === 'conversation' ? 'conversation' : 'other'
-  }
-  if (cat === 'file' || cat === 'tabular') return 'file'
-  if (cat === 'user.context' || cat === 'chatgpt_memory') return 'memory'
-  if (cat.startsWith('identity') || cat.startsWith('pattern')) return 'analysis'
-  return 'other'
 }
 
 // ── Component ───────────────────────────────────────────────────────────
@@ -147,7 +134,7 @@ export function MemoryExplorer() {
   const [archivalHasMore, setArchivalHasMore] = useState(true)
   const [archivalLoading, setArchivalLoading] = useState(false)
   const [archivalSort, setArchivalSort] = useState<'oldest' | 'newest'>('newest')
-  const [archivalTypeFilter, setArchivalTypeFilter] = useState<ArchivalType | 'all'>('all')
+  const [archivalTypeFilter, setArchivalTypeFilter] = useState<ArchivalPassageType | 'all'>('all')
   const [archivalDateFrom, setArchivalDateFrom] = useState('')
   const [archivalDateTo, setArchivalDateTo] = useState('')
   const [archivalSearch, setArchivalSearch] = useState('')
@@ -228,6 +215,8 @@ export function MemoryExplorer() {
       const params = new URLSearchParams({ limit: '50', sort: archivalSort })
       if (!reset && archivalCursor) params.set('cursor', archivalCursor)
       if (archivalTypeFilter !== 'all') params.set('type', archivalTypeFilter)
+      if (archivalDateFrom) params.set('dateFrom', archivalDateFrom)
+      if (archivalDateTo) params.set('dateTo', archivalDateTo)
       const res = await authenticatedFetch(`/api/mcp/letta.archival?${params}`)
       const data = await res.json()
       if (data.passages) {
@@ -244,7 +233,7 @@ export function MemoryExplorer() {
     } finally {
       setArchivalLoading(false)
     }
-  }, [archivalCursor, archivalSort, archivalTypeFilter])
+  }, [archivalCursor, archivalSort, archivalTypeFilter, archivalDateFrom, archivalDateTo])
 
   const searchArchival = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -337,7 +326,7 @@ export function MemoryExplorer() {
     }
   }, [activeTab, loadCoreMemory, loadMessages, loadOllamaModels, loadStatus])
 
-  // Archival browse: load on tab open and when sort/type filter changes (type filter is server-side)
+  // Archival browse: reload when tab, sort, type, or date range changes (server-side scan)
   useEffect(() => {
     if (activeTab !== 'archival' || searchResults) return
     setPassages([])
@@ -345,7 +334,7 @@ export function MemoryExplorer() {
     setArchivalHasMore(true)
     loadArchival(true)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: reset list when browse params change
-  }, [activeTab, archivalTypeFilter, archivalSort, searchResults])
+  }, [activeTab, archivalTypeFilter, archivalSort, archivalDateFrom, archivalDateTo, searchResults])
 
   // ── Actions ─────────────────────────────────────────────────────────
 
@@ -774,14 +763,14 @@ export function MemoryExplorer() {
 
       {/* ── Archival Memory ──────────────────────────────────────── */}
       {activeTab === 'archival' && (() => {
-        // Type filter is server-side; date range still client-side on loaded rows
         const allPassages = searchResults || passages
-        const filteredPassages = allPassages.filter(p => {
-          if (archivalDateFrom && p.created_at && p.created_at.slice(0, 10) < archivalDateFrom) return false
-          if (archivalDateTo && p.created_at && p.created_at.slice(0, 10) > archivalDateTo) return false
-          return true
-        })
         const hasDateFilters = !!(archivalDateFrom || archivalDateTo)
+        // Semantic search results: apply date filter client-side (header date preferred)
+        const filteredPassages = searchResults
+          ? allPassages.filter(p =>
+              passageMatchesDateRange(p.text, p.created_at, archivalDateFrom, archivalDateTo)
+            )
+          : allPassages
         const typeFilterActive = archivalTypeFilter !== 'all' && !searchResults
 
         return (
@@ -897,7 +886,8 @@ export function MemoryExplorer() {
                 {filteredPassages.map((p, idx) => {
                   const isExpanded = expandedPassages.has(p.id || String(idx))
                   const preview = p.text.length > 200 && !isExpanded ? p.text.slice(0, 200) + '...' : p.text
-                  const pType = parsePassageType(p.text)
+                  const pType = classifyArchivalPassage(p.text)
+                  const displayDate = passageDateKey(p.text, p.created_at)
                   const typeConf = ARCHIVAL_TYPE_CONFIG[pType]
                   return (
                     <div key={p.id || idx} className="stat-card">
@@ -932,11 +922,14 @@ export function MemoryExplorer() {
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${typeConf.className}`}>
                           {typeConf.label}
                         </span>
-                        {p.created_at && (
+                        {displayDate && (
                           <>
                             <Clock className="w-3 h-3 text-text-muted" />
-                            <span className="text-[11px] text-text-muted">
-                              {new Date(p.created_at).toLocaleString()}
+                            <span className="text-[11px] text-text-muted" title={p.created_at || undefined}>
+                              {displayDate}
+                              {p.created_at && passageDateKey(p.text, null) === null
+                                ? ` · ${new Date(p.created_at).toLocaleString()}`
+                                : ''}
                             </span>
                           </>
                         )}

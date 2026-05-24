@@ -1031,11 +1031,26 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
           .enum(["conversation", "file", "memory", "analysis", "other"])
           .optional()
           .describe("Filter by passage type (server scans archival memory)"),
+        dateFrom: z
+          .string()
+          .optional()
+          .describe("Inclusive start date YYYY-MM-DD (header or created_at)"),
+        dateTo: z
+          .string()
+          .optional()
+          .describe("Inclusive end date YYYY-MM-DD"),
       }),
     },
-    async ({ limit, cursor, sort, type }) =>
+    async ({ limit, cursor, sort, type, dateFrom, dateTo }) =>
       toContent(
-        await getLettaArchival(limit ?? 50, cursor, sort ?? "oldest", type)
+        await getLettaArchival(
+          limit ?? 50,
+          cursor,
+          sort ?? "oldest",
+          type,
+          dateFrom,
+          dateTo
+        )
       ),
   );
 
