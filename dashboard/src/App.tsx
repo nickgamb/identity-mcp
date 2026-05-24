@@ -25,6 +25,7 @@ import { Sidebar, type MainView } from './components/Sidebar'
 import { useAuth } from './auth/AuthContext'
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react'
 import { authenticatedFetch } from './utils/api'
+import { useScriptRunner, type ScriptState } from './hooks/useScriptRunner'
 import { EegEnrollmentModal } from './components/eeg/EegEnrollmentModal'
 import { EegAuthorizationModal } from './components/eeg/EegAuthorizationModal'
 import { BRAND, BrandWordmark } from './brand'
@@ -122,27 +123,19 @@ const SCRIPTS = [
   },
 ]
 
+// ScriptStatus / ScriptState types imported from useScriptRunner hook
 type ScriptStatus = 'idle' | 'running' | 'success' | 'error'
-
-interface ScriptState {
-  status: ScriptStatus
-  output: string[]
-  startTime?: number
-  endTime?: number
-}
 
 function App() {
   const { user, isLoading: authLoading, isAuthenticated, isOidcEnabled, login, logout } = useAuth()
   const [mainView, setMainView] = useState<MainView>('pipeline')
-  const [scriptStates, setScriptStates] = useState<Record<string, ScriptState>>({})
+  const { scriptStates, setStates: setScriptStates, runScript: hookRunScript, hasRunning: hasRunningScripts } = useScriptRunner()
   const [selectedScript, setSelectedScript] = useState<string | null>(null)
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string } | null>(null)
   const [eegModal, setEegModal] = useState<{ type: 'enrollment' | 'authorization' } | null>(null)
   const [mcpStatus, setMcpStatus] = useState<'checking' | 'online' | 'offline'>('checking')
   const [lettaStatus, setLettaStatus] = useState<'checking' | 'online' | 'offline'>('checking')
   const [pipelineLoading, setPipelineLoading] = useState(true)
-
-  const hasRunningScripts = Object.values(scriptStates).some(state => state.status === 'running')
 
   useEffect(() => {
     const initialLoad = async () => {
@@ -250,54 +243,15 @@ function App() {
     }
   }
 
-  const runScript = async (scriptId: string) => {
+  const runScript = (scriptId: string) => {
     const script = SCRIPTS.find(s => s.id === scriptId)
     if (!script) return
 
     if (scriptId === 'enroll_brainwaves') { setEegModal({ type: 'enrollment' }); return }
     if (scriptId === 'authorize_brainwaves') { setEegModal({ type: 'authorization' }); return }
 
-    setScriptStates(prev => ({
-      ...prev,
-      [scriptId]: { status: 'running', output: [`Starting ${script.file}...`], startTime: Date.now() }
-    }))
     setSelectedScript(scriptId)
-
-    // No args — parsers skip already-processed conversations (use CLI --force to reparse all)
-    authenticatedFetch('/api/mcp/pipeline.run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ script: script.id }),
-    }).catch(() => {})
-
-    const pollOutput = async () => {
-      let cursor = 0
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        try {
-          const res = await fetch(`/api/mcp/pipeline.output/${scriptId}?cursor=${cursor}`)
-          const data = await res.json()
-          if (!data.started && !data.done) { await new Promise(r => setTimeout(r, 300)); continue }
-          for (const { line, index } of data.lines) {
-            setScriptStates(prev => ({
-              ...prev,
-              [scriptId]: { ...prev[scriptId], output: [...(prev[scriptId]?.output || []), line] }
-            }))
-            cursor = index + 1
-          }
-          if (data.done) {
-            const success = data.exitCode === 0
-            setScriptStates(prev => ({
-              ...prev,
-              [scriptId]: { ...prev[scriptId], status: success ? 'success' : 'error', endTime: Date.now() }
-            }))
-            return
-          }
-        } catch { /* retry */ }
-        await new Promise(r => setTimeout(r, 250))
-      }
-    }
-    pollOutput()
+    hookRunScript(scriptId, script.file)
   }
 
   const viewFile = async (filePath: string) => {

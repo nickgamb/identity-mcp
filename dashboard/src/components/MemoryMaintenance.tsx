@@ -13,16 +13,7 @@ import {
   Square,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { authenticatedFetch } from '../utils/api'
-
-type ScriptStatus = 'idle' | 'running' | 'success' | 'error'
-
-interface ScriptState {
-  status: ScriptStatus
-  output: string[]
-  startTime?: number
-  endTime?: number
-}
+import { useScriptRunner, type ScriptStatus } from '../hooks/useScriptRunner'
 
 interface MaintenanceScript {
   id: string
@@ -106,81 +97,18 @@ interface MemoryMaintenanceProps {
 }
 
 export function MemoryMaintenance({ onJobComplete }: MemoryMaintenanceProps) {
-  const [scriptStates, setScriptStates] = useState<Record<string, ScriptState>>({})
+  const { scriptStates, runScript: hookRun, stopScript } = useScriptRunner({
+    onComplete: (_id, success) => { if (success) onJobComplete?.() },
+  })
   const [selectedScript, setSelectedScript] = useState<string>(
     MAINTENANCE_SCRIPTS[0].id
   )
 
-  const runScript = async (scriptId: string) => {
+  const runScript = (scriptId: string) => {
     const script = MAINTENANCE_SCRIPTS.find(s => s.id === scriptId)
     if (!script) return
-
-    setScriptStates(prev => ({
-      ...prev,
-      [scriptId]: {
-        status: 'running',
-        output: [`Starting ${script.path}${script.file}...`],
-        startTime: Date.now(),
-      },
-    }))
     setSelectedScript(scriptId)
-
-    authenticatedFetch('/api/mcp/pipeline.run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ script: scriptId }),
-    }).catch(() => {})
-
-    let cursor = 0
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      try {
-        const res = await fetch(`/api/mcp/pipeline.output/${scriptId}?cursor=${cursor}`)
-        const data = await res.json()
-        if (!data.started && !data.done) {
-          await new Promise(r => setTimeout(r, 300))
-          continue
-        }
-        for (const { line, index }: { line: string; index: number } of data.lines) {
-          setScriptStates(prev => ({
-            ...prev,
-            [scriptId]: {
-              ...prev[scriptId],
-              output: [...(prev[scriptId]?.output || []), line],
-            },
-          }))
-          cursor = index + 1
-        }
-        if (data.done) {
-          const success = data.exitCode === 0
-          setScriptStates(prev => ({
-            ...prev,
-            [scriptId]: {
-              ...prev[scriptId],
-              status: success ? 'success' : 'error',
-              endTime: Date.now(),
-            },
-          }))
-          if (success) onJobComplete?.()
-          return
-        }
-      } catch {
-        /* retry */
-      }
-      await new Promise(r => setTimeout(r, 250))
-    }
-  }
-
-  const stopScript = async (scriptId: string) => {
-    try {
-      await authenticatedFetch('/api/mcp/pipeline.stop', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ script: scriptId }),
-      })
-    } catch {
-      /* ignore */
-    }
+    hookRun(scriptId, `${script.path}${script.file}`)
   }
 
   const selectedState = selectedScript ? scriptStates[selectedScript] : undefined

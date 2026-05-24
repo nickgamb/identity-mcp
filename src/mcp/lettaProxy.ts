@@ -331,9 +331,12 @@ export async function updateLettaCoreMemory(
   }
 
   try {
-    // First get blocks to find the block ID by label
-    const memoryData = await lettaFetch(`/v1/agents/${agentId}/memory`);
-    const rawBlocks = memoryData?.blocks || memoryData?.memory?.blocks || [];
+    // Get blocks from both sources to handle Letta 0.16+ API shape differences
+    const [memoryData, agentData] = await Promise.all([
+      lettaFetch(`/v1/agents/${agentId}/memory`).catch(() => null),
+      lettaFetch(`/v1/agents/${agentId}`),
+    ]);
+    const rawBlocks = resolveRawMemoryBlocks(agentData, memoryData);
     const block = rawBlocks.find(
       (b: any) => (b.label || b.name) === blockLabel
     );
@@ -521,7 +524,7 @@ export async function updateLettaConfig(
       method: "PATCH",
       body: JSON.stringify(body),
     });
-    clearAgentIdCache();
+    // Note: agent ID doesn't change from a config PATCH, so no need to clear cache
     return { success: true };
   } catch (e) {
     logger.error("updateLettaConfig failed", { error: String(e) });

@@ -299,7 +299,8 @@ export function MemoryExplorer() {
       loadStatus()
       loadOllamaModels()
     }
-  }, [activeTab, loadOllamaModels])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- loadCoreMemory/loadMessages/loadArchival are stable callbacks
+  }, [activeTab, loadCoreMemory, loadMessages, loadArchival, loadOllamaModels, loadStatus])
 
   // ── Actions ─────────────────────────────────────────────────────────
 
