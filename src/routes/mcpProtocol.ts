@@ -1025,11 +1025,12 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
       description: "List paginated archival memory passages from the Letta agent.",
       inputSchema: z.object({
         limit: z.number().nullish().describe("Page size (default 50)"),
-        cursor: z.string().optional().describe("Passage ID to start after"),
+        cursor: z.string().optional().describe("Passage ID to start after (oldest) or before (newest)"),
+        sort: z.enum(["oldest", "newest"]).optional().describe("Sort order: oldest first (default) or newest first"),
       }),
     },
-    async ({ limit, cursor }) =>
-      toContent(await getLettaArchival(limit ?? 50, cursor)),
+    async ({ limit, cursor, sort }) =>
+      toContent(await getLettaArchival(limit ?? 50, cursor, sort ?? "oldest")),
   );
 
   server.registerTool(

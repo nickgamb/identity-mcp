@@ -1154,7 +1154,8 @@ mcpRouter.get("/mcp/letta.archival", async (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 50;
     const cursor = req.query.cursor as string | undefined;
-    const result = await getLettaArchival(limit, cursor);
+    const sort = req.query.sort === "newest" ? "newest" : "oldest";
+    const result = await getLettaArchival(limit, cursor, sort);
     res.json(result);
   } catch (err) {
     handleError(res, err);

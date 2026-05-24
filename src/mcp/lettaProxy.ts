@@ -369,10 +369,14 @@ export async function updateLettaCoreMemory(
 
 /**
  * Get paginated archival memory passages.
+ *
+ * @param sort  "oldest" (default) pages forward with `after`;
+ *              "newest" pages backward with `before`.
  */
 export async function getLettaArchival(
   limit: number = 50,
-  cursor?: string
+  cursor?: string,
+  sort: "oldest" | "newest" = "oldest"
 ): Promise<LettaArchivalPage> {
   const agentId = await getAgentId();
   if (!agentId) {
@@ -385,7 +389,13 @@ export async function getLettaArchival(
 
   try {
     let url = `/v1/agents/${agentId}/archival-memory?limit=${limit}`;
-    if (cursor) url += `&after=${encodeURIComponent(cursor)}`;
+    if (sort === "newest") url += `&reverse=true`;
+    if (cursor) {
+      url +=
+        sort === "newest"
+          ? `&before=${encodeURIComponent(cursor)}`
+          : `&after=${encodeURIComponent(cursor)}`;
+    }
 
     const data = await lettaFetch(url);
     const passages = (Array.isArray(data) ? data : data.passages || []).map(

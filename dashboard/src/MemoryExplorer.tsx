@@ -20,6 +20,7 @@ import {
   Cpu,
   AlertCircle,
   Workflow,
+  ArrowUpDown,
 } from 'lucide-react'
 import { authenticatedFetch } from './utils/api'
 import { EmptyState } from './components/EmptyState'
@@ -113,6 +114,7 @@ export function MemoryExplorer() {
   const [passages, setPassages] = useState<Passage[]>([])
   const [archivalCursor, setArchivalCursor] = useState<string | undefined>()
   const [archivalLoading, setArchivalLoading] = useState(false)
+  const [archivalSort, setArchivalSort] = useState<'oldest' | 'newest'>('newest')
   const [archivalSearch, setArchivalSearch] = useState('')
   const [searchResults, setSearchResults] = useState<Passage[] | null>(null)
   const [searchLoading, setSearchLoading] = useState(false)
@@ -189,7 +191,9 @@ export function MemoryExplorer() {
     setArchivalLoading(true)
     try {
       const cursor = reset ? undefined : archivalCursor
-      const res = await authenticatedFetch(`/api/mcp/letta.archival?limit=50${cursor ? `&cursor=${cursor}` : ''}`)
+      const params = new URLSearchParams({ limit: '50', sort: archivalSort })
+      if (cursor) params.set('cursor', cursor)
+      const res = await authenticatedFetch(`/api/mcp/letta.archival?${params}`)
       const data = await res.json()
       if (data.passages) {
         if (reset) {
@@ -207,7 +211,7 @@ export function MemoryExplorer() {
     } finally {
       setArchivalLoading(false)
     }
-  }, [archivalCursor])
+  }, [archivalCursor, archivalSort])
 
   const searchArchival = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -730,8 +734,8 @@ export function MemoryExplorer() {
       {/* ── Archival Memory ──────────────────────────────────────── */}
       {activeTab === 'archival' && (
         <div>
-          {/* Search */}
-          <div className="mb-4">
+          {/* Search + Sort */}
+          <div className="flex items-center gap-2 mb-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-text-muted" />
               <input
@@ -743,6 +747,19 @@ export function MemoryExplorer() {
                 className="w-full pl-10 pr-4 py-2 rounded-lg border border-surface-200 bg-surface-50 focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none"
               />
             </div>
+            <button
+              onClick={() => {
+                const next = archivalSort === 'newest' ? 'oldest' : 'newest'
+                setArchivalSort(next)
+                setPassages([])
+                setArchivalCursor(undefined)
+              }}
+              className="btn btn-ghost text-xs shrink-0 gap-1.5"
+              title={`Sorted ${archivalSort} first — click to flip`}
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+              {archivalSort === 'newest' ? 'Newest' : 'Oldest'}
+            </button>
           </div>
 
           {/* Results */}
