@@ -5,37 +5,11 @@
  * Can be triggered by dashboard UI or by AI via MCP tools.
  */
 
-import { spawn, execSync } from "child_process";
+import { spawn } from "child_process";
 import path from "path";
 import { config } from "../config";
 import { logger } from "../utils/logger";
-
-/**
- * Find available Python executable
- * On Windows prefer `python` (standard), on Linux/macOS prefer `python3`
- */
-function getPythonCommand(): string {
-  const isWindows = process.platform === "win32";
-  const commands = isWindows
-    ? ["python", "python3", "py"]
-    : ["python3", "python", "py"];
-  
-  for (const cmd of commands) {
-    try {
-      execSync(`${cmd} --version`, { stdio: "ignore" });
-      return cmd;
-    } catch (error) {
-      // Command not found, try next
-    }
-  }
-  
-  // Default to python3 (will fail later with clear error)
-  return "python3";
-}
-
-// Detect Python command once at module load
-const PYTHON_CMD = getPythonCommand();
-logger.info(`Using Python command: ${PYTHON_CMD}`);
+import { PYTHON_CMD } from "../utils/pythonCmd";
 
 // Whitelisted scripts that can be run
 const ALLOWED_SCRIPTS: Record<string, { path: string; description: string }> = {

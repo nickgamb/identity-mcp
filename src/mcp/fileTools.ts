@@ -1,5 +1,4 @@
 import { FileLoader, FileDocument } from "../services/fileLoader";
-import { getRequiredUserId } from "../utils/userContext";
 
 export interface FileListRequest {
   folder?: string; // Optional: filter to specific folder
@@ -49,29 +48,35 @@ export async function handleFileList(
   userId: string | null = null
 ): Promise<FileListResponse> {
   const fileLoader = new FileLoader(undefined, userId);
-  let files: FileDocument[];
-  
+  let filenames: string[];
+
   if (req.folder) {
-    files = await fileLoader.loadFilesFromFolder(req.folder);
-  } else if (req.category) {
-    files = await fileLoader.getFilesByCategory(req.category);
+    filenames = await fileLoader.listFiles(req.folder);
   } else {
-    files = await fileLoader.loadAllFiles();
+    filenames = await fileLoader.listFiles();
   }
 
-  // Also get list of folders
+  if (req.category) {
+    filenames = filenames.filter(
+      (fp) => fileLoader.describeFile(fp).category === req.category
+    );
+  }
+
   const folders = await fileLoader.listFolders();
 
   return {
-    files: files.map(f => ({
-      filename: f.filename,
-      filepath: f.filepath,
-      title: f.title,
-      fileNumber: f.fileNumber,
-      category: f.category,
-      folder: f.folder,
-    })),
-    count: files.length,
+    files: filenames.map((filepath) => {
+      const meta = fileLoader.describeFile(filepath);
+      return {
+        filename: meta.filename,
+        filepath: meta.filepath,
+        title: meta.title,
+        fileNumber: meta.fileNumber,
+        category: meta.category,
+        folder: meta.folder,
+      };
+    }),
+    count: filenames.length,
     folders,
   };
 }

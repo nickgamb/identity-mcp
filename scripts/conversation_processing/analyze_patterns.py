@@ -166,7 +166,10 @@ def load_files(files_dir: Path) -> List[Dict]:
     if not files_dir.exists():
         return []
     
-    valid_extensions = {'.txt', '.md', '.json', '.jsonl', '.yaml', '.yml'}
+    valid_extensions = {
+        '.txt', '.md', '.json', '.jsonl', '.yaml', '.yml', '.csv', '.tsv',
+        '.xml', '.html', '.htm', '.log', '.rst', '.ndjson', '.toml', '.ini',
+    }
     
     for root, dirs, files in os.walk(files_dir):
         dirs[:] = [d for d in dirs if not d.startswith('.')]
@@ -181,7 +184,16 @@ def load_files(files_dir: Path) -> List[Dict]:
             
             file_path = Path(root) / filename
             try:
-                content = file_path.read_text(encoding='utf-8')
+                if ext in {'.csv', '.tsv'}:
+                    from csv_corpus import corpus_text_for_analysis, is_tabular_file
+                    if is_tabular_file(file_path):
+                        content = corpus_text_for_analysis(file_path)
+                    else:
+                        content = file_path.read_text(encoding='utf-8')
+                else:
+                    content = file_path.read_text(encoding='utf-8')
+                if not content.strip():
+                    continue
                 files_data.append({
                     'filepath': str(file_path.relative_to(files_dir)),
                     'content': content

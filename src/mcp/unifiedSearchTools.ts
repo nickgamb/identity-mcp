@@ -92,13 +92,13 @@ export async function handleUnifiedSearch(
         const fileResults = await handleFileSearch({
           query: req.query,
         }, userId);
+        const hits = fileResults.files || [];
         results.files = {
-          results: (fileResults.results || []).slice(0, limit).map((r: any) => ({
+          results: hits.slice(0, limit).map((r) => ({
             filepath: r.filepath,
-            content: r.content || r.text || "",
-            relevance: r.relevance,
+            content: r.content || "",
           })),
-          count: fileResults.results?.length || 0,
+          count: Math.min(hits.length, limit),
         };
       } catch (error) {
         logger.warn("Error in unified file search", error);

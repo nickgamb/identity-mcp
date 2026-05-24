@@ -308,7 +308,10 @@ function App() {
         body: JSON.stringify({ filepath: filePath })
       })
       const data = await res.json()
-      setFileViewer({ path: filePath, content: data.content || JSON.stringify(data, null, 2) })
+      setFileViewer({
+        path: filePath,
+        content: data.file?.content ?? data.content ?? JSON.stringify(data, null, 2),
+      })
     } catch (error) {
       setFileViewer({ path: filePath, content: `Error loading file: ${error}` })
     }

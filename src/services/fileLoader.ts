@@ -3,6 +3,11 @@ import path from "path";
 import { logger } from "../utils/logger";
 import { config } from "../config";
 import { getUserDataPath, ensureUserDirectory } from "../utils/userContext";
+import {
+  isTabularFile,
+  loadTabularCorpusText,
+  searchTabularRows,
+} from "../utils/csvCorpus";
 
 export interface FileDocument {
   filename: string;
@@ -93,15 +98,25 @@ export class FileLoader {
     }
   }
 
+  /** Extensions we treat as binary / non-text for listing and RAG load */
+  private static readonly BLOCKED_EXTENSIONS = new Set([
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".svg",
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".zip", ".gz", ".tar", ".7z", ".rar", ".bz2",
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".wasm",
+    ".mp3", ".mp4", ".wav", ".avi", ".mov", ".mkv",
+  ]);
+
   /**
-   * Check if file should be included (skip system files)
+   * Include user-uploaded documents: all non-hidden files except known binary types.
+   * (Previously only .txt/.md/.json/etc., which hid .csv and other uploads.)
    */
   private isValidFile(filename: string): boolean {
     if (filename.includes("Zone.Identifier")) return false;
     if (filename.startsWith(".")) return false;
-    // Include common text/data formats
-    const validExtensions = [".txt", ".md", ".json", ".jsonl", ".yaml", ".yml"];
-    return validExtensions.some(ext => filename.endsWith(ext));
+    const ext = path.extname(filename).toLowerCase();
+    if (FileLoader.BLOCKED_EXTENSIONS.has(ext)) return false;
+    return true;
   }
 
   /**
@@ -126,6 +141,39 @@ export class FileLoader {
   }
 
   /**
+   * Metadata for a file path without reading content (for listing).
+   */
+  describeFile(filepath: string): Omit<FileDocument, "content"> {
+    const fileNumber = this.extractFileNumber(filepath);
+    const folder = path.dirname(filepath);
+    const filename = path.basename(filepath);
+    const extension = path.extname(filepath);
+    const category = this.categorizeFile(filepath);
+
+    return {
+      filename,
+      filepath,
+      fileNumber: fileNumber ?? undefined,
+      category,
+      folder: folder !== "." ? folder : undefined,
+      extension,
+    };
+  }
+
+  /**
+   * Read file text; CSV/TSV use csv_corpus row formatting (same as Letta ingest).
+   */
+  private async readFileContent(fullPath: string, filepath: string): Promise<string> {
+    if (isTabularFile(filepath)) {
+      const corpus = await loadTabularCorpusText(fullPath);
+      if (corpus !== null) {
+        return corpus;
+      }
+    }
+    return fs.promises.readFile(fullPath, "utf8");
+  }
+
+  /**
    * Loads a single file by its path (relative to files directory)
    */
   async loadFile(filepath: string): Promise<FileDocument | null> {
@@ -137,7 +185,7 @@ export class FileLoader {
         return null;
       }
 
-      const content = await fs.promises.readFile(fullPath, "utf8");
+      const content = await this.readFileContent(fullPath, filepath);
       const fileNumber = this.extractFileNumber(filepath);
       const folder = path.dirname(filepath);
       const filename = path.basename(filepath);
@@ -224,8 +272,14 @@ export class FileLoader {
    * Gets files by category (derived from folder path)
    */
   async getFilesByCategory(category: string): Promise<FileDocument[]> {
-    const all = await this.loadAllFiles();
-    return all.filter(f => f.category === category);
+    const filenames = await this.listFiles();
+    const files: FileDocument[] = [];
+    for (const filepath of filenames) {
+      if (this.categorizeFile(filepath) !== category) continue;
+      const file = await this.loadFile(filepath);
+      if (file) files.push(file);
+    }
+    return files;
   }
 
   /**
@@ -248,21 +302,94 @@ export class FileLoader {
   }
 
   /**
-   * Searches files by content
+   * Searches files by content. Tabular files return matching rows only, not the full file.
    */
-  async searchFiles(query: string, folder?: string): Promise<FileDocument[]> {
-    const files = folder 
-      ? await this.loadFilesFromFolder(folder)
-      : await this.loadAllFiles();
-    
-    const lowerQuery = query.toLowerCase();
-    
-    return files.filter(f => 
-      f.content.toLowerCase().includes(lowerQuery) ||
-      f.title?.toLowerCase().includes(lowerQuery) ||
-      f.filename.toLowerCase().includes(lowerQuery) ||
-      f.filepath.toLowerCase().includes(lowerQuery)
-    );
+  async searchFiles(
+    query: string,
+    folder?: string,
+    maxFiles: number = 20,
+    maxRowsPerTabular: number = 10
+  ): Promise<FileDocument[]> {
+    const normalizedFolder = folder?.replace(/^\/+|\/+$/g, "");
+    const filenames = normalizedFolder
+      ? await this.listFiles(normalizedFolder)
+      : await this.listFiles();
+
+    const lowerQuery = query.toLowerCase().trim();
+    if (!lowerQuery) return [];
+
+    const results: FileDocument[] = [];
+
+    for (const filepath of filenames) {
+      if (results.length >= maxFiles) break;
+
+      const fullPath = path.join(this.filesDir, filepath);
+      if (!fs.existsSync(fullPath)) continue;
+
+      const meta = this.describeFile(filepath);
+      const nameMatch =
+        meta.filename.toLowerCase().includes(lowerQuery) ||
+        meta.filepath.toLowerCase().includes(lowerQuery);
+
+      if (isTabularFile(filepath)) {
+        const rowBlocks = await searchTabularRows(fullPath, query, maxRowsPerTabular);
+        if (rowBlocks && rowBlocks.length > 0) {
+          results.push({
+            ...meta,
+            content: rowBlocks.join("\n\n"),
+            title: meta.filename,
+          });
+          continue;
+        }
+        if (nameMatch) {
+          const file = await this.loadFile(filepath);
+          if (file) {
+            const preview = file.content.slice(0, 8000);
+            results.push({
+              ...file,
+              content:
+                preview.length < file.content.length
+                  ? `${preview}\n\n[… truncated; use file_get for full corpus]`
+                  : file.content,
+            });
+          }
+        }
+        continue;
+      }
+
+      const content = await fs.promises.readFile(fullPath, "utf8");
+      const metadata = this.extractMetadata(content);
+      const titleMatch = metadata?.title?.toLowerCase().includes(lowerQuery);
+      if (
+        content.toLowerCase().includes(lowerQuery) ||
+        titleMatch ||
+        nameMatch
+      ) {
+        const snippet = this.extractSearchSnippet(content, lowerQuery);
+        results.push({
+          ...meta,
+          title: metadata?.title,
+          content: snippet,
+          metadata,
+        });
+      }
+    }
+
+    return results;
+  }
+
+  /** Surround the first match with local context for non-tabular text search hits. */
+  private extractSearchSnippet(content: string, lowerQuery: string, radius = 400): string {
+    const idx = content.toLowerCase().indexOf(lowerQuery);
+    if (idx < 0) {
+      return content.length > 2000 ? `${content.slice(0, 2000)}\n\n[… truncated]` : content;
+    }
+    const start = Math.max(0, idx - radius);
+    const end = Math.min(content.length, idx + lowerQuery.length + radius);
+    let snippet = content.slice(start, end);
+    if (start > 0) snippet = `…${snippet}`;
+    if (end < content.length) snippet = `${snippet}…`;
+    return snippet;
   }
 
   /**

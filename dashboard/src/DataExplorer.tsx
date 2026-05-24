@@ -208,14 +208,14 @@ export function DataExplorer() {
       const res = await fetch('/api/mcp/file.list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folder: 'files' })
+        body: JSON.stringify({}),
       })
       const data = await res.json()
       
       // Transform the response into FileItem format
       const fileList: FileItem[] = (data.files || []).map((f: any) => ({
-        path: f.path || f.filepath || f,
-        name: (f.path || f.filepath || f).split('/').pop(),
+        path: f.filepath || f.path || f,
+        name: f.filename || String(f.filepath || f.path || f).split('/').pop(),
         size: f.size || 0,
         modified: f.modified || new Date().toISOString()
       }))
@@ -364,7 +364,7 @@ export function DataExplorer() {
       })
       const data = await res.json()
       setSelectedItem({ type: 'file', filepath, title: filepath.split('/').pop() })
-      setEditorContent(data.content || '')
+      setEditorContent(data.file?.content ?? data.content ?? '')
     } catch (error) {
       alert('Failed to load file')
     }
@@ -2152,7 +2152,10 @@ export function DataExplorer() {
                 }}
               />
             </label>
-            <p className="text-sm text-text-muted mt-2">Upload text files (.txt, .md, .json, etc.) to the files directory for RAG access</p>
+            <p className="text-sm text-text-muted mt-2">
+              Upload text and data files (.txt, .md, .json, .csv, etc.). CSV/TSV files are parsed by row
+              (any columns) for search and Letta ingest — not as one raw blob.
+            </p>
           </div>
 
           {/* Files List */}

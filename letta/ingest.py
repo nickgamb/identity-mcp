@@ -314,6 +314,20 @@ def iter_memory_passages() -> Iterator[Tuple[str, Optional[str], List[str]]]:
 FILE_EXTENSIONS = {".txt", ".md", ".csv", ".tsv", ".log"}
 
 
+def _tabular_passages_from_file(fp: str, rel: str) -> Iterator[Tuple[str, Optional[str], List[str]]]:
+    """Row-aware CSV/TSV passages (any schema)."""
+    import sys
+
+    proc_dir = os.path.join(DATA_ROOT, "scripts", "conversation_processing")
+    if proc_dir not in sys.path:
+        sys.path.insert(0, proc_dir)
+    from csv_corpus import iter_tabular_passages  # noqa: E402
+
+    tags = ["file", "tabular", "ingest"]
+    for passage, ts in iter_tabular_passages(Path(fp), rel, target_chars=CHUNK_TARGET):
+        yield from _safe_yield(passage, ts, tags)
+
+
 def _chunk_text_file(text: str, source_name: str, tags: List[str],
                      ) -> Iterator[Tuple[str, Optional[str], List[str]]]:
     """Chunk a text blob by paragraphs, grouping to CHUNK_TARGET."""
@@ -368,6 +382,13 @@ def iter_file_passages() -> Iterator[Tuple[str, Optional[str], List[str]]]:
 
             fp = os.path.join(root, fname)
             rel = os.path.relpath(fp, DATA_ROOT).replace("\\", "/")
+
+            if ext in (".csv", ".tsv"):
+                try:
+                    yield from _tabular_passages_from_file(fp, rel)
+                except Exception as exc:
+                    log.warning("tabular parse failed for %s: %s", rel, exc)
+                continue
 
             try:
                 with open(fp, encoding="utf-8", errors="replace") as f:
