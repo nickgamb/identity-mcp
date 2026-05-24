@@ -188,8 +188,56 @@ export interface LettaArchivalPage {
     created_at?: string;
     metadata?: Record<string, any>;
   }>;
+  /** Cursor for the next page — when type-filtering, this is the scan
+   *  position (not the last returned passage). */
+  nextCursor?: string;
+  /** False when Letta has no further pages to scan. */
+  hasMore?: boolean;
   total?: number;
   error?: string;
+}
+
+// ── Archival passage type matching (mirrors frontend parsePassageType) ──
+
+export type ArchivalTypeFilter =
+  | "conversation"
+  | "file"
+  | "memory"
+  | "analysis"
+  | "other";
+
+function matchesArchivalType(
+  text: string,
+  filter: ArchivalTypeFilter
+): boolean {
+  if (!text.startsWith("[")) return filter === "other";
+  const bracket = text.split("]")[0].replace("[", "");
+  const parts = bracket.split("|");
+  if (parts.length < 2) return filter === "other";
+  const cat = parts[0].trim();
+  const kind = parts[1].trim().split(/\s/)[0];
+
+  const isDate = /^\d{4}-\d{2}-\d{2}/.test(cat);
+  switch (filter) {
+    case "conversation":
+      return isDate && kind === "conversation";
+    case "file":
+      return cat === "file" || cat === "tabular";
+    case "memory":
+      return cat === "user.context" || cat === "chatgpt_memory";
+    case "analysis":
+      return cat.startsWith("identity") || cat.startsWith("pattern");
+    case "other": {
+      if (isDate && kind === "conversation") return false;
+      if (cat === "file" || cat === "tabular") return false;
+      if (cat === "user.context" || cat === "chatgpt_memory") return false;
+      if (cat.startsWith("identity") || cat.startsWith("pattern"))
+        return false;
+      return true;
+    }
+    default:
+      return true;
+  }
 }
 
 export interface LettaMessage {
@@ -370,13 +418,17 @@ export async function updateLettaCoreMemory(
 /**
  * Get paginated archival memory passages.
  *
- * @param sort  "oldest" (default) pages forward with `after`;
- *              "newest" pages backward with `before`.
+ * @param sort        "oldest" (default) pages forward with `after`;
+ *                    "newest" pages backward with `before`.
+ * @param typeFilter  Optional — when set, the proxy scans through Letta
+ *                    in larger batches and returns only passages whose
+ *                    text prefix matches the requested type.
  */
 export async function getLettaArchival(
   limit: number = 50,
   cursor?: string,
-  sort: "oldest" | "newest" = "oldest"
+  sort: "oldest" | "newest" = "oldest",
+  typeFilter?: ArchivalTypeFilter
 ): Promise<LettaArchivalPage> {
   const agentId = await getAgentId();
   if (!agentId) {
@@ -388,29 +440,89 @@ export async function getLettaArchival(
   }
 
   try {
-    let url = `/v1/agents/${agentId}/archival-memory?limit=${limit}`;
-    if (sort === "newest") url += `&reverse=true`;
-    if (cursor) {
-      url +=
-        sort === "newest"
-          ? `&before=${encodeURIComponent(cursor)}`
-          : `&after=${encodeURIComponent(cursor)}`;
-    }
+    // ── Unfiltered path (fast — single request) ──────────────────
+    if (!typeFilter) {
+      let url = `/v1/agents/${agentId}/archival-memory?limit=${limit}`;
+      if (sort === "newest") url += `&ascending=false`;
+      if (cursor) {
+        url +=
+          sort === "newest"
+            ? `&before=${encodeURIComponent(cursor)}`
+            : `&after=${encodeURIComponent(cursor)}`;
+      }
 
-    const data = await lettaFetch(url);
-    const passages = (Array.isArray(data) ? data : data.passages || []).map(
-      (p: any) => ({
+      const data = await lettaFetch(url);
+      const raw = Array.isArray(data) ? data : data.passages || [];
+      const passages = raw.map((p: any) => ({
         id: p.id || "",
         text: p.content || p.text || "",
         created_at: p.created_at || p.timestamp,
         metadata: p.metadata || {},
-      })
-    );
+      }));
+
+      const nextCursor =
+        raw.length > 0 ? raw[raw.length - 1].id : undefined;
+
+      return {
+        available: true,
+        passages,
+        nextCursor,
+        hasMore: raw.length >= limit && !!nextCursor,
+        total: data.total,
+      };
+    }
+
+    // ── Filtered path — scan & filter server-side ────────────────
+    const BATCH_SIZE = 500;
+    const MAX_SCAN = 10_000;
+    let scanned = 0;
+    let scanCursor = cursor;
+    let exhausted = false;
+    const matched: any[] = [];
+
+    while (matched.length < limit && scanned < MAX_SCAN) {
+      let url = `/v1/agents/${agentId}/archival-memory?limit=${BATCH_SIZE}`;
+      if (sort === "newest") url += `&ascending=false`;
+      if (scanCursor) {
+        url +=
+          sort === "newest"
+            ? `&before=${encodeURIComponent(scanCursor)}`
+            : `&after=${encodeURIComponent(scanCursor)}`;
+      }
+
+      const data = await lettaFetch(url);
+      const batch = Array.isArray(data) ? data : data.passages || [];
+      if (batch.length === 0) break;
+
+      scanned += batch.length;
+      scanCursor = batch[batch.length - 1].id;
+
+      for (const p of batch) {
+        const text = p.content || p.text || "";
+        if (matchesArchivalType(text, typeFilter)) {
+          matched.push(p);
+          if (matched.length >= limit) break;
+        }
+      }
+
+      if (batch.length < BATCH_SIZE) {
+        exhausted = true;
+        break;
+      }
+    }
+
+    const passages = matched.map((p: any) => ({
+      id: p.id || "",
+      text: p.content || p.text || "",
+      created_at: p.created_at || p.timestamp,
+      metadata: p.metadata || {},
+    }));
 
     return {
       available: true,
       passages,
-      total: data.total,
+      nextCursor: scanCursor,
+      hasMore: !exhausted && !!scanCursor,
     };
   } catch (e) {
     logger.error("getLettaArchival failed", { error: String(e) });

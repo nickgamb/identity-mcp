@@ -894,9 +894,9 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
     "data_delete_source",
     {
       title: "Delete Source File",
-      description: "Delete a source file (conversations.json or memories.json). Use this to remove uploaded source files.",
+      description: "Delete a source file (conversations.json, memories.json, or their Anthropic equivalents).",
       inputSchema: z.object({
-        type: z.enum(["conversations", "memories"]),
+        type: z.enum(["conversations", "memories", "anthropic_conversations", "anthropic_memories"]),
       }),
     },
     async ({ type }) => toContent(await handleDataDeleteSource({ type }, getUserId())),
@@ -1027,10 +1027,16 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
         limit: z.number().nullish().describe("Page size (default 50)"),
         cursor: z.string().optional().describe("Passage ID to start after (oldest) or before (newest)"),
         sort: z.enum(["oldest", "newest"]).optional().describe("Sort order: oldest first (default) or newest first"),
+        type: z
+          .enum(["conversation", "file", "memory", "analysis", "other"])
+          .optional()
+          .describe("Filter by passage type (server scans archival memory)"),
       }),
     },
-    async ({ limit, cursor, sort }) =>
-      toContent(await getLettaArchival(limit ?? 50, cursor, sort ?? "oldest")),
+    async ({ limit, cursor, sort, type }) =>
+      toContent(
+        await getLettaArchival(limit ?? 50, cursor, sort ?? "oldest", type)
+      ),
   );
 
   server.registerTool(

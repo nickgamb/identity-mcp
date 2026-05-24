@@ -458,9 +458,15 @@ export function DataExplorer() {
     }
   }
 
-  const handleDeleteSourceFile = async (type: 'conversations' | 'memories') => {
-    const filename = type === 'conversations' ? 'conversations.json' : 'memories.json'
-    
+  const handleDeleteSourceFile = async (type: 'conversations' | 'memories' | 'anthropic_conversations' | 'anthropic_memories') => {
+    const labels: Record<string, string> = {
+      conversations: 'conversations.json',
+      memories: 'memories.json',
+      anthropic_conversations: 'anthropic_conversations.json',
+      anthropic_memories: 'anthropic_memories.json',
+    }
+    const filename = labels[type] || type
+
     if (!confirm(`Delete ${filename}? This will remove the source file.`)) {
       return
     }
@@ -471,13 +477,14 @@ export function DataExplorer() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type })
       })
-      
+
       const data = await res.json()
-      
+
       if (data.success) {
         alert(`${filename} deleted successfully`)
         loadStatus()
-        window.dispatchEvent(new CustomEvent('data-cleaned', { detail: { directory: type } }))
+        const directory = type.includes('conversations') ? 'conversations' : 'memory'
+        window.dispatchEvent(new CustomEvent('data-cleaned', { detail: { directory } }))
       } else {
         alert(`Failed to delete ${filename}: ${data.message || 'Unknown error'}`)
       }
@@ -732,6 +739,15 @@ export function DataExplorer() {
                       }}
                     />
                   </label>
+                  {status.sourceFiles.anthropicConversationsJson && (
+                    <button
+                      onClick={() => handleDeleteSourceFile('anthropic_conversations')}
+                      className="btn btn-ghost text-danger"
+                      disabled={loading}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
                 {loading && <div className="text-sm text-text-muted mt-2">Large files may take 1-2 minutes...</div>}
               </div>
@@ -756,6 +772,15 @@ export function DataExplorer() {
                       }}
                     />
                   </label>
+                  {status.sourceFiles.anthropicMemoriesJson && (
+                    <button
+                      onClick={() => handleDeleteSourceFile('anthropic_memories')}
+                      className="btn btn-ghost text-danger"
+                      disabled={loading}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
                 {loading && <div className="text-sm text-text-muted mt-2">Uploading...</div>}
               </div>

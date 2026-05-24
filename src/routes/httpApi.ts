@@ -119,6 +119,7 @@ import {
   getLettaMessages,
   updateLettaConfig,
   listOllamaModels,
+  type ArchivalTypeFilter,
 } from "../mcp/lettaProxy";
 import {
   handleDataStatus,
@@ -1150,12 +1151,25 @@ mcpRouter.post("/mcp/letta.memory.update", async (req: Request, res: Response) =
   }
 });
 
+const ARCHIVAL_TYPE_FILTERS = new Set([
+  "conversation",
+  "file",
+  "memory",
+  "analysis",
+  "other",
+]);
+
 mcpRouter.get("/mcp/letta.archival", async (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 50;
     const cursor = req.query.cursor as string | undefined;
     const sort = req.query.sort === "newest" ? "newest" : "oldest";
-    const result = await getLettaArchival(limit, cursor, sort);
+    const typeRaw = req.query.type as string | undefined;
+    const typeFilter: ArchivalTypeFilter | undefined =
+      typeRaw && ARCHIVAL_TYPE_FILTERS.has(typeRaw)
+        ? (typeRaw as ArchivalTypeFilter)
+        : undefined;
+    const result = await getLettaArchival(limit, cursor, sort, typeFilter);
     res.json(result);
   } catch (err) {
     handleError(res, err);

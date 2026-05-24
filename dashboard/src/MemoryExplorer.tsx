@@ -21,6 +21,8 @@ import {
   AlertCircle,
   Workflow,
   ArrowUpDown,
+  Filter,
+  Calendar,
 } from 'lucide-react'
 import { authenticatedFetch } from './utils/api'
 import { EmptyState } from './components/EmptyState'
@@ -97,6 +99,35 @@ interface LettaMessage {
   tool_call_id?: string
 }
 
+// ── Archival passage type helpers ────────────────────────────────────────
+
+type ArchivalType = 'conversation' | 'file' | 'memory' | 'analysis' | 'other'
+
+const ARCHIVAL_TYPE_CONFIG: Record<ArchivalType, { label: string; className: string }> = {
+  conversation: { label: 'Conversation', className: 'bg-blue-500/15 text-blue-400' },
+  file:         { label: 'File',         className: 'bg-emerald-500/15 text-emerald-400' },
+  memory:       { label: 'Memory',       className: 'bg-purple-500/15 text-purple-400' },
+  analysis:     { label: 'Analysis',     className: 'bg-amber-500/15 text-amber-400' },
+  other:        { label: 'Other',        className: 'bg-surface-200 text-text-muted' },
+}
+
+function parsePassageType(text: string): ArchivalType {
+  if (!text.startsWith('[')) return 'other'
+  const bracket = text.split(']')[0].replace('[', '')
+  const parts = bracket.split('|')
+  if (parts.length < 2) return 'other'
+  const cat = parts[0].trim()
+  const kind = parts[1].trim().split(/\s/)[0]
+  // Date prefix means conversation format: [2024-01-01 | conversation ...]
+  if (/^\d{4}-\d{2}-\d{2}/.test(cat)) {
+    return kind === 'conversation' ? 'conversation' : 'other'
+  }
+  if (cat === 'file' || cat === 'tabular') return 'file'
+  if (cat === 'user.context' || cat === 'chatgpt_memory') return 'memory'
+  if (cat.startsWith('identity') || cat.startsWith('pattern')) return 'analysis'
+  return 'other'
+}
+
 // ── Component ───────────────────────────────────────────────────────────
 
 export function MemoryExplorer() {
@@ -113,8 +144,12 @@ export function MemoryExplorer() {
   // Archival
   const [passages, setPassages] = useState<Passage[]>([])
   const [archivalCursor, setArchivalCursor] = useState<string | undefined>()
+  const [archivalHasMore, setArchivalHasMore] = useState(true)
   const [archivalLoading, setArchivalLoading] = useState(false)
   const [archivalSort, setArchivalSort] = useState<'oldest' | 'newest'>('newest')
+  const [archivalTypeFilter, setArchivalTypeFilter] = useState<ArchivalType | 'all'>('all')
+  const [archivalDateFrom, setArchivalDateFrom] = useState('')
+  const [archivalDateTo, setArchivalDateTo] = useState('')
   const [archivalSearch, setArchivalSearch] = useState('')
   const [searchResults, setSearchResults] = useState<Passage[] | null>(null)
   const [searchLoading, setSearchLoading] = useState(false)
@@ -190,9 +225,9 @@ export function MemoryExplorer() {
   const loadArchival = useCallback(async (reset = false) => {
     setArchivalLoading(true)
     try {
-      const cursor = reset ? undefined : archivalCursor
       const params = new URLSearchParams({ limit: '50', sort: archivalSort })
-      if (cursor) params.set('cursor', cursor)
+      if (!reset && archivalCursor) params.set('cursor', archivalCursor)
+      if (archivalTypeFilter !== 'all') params.set('type', archivalTypeFilter)
       const res = await authenticatedFetch(`/api/mcp/letta.archival?${params}`)
       const data = await res.json()
       if (data.passages) {
@@ -201,17 +236,15 @@ export function MemoryExplorer() {
         } else {
           setPassages(prev => [...prev, ...data.passages])
         }
-        // Set cursor for next page (last passage ID)
-        if (data.passages.length > 0) {
-          setArchivalCursor(data.passages[data.passages.length - 1].id)
-        }
+        setArchivalCursor(data.nextCursor)
+        setArchivalHasMore(data.hasMore ?? data.passages.length >= 50)
       }
     } catch (error) {
       console.error('Failed to load archival:', error)
     } finally {
       setArchivalLoading(false)
     }
-  }, [archivalCursor, archivalSort])
+  }, [archivalCursor, archivalSort, archivalTypeFilter])
 
   const searchArchival = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -297,14 +330,22 @@ export function MemoryExplorer() {
 
   useEffect(() => {
     if (activeTab === 'core') loadCoreMemory()
-    if (activeTab === 'archival' && passages.length === 0) loadArchival(true)
     if (activeTab === 'activity') loadMessages()
     if (activeTab === 'settings') {
       loadStatus()
       loadOllamaModels()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- loadCoreMemory/loadMessages/loadArchival are stable callbacks
-  }, [activeTab, loadCoreMemory, loadMessages, loadArchival, loadOllamaModels, loadStatus])
+  }, [activeTab, loadCoreMemory, loadMessages, loadOllamaModels, loadStatus])
+
+  // Archival browse: load on tab open and when sort/type filter changes (type filter is server-side)
+  useEffect(() => {
+    if (activeTab !== 'archival' || searchResults) return
+    setPassages([])
+    setArchivalCursor(undefined)
+    setArchivalHasMore(true)
+    loadArchival(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: reset list when browse params change
+  }, [activeTab, archivalTypeFilter, archivalSort, searchResults])
 
   // ── Actions ─────────────────────────────────────────────────────────
 
@@ -732,10 +773,21 @@ export function MemoryExplorer() {
       )}
 
       {/* ── Archival Memory ──────────────────────────────────────── */}
-      {activeTab === 'archival' && (
+      {activeTab === 'archival' && (() => {
+        // Type filter is server-side; date range still client-side on loaded rows
+        const allPassages = searchResults || passages
+        const filteredPassages = allPassages.filter(p => {
+          if (archivalDateFrom && p.created_at && p.created_at.slice(0, 10) < archivalDateFrom) return false
+          if (archivalDateTo && p.created_at && p.created_at.slice(0, 10) > archivalDateTo) return false
+          return true
+        })
+        const hasDateFilters = !!(archivalDateFrom || archivalDateTo)
+        const typeFilterActive = archivalTypeFilter !== 'all' && !searchResults
+
+        return (
         <div>
           {/* Search + Sort */}
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-text-muted" />
               <input
@@ -749,10 +801,7 @@ export function MemoryExplorer() {
             </div>
             <button
               onClick={() => {
-                const next = archivalSort === 'newest' ? 'oldest' : 'newest'
-                setArchivalSort(next)
-                setPassages([])
-                setArchivalCursor(undefined)
+                setArchivalSort(archivalSort === 'newest' ? 'oldest' : 'newest')
               }}
               className="btn btn-ghost text-xs shrink-0 gap-1.5"
               title={`Sorted ${archivalSort} first — click to flip`}
@@ -762,20 +811,77 @@ export function MemoryExplorer() {
             </button>
           </div>
 
+          {/* Filters: type pills + date range */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            {(['all', 'conversation', 'file', 'memory', 'analysis', 'other'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setArchivalTypeFilter(f)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  archivalTypeFilter === f
+                    ? 'bg-accent/15 text-accent'
+                    : 'bg-surface-100 text-text-secondary hover:bg-surface-200'
+                }`}
+              >
+                {f === 'all' ? 'All' : ARCHIVAL_TYPE_CONFIG[f].label}
+              </button>
+            ))}
+            <div className="flex-1" />
+            <div className="flex items-center gap-1.5 text-xs text-text-muted">
+              <Calendar className="w-3.5 h-3.5" />
+              <input
+                type="date"
+                value={archivalDateFrom}
+                onChange={e => setArchivalDateFrom(e.target.value)}
+                className="px-2 py-1 rounded border border-surface-200 bg-surface-50 text-text-secondary text-xs outline-none focus:border-accent"
+                title="From date"
+              />
+              <span>–</span>
+              <input
+                type="date"
+                value={archivalDateTo}
+                onChange={e => setArchivalDateTo(e.target.value)}
+                className="px-2 py-1 rounded border border-surface-200 bg-surface-50 text-text-secondary text-xs outline-none focus:border-accent"
+                title="To date"
+              />
+              {hasDateFilters && (
+                <button
+                  onClick={() => { setArchivalDateFrom(''); setArchivalDateTo('') }}
+                  className="btn btn-ghost text-xs px-2 py-1 text-accent"
+                  title="Clear all filters"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Results */}
-          {searchLoading ? (
+          {(searchLoading || (archivalLoading && passages.length === 0)) ? (
             <div className="flex items-center justify-center py-12">
               <RefreshCw className="w-6 h-6 animate-spin text-accent" />
             </div>
-          ) : (searchResults || passages).length === 0 ? (
+          ) : allPassages.length === 0 ? (
             <EmptyState icon={Search} title={searchResults ? 'No Results' : 'No Passages'} message={searchResults ? 'No results found for your query' : 'No archival passages loaded yet'} />
+          ) : filteredPassages.length === 0 ? (
+            <EmptyState
+              icon={Filter}
+              title="No Matches"
+              message={
+                typeFilterActive
+                  ? `No ${ARCHIVAL_TYPE_CONFIG[archivalTypeFilter].label.toLowerCase()} passages found in this scan window`
+                  : `No passages match the date filters (${allPassages.length} loaded)`
+              }
+            />
           ) : (
             <>
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm text-text-muted">
                   {searchResults
-                    ? `${searchResults.length} search results`
-                    : `${passages.length} passages${status?.archival_count ? ` of ${status.archival_count.toLocaleString()}` : ''}`}
+                    ? `${filteredPassages.length}${hasDateFilters ? ` of ${searchResults.length}` : ''} search results`
+                    : typeFilterActive
+                      ? `${filteredPassages.length} ${ARCHIVAL_TYPE_CONFIG[archivalTypeFilter].label.toLowerCase()} passages${archivalHasMore ? ' (load more to scan)' : ''}`
+                      : `${filteredPassages.length}${hasDateFilters ? ` of ${passages.length} loaded` : ''} passages${status?.archival_count ? ` (${status.archival_count.toLocaleString()} total)` : ''}`}
                 </p>
                 {searchResults && (
                   <button
@@ -788,9 +894,11 @@ export function MemoryExplorer() {
               </div>
 
               <div className="space-y-2">
-                {(searchResults || passages).map((p, idx) => {
+                {filteredPassages.map((p, idx) => {
                   const isExpanded = expandedPassages.has(p.id || String(idx))
                   const preview = p.text.length > 200 && !isExpanded ? p.text.slice(0, 200) + '...' : p.text
+                  const pType = parsePassageType(p.text)
+                  const typeConf = ARCHIVAL_TYPE_CONFIG[pType]
                   return (
                     <div key={p.id || idx} className="stat-card">
                       <div className="flex items-start gap-3">
@@ -820,21 +928,26 @@ export function MemoryExplorer() {
                           )}
                         </button>
                       </div>
-                      {p.created_at && (
-                        <div className="flex items-center gap-2 mt-2">
-                          <Clock className="w-3 h-3 text-text-muted" />
-                          <span className="text-[11px] text-text-muted">
-                            {new Date(p.created_at).toLocaleString()}
-                          </span>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${typeConf.className}`}>
+                          {typeConf.label}
+                        </span>
+                        {p.created_at && (
+                          <>
+                            <Clock className="w-3 h-3 text-text-muted" />
+                            <span className="text-[11px] text-text-muted">
+                              {new Date(p.created_at).toLocaleString()}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   )
                 })}
               </div>
 
               {/* Load more (browse mode only) */}
-              {!searchResults && (
+              {!searchResults && archivalHasMore && (
                 <div className="flex justify-center mt-4">
                   <button
                     onClick={() => loadArchival(false)}
@@ -847,7 +960,7 @@ export function MemoryExplorer() {
                         Loading...
                       </>
                     ) : (
-                      'Load more'
+                      typeFilterActive ? 'Scan more' : 'Load more'
                     )}
                   </button>
                 </div>
@@ -855,7 +968,8 @@ export function MemoryExplorer() {
             </>
           )}
         </div>
-      )}
+        )
+      })()}
 
       {/* ── Activity ─────────────────────────────────────────────── */}
       {activeTab === 'activity' && (

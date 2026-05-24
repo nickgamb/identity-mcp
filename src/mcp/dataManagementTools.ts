@@ -168,14 +168,21 @@ export async function handleDataClean({ directory }: { directory: string }, user
 }
 
 export async function handleDataDeleteSource({ type }: { type: string }, userId: string | null = null): Promise<{ success: boolean; message: string }> {
-  if (type !== "conversations" && type !== "memories") {
-    return { success: false, message: "Invalid type. Must be 'conversations' or 'memories'" };
+  const typeMap: Record<string, { filename: string; subdir: string }> = {
+    conversations:            { filename: "conversations.json",            subdir: "conversations" },
+    memories:                 { filename: "memories.json",                 subdir: "memory" },
+    anthropic_conversations:  { filename: "anthropic_conversations.json",  subdir: "conversations" },
+    anthropic_memories:       { filename: "anthropic_memories.json",       subdir: "memory" },
+  };
+
+  const entry = typeMap[type];
+  if (!entry) {
+    return { success: false, message: `Invalid type '${type}'. Must be one of: ${Object.keys(typeMap).join(", ")}` };
   }
-  
-  const filename = type === "conversations" ? "conversations.json" : "memories.json";
-  const baseDir = type === "conversations" ? path.join(PROJECT_ROOT, "conversations") : path.join(PROJECT_ROOT, "memory");
+
+  const baseDir = path.join(PROJECT_ROOT, entry.subdir);
   const directory = getUserDataPath(baseDir, userId);
-  const filePath = path.join(directory, filename);
+  const filePath = path.join(directory, entry.filename);
   
   try {
     if (fs.existsSync(filePath)) {
