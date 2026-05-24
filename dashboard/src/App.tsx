@@ -36,7 +36,8 @@ const SCRIPTS = [
     name: 'Parse Conversations',
     file: 'parse_conversations.py',
     path: 'scripts/conversation_processing/',
-    description: 'Converts raw conversations.json into structured JSONL files for each conversation.',
+    description:
+      'Parses ChatGPT and Anthropic conversations.json and memories.json into JSONL + Markdown per thread.',
     outputs: ['conversations/*.jsonl', 'conversations/*.md'],
     icon: FileText,
     color: 'accent',
@@ -262,10 +263,11 @@ function App() {
     }))
     setSelectedScript(scriptId)
 
+    // No args — parsers skip already-processed conversations (use CLI --force to reparse all)
     authenticatedFetch('/api/mcp/pipeline.run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ script: script.id })
+      body: JSON.stringify({ script: script.id }),
     }).catch(() => {})
 
     const pollOutput = async () => {
@@ -448,7 +450,7 @@ function App() {
                 <section className="mb-8">
                   <h2 className="font-display text-lg font-semibold text-text-primary mb-4">Processing Pipeline</h2>
                   <p className="text-text-secondary mb-6">
-                    Run these scripts in order to process your ChatGPT formatted conversation export and train your identity model.
+                    Run these scripts in order to process your ChatGPT and Anthropic formatted conversation export and train your identity model.
                   </p>
                   <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
                     {SCRIPTS.sort((a, b) => a.order - b.order).map((script, idx) => (

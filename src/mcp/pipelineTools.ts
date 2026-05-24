@@ -40,8 +40,9 @@ logger.info(`Using Python command: ${PYTHON_CMD}`);
 // Whitelisted scripts that can be run
 const ALLOWED_SCRIPTS: Record<string, { path: string; description: string }> = {
   parse_conversations: {
-    path: "scripts/conversation_processing/parse_conversations.py",
-    description: "Parse raw conversations.json into structured JSONL files",
+    path: "scripts/conversation_processing/parse_all_conversations.py",
+    description:
+      "Parse ChatGPT and/or Claude uploads into structured JSONL (runs each parser if its upload exists)",
   },
   analyze_patterns: {
     path: "scripts/conversation_processing/analyze_patterns.py",
