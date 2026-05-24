@@ -266,7 +266,7 @@ def iter_memory_passages() -> Iterator[Tuple[str, Optional[str], List[str]]]:
                 header = f"[{date or 'undated'} | {rec_type} | {basename}]"
                 yield f"{header}\n{content}", rec.get("createdAt") or rec.get("updated_at"), ["memory", "ingest"]
 
-    # JSON memory files (memories.json, interaction maps, etc.)
+    # JSON memory uploads + other JSON in memory/
     for fp in sorted(glob.glob(os.path.join(DATA_ROOT, "memory", "*.json"))):
         basename = os.path.basename(fp)
         with open(fp, encoding="utf-8") as f:
@@ -276,27 +276,41 @@ def iter_memory_passages() -> Iterator[Tuple[str, Optional[str], List[str]]]:
                 continue
 
         if basename == "memories.json":
-            # ChatGPT memory export: {"memories": [...]} or bare list
             memories = data.get("memories", data) if isinstance(data, dict) else data
             if isinstance(memories, list):
                 for mem in memories:
+                    if not isinstance(mem, dict):
+                        continue
                     content = mem.get("content", "")
                     if not content:
                         continue
                     date = mem.get("updated_at", mem.get("created_at", ""))
+                    if date:
+                        date = str(date)[:10]
                     header = f"[{date or 'undated'} | chatgpt_memory | {basename}]"
                     yield f"{header}\n{content}", date, ["chatgpt_memory", "ingest"]
-            # Claude memory export: [{"conversations_memory": "..."}]
-            if isinstance(data, list):
-                for item in data:
-                    blob = item.get("conversations_memory", "")
-                    if blob:
-                        yield from _chunk_text_file(blob, basename, ["claude_memory", "ingest"])
-        else:
-            # Generic JSON: flatten to text passage(s)
-            text = json.dumps(data, indent=2, ensure_ascii=False, default=str)
-            if len(text) > 100:
-                yield from _chunk_text_file(text, basename, ["memory_json", "ingest"])
+            continue
+
+        if basename == "anthropic_memories.json":
+            items = data if isinstance(data, list) else []
+            if isinstance(data, dict):
+                for key in ("memories", "items", "data"):
+                    nested = data.get(key)
+                    if isinstance(nested, list):
+                        items = nested
+                        break
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                blob = (item.get("conversations_memory") or item.get("content") or "").strip()
+                if blob:
+                    yield from _chunk_text_file(blob, basename, ["claude_memory", "ingest"])
+            continue
+
+        # Generic JSON (interaction maps, etc.)
+        text = json.dumps(data, indent=2, ensure_ascii=False, default=str)
+        if len(text) > 100:
+            yield from _chunk_text_file(text, basename, ["memory_json", "ingest"])
 
     # Markdown reports in memory/
     for fp in sorted(glob.glob(os.path.join(DATA_ROOT, "memory", "*.md"))):

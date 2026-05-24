@@ -26,140 +26,92 @@ Output format (user.context.jsonl):
   {"id": "...", "type": "user.context", "content": "...", "tags": [...]}
 """
 
-import json
-import os
-import sys
+from __future__ import annotations
+
 import argparse
+import json
+import sys
 from pathlib import Path
-from typing import Optional
+
+from memory_parser_common import (
+    USER_ID,
+    extract_tags,
+    get_user_dir,
+    load_keywords,
+)
+
+SCRIPT_DIR = Path(__file__).parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
 
 
-def load_keywords(patterns_path: Path) -> list:
-    """Load keywords from patterns.jsonl."""
-    keywords = []
-    
-    if not patterns_path.exists():
-        return keywords
-    
-    try:
-        for line in patterns_path.read_text(encoding='utf-8').split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                record = json.loads(line)
-                if record.get('type') == 'pattern.keywords':
-                    keywords = record.get('keywords', [])
-                    break
-            except json.JSONDecodeError:
-                continue
-    except Exception as e:
-        print(f"Warning: Error loading patterns: {e}")
-    
-    return keywords
-
-
-def extract_tags(content: str, keywords: list) -> list:
-    """Extract tags from content based on discovered keywords."""
-    tags = []
-    lower = content.lower()
-    
-    # Match against discovered keywords
-    for keyword in keywords:
-        if keyword.lower() in lower:
-            tags.append(keyword)
-    
-    return tags[:10]  # Limit to 10 tags per record
-
-
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description='Parse memories.json to tagged JSONL',
+        description="Parse memories.json to tagged JSONL",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
+        epilog=__doc__,
     )
-    parser.add_argument('--input', type=str, default=None,
-                        help='Path to memories.json')
-    parser.add_argument('--output', type=str, default=None,
-                        help='Path for output JSONL')
-    
+    parser.add_argument("--input", type=str, default=None, help="Path to memories.json")
+    parser.add_argument("--output", type=str, default=None, help="Path for output JSONL")
     args = parser.parse_args()
-    
-    # Paths
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent.parent
-    
-    # Support multi-user: read USER_ID from environment
-    USER_ID = os.environ.get("USER_ID")
-    def get_user_dir(base_dir: Path, user_id: Optional[str] = None) -> Path:
-        """Get user-specific directory if user_id is provided, otherwise base directory."""
-        if user_id:
-            return base_dir / user_id
-        return base_dir
-    
-    memory_dir = get_user_dir(project_root / 'memory', USER_ID)
-    
-    memories_path = Path(args.input) if args.input else memory_dir / 'memories.json'
-    output_path = Path(args.output) if args.output else memory_dir / 'user.context.jsonl'
-    patterns_path = memory_dir / 'patterns.jsonl'
-    
-    # Check input
+
+    memory_dir = get_user_dir(PROJECT_ROOT / "memory", USER_ID)
+
+    memories_path = Path(args.input) if args.input else memory_dir / "memories.json"
+    output_path = Path(args.output) if args.output else memory_dir / "user.context.jsonl"
+    patterns_path = memory_dir / "patterns.jsonl"
+
     if not memories_path.exists():
         print(f"Error: memories.json not found at {memories_path}")
         sys.exit(1)
-    
-    # Load keywords
+
     keywords = load_keywords(patterns_path)
     if keywords:
         print(f"Loaded {len(keywords)} keywords from patterns.jsonl")
     else:
         print("No patterns.jsonl found - memories will have basic tags")
         print("  Tip: Run 'python analyze_patterns.py' first for auto-tagging")
-    
-    # Read memories
-    with open(memories_path, 'r', encoding='utf-8') as f:
+
+    with open(memories_path, encoding="utf-8") as f:
         data = json.load(f)
-    
-    if 'memories' not in data or not isinstance(data['memories'], list):
+
+    if "memories" not in data or not isinstance(data["memories"], list):
         print("Error: Invalid memories.json format")
-        print("Expected: {\"memories\": [{\"id\": ..., \"content\": ...}, ...]}")
+        print('Expected: {"memories": [{"id": ..., "content": ...}, ...]}')
         sys.exit(1)
-    
-    # Process
+
     output_lines = []
-    tag_counts = {}
-    
-    for memory in data['memories']:
-        content = memory.get('content', '')
+    tag_counts: dict[str, int] = {}
+
+    for memory in data["memories"]:
+        content = memory.get("content", "")
         tags = extract_tags(content, keywords)
-        
+
         for tag in tags:
             tag_counts[tag] = tag_counts.get(tag, 0) + 1
-        
+
         record = {
-            'id': f'user-context-{memory["id"]}',
-            'type': 'user.context',
-            'content': content,
-            'source': 'chatgpt_memories',
-            'source_id': memory['id'],
-            'updated_at': memory.get('updated_at'),
-            'createdAt': memory.get('updated_at'),
-            'tags': tags
+            "id": f'user-context-{memory["id"]}',
+            "type": "user.context",
+            "content": content,
+            "source": "chatgpt_memories",
+            "source_id": memory["id"],
+            "updated_at": memory.get("updated_at"),
+            "createdAt": memory.get("updated_at"),
+            "tags": tags,
         }
-        output_lines.append(json.dumps(record))
-    
-    # Write
+        output_lines.append(json.dumps(record, ensure_ascii=False))
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(output_lines) + '\n')
-    
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(output_lines) + ("\n" if output_lines else ""))
+
     print(f"\n✅ Parsed {len(data['memories'])} memories to {output_path}")
-    
+
     if tag_counts:
         print("\nTop tags applied:")
         for tag, count in sorted(tag_counts.items(), key=lambda x: -x[1])[:10]:
             print(f"  {tag}: {count}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

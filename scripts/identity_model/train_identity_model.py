@@ -140,7 +140,7 @@ def load_memory_files() -> Dict[str, List[Dict]]:
         "patterns": [],
         "identity": [],
         "identity_analysis": [],
-        "user_context": [],
+        "parsed_memories": [],
     }
     
     # Load patterns.jsonl - discovered keywords, topics, entities
@@ -179,18 +179,22 @@ def load_memory_files() -> Dict[str, List[Dict]]:
         except Exception as e:
             print(f"  ⚠ Error loading identity_analysis.jsonl: {e}")
     
-    # Load user.context.jsonl - ChatGPT memories
-    context_path = MEMORY_DIR / "user.context.jsonl"
-    if context_path.exists():
-        try:
-            with open(context_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if line.strip():
-                        memory_data["user_context"].append(json.loads(line))
-            print(f"  ✓ Loaded user.context.jsonl ({len(memory_data['user_context'])} records)")
-        except Exception as e:
-            print(f"  ⚠ Error loading user.context.jsonl: {e}")
-    
+    # Parsed ChatGPT + Claude memories (user.context.jsonl, claude.context.jsonl)
+    try:
+        import sys
+        proc_dir = PROJECT_ROOT / "scripts" / "conversation_processing"
+        if str(proc_dir) not in sys.path:
+            sys.path.insert(0, str(proc_dir))
+        from memory_parser_common import load_parsed_memories
+
+        memory_data["parsed_memories"] = load_parsed_memories(MEMORY_DIR)
+        if memory_data["parsed_memories"]:
+            print(
+                f"  ✓ Loaded parsed memories ({len(memory_data['parsed_memories'])} records, ChatGPT + Claude)"
+            )
+    except Exception as e:
+        print(f"  ⚠ Error loading parsed memory JSONL: {e}")
+
     return memory_data
 
 
@@ -248,8 +252,8 @@ def extract_identity_signals(memory_data: Dict[str, List[Dict]]) -> Dict[str, An
         if content and len(content) > 20:
             signals["identity_phrases"].append(content)
     
-    # From user.context.jsonl - extract as additional identity phrases
-    for record in memory_data.get("user_context", []):
+    # From parsed memory JSONL (ChatGPT + Claude)
+    for record in memory_data.get("parsed_memories", []):
         content = record.get("content", record.get("text", ""))
         if content and len(content) > 20:
             signals["identity_phrases"].append(content)

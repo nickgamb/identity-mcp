@@ -33,6 +33,8 @@ from typing import Dict, List, Optional
 from datetime import datetime
 import random
 
+from memory_parser_common import memories_as_corpus_entries
+
 # Project paths
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
@@ -229,7 +231,11 @@ def extract_capitalized_words(text: str) -> List[str]:
     return words
 
 
-def analyze_conversations(conversations: List[Dict], files_data: List[Dict]) -> Dict:
+def analyze_conversations(
+    conversations: List[Dict],
+    files_data: List[Dict],
+    memories_data: Optional[List[Dict]] = None,
+) -> Dict:
     """Analyze all data to discover patterns."""
     analysis = {
         'word_freq': Counter(),
@@ -295,25 +301,26 @@ def analyze_conversations(conversations: List[Dict], files_data: List[Dict]) -> 
                     if match not in STOPWORDS:
                         analysis['phrase_patterns'].update([f"you {match}"])
     
-    # Analyze files
-    for file_info in files_data:
+    # Analyze files and parsed memories (same text statistics path)
+    for file_info in (files_data or []) + (memories_data or []):
         content = file_info.get('content', '')
         if not content:
             continue
-        
+
         words = extract_words(content)
         analysis['word_freq'].update(words)
-        
+        analysis['user_word_freq'].update(words)
+
         if len(words) >= 2:
             bigrams = [f"{words[i]} {words[i+1]}" for i in range(len(words)-1)]
             analysis['bigram_freq'].update(bigrams)
-        
+
         caps = extract_capitalized_words(content)
         analysis['capitalized_words'].update(caps)
-        
+
         emojis = re.findall(r'[\U0001F300-\U0001F9FF]', content)
         analysis['emojis'].update(emojis)
-    
+
     return analysis
 
 
@@ -685,13 +692,17 @@ def main():
     files_data = []
     if not args.no_files and files_dir.exists():
         files_data = load_files(files_dir)
-    
-    if not conversations and not files_data:
+
+    memories_data = memories_as_corpus_entries(MEMORY_DIR)
+    if memories_data:
+        print(f"Loaded {len(memories_data)} parsed memory records (ChatGPT + Claude)")
+
+    if not conversations and not files_data and not memories_data:
         print("Error: No data to analyze.")
         sys.exit(1)
-    
+
     # Analyze
-    analysis = analyze_conversations(conversations, files_data)
+    analysis = analyze_conversations(conversations, files_data, memories_data)
     
     # Find patterns
     distinctive_terms = find_distinctive_terms(analysis, min_freq=args.min_freq)

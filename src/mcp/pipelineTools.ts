@@ -23,8 +23,9 @@ const ALLOWED_SCRIPTS: Record<string, { path: string; description: string }> = {
     description: "Discover distinctive terms, topics, and patterns",
   },
   parse_memories: {
-    path: "scripts/conversation_processing/parse_memories.py",
-    description: "Convert ChatGPT memories.json to searchable context",
+    path: "scripts/conversation_processing/parse_all_memories.py",
+    description:
+      "Parse ChatGPT and/or Claude memory uploads into JSONL (runs each parser if its upload exists)",
   },
   analyze_identity: {
     path: "scripts/conversation_processing/analyze_identity.py",
@@ -432,8 +433,8 @@ export async function handlePipelineRunAll(userId: string | null = null): Promis
   const results: ScriptResult[] = [];
   const order = [
     "parse_conversations",
-    "analyze_patterns",
     "parse_memories",
+    "analyze_patterns",
     "analyze_identity",
     "build_interaction_map",
   ];

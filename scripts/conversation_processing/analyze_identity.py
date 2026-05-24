@@ -663,13 +663,37 @@ def main():
         print(f"Loading conversations from {CONVERSATIONS_DIR}...")
     
     conversations = load_conversations(CONVERSATIONS_DIR)
-    
+
+    from memory_parser_common import load_parsed_memories
+
+    memories = load_parsed_memories(MEMORY_DIR)
+    if memories:
+        conversations.append(
+            {
+                "id": "parsed_memories",
+                "file": "memory/user.context.jsonl+claude.context.jsonl",
+                "messages": [
+                    {"role": "user", "content": m["content"], "timestamp": ""}
+                    for m in memories
+                ],
+                "first_timestamp": "",
+                "last_timestamp": "",
+            }
+        )
+
     if not conversations:
-        print("No conversations found. Run parse_conversations.py first.")
+        print("No conversations or parsed memories found.")
+        print("Run parse_conversations.py and/or parse_memories first.")
         sys.exit(1)
-    
+
     if not args.quiet:
-        print(f"Loaded {len(conversations)} conversations")
+        conv_count = sum(1 for c in conversations if c.get("id") != "parsed_memories")
+        mem_count = len(memories)
+        print(f"Loaded {conv_count} conversations", end="")
+        if mem_count:
+            print(f" + {mem_count} parsed memory records (ChatGPT/Claude)")
+        else:
+            print()
         print("Analyzing identity patterns...")
     
     # Run analysis

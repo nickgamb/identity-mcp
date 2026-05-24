@@ -417,6 +417,47 @@ def main():
     memory_dir.mkdir(exist_ok=True)
     
     index_entries, all_events = process_conversations(conversations_dir)
+
+    from memory_parser_common import load_parsed_memories
+
+    for mem in load_parsed_memories(memory_dir):
+        content = mem.get("content", "")
+        if not content or len(content) < 40:
+            continue
+        mem_id = f"memory:{mem['id']}"
+        file_path = f"memory/{mem.get('source', 'memory')}"
+        topic_tags = sorted(detect_topic_tags(content))
+        tone_tags = sorted(detect_tone_tags(content))
+        preview = content[:250] + ("..." if len(content) > 250 else "")
+        index_entries.append(
+            {
+                "conversation_id": mem_id,
+                "file_path": file_path,
+                "earliest_timestamp": None,
+                "latest_timestamp": None,
+                "message_count": 1,
+                "user_message_count": 1,
+                "topic_tags": topic_tags,
+                "tone_tags": tone_tags,
+                "truncated_or_corrupted": False,
+                "messages_preview": [
+                    {
+                        "role": "user",
+                        "timestamp": "",
+                        "content_preview": preview,
+                    }
+                ],
+            }
+        )
+        all_events.append(
+            {
+                "event_type": "MEMORY_SNIPPET",
+                "timestamp": None,
+                "conversation_id": mem_id,
+                "file_path": file_path,
+                "short_description": f"Parsed memory ({mem.get('type', 'memory')}). Preview: {preview[:150]}...",
+            }
+        )
     
     # Sort by timestamp
     index_entries.sort(key=lambda x: x['earliest_timestamp'] or 0)

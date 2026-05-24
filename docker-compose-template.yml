@@ -54,6 +54,7 @@ services:
       - ./conversations:/app/conversations
       - ./files:/app/files
       - ./scripts:/app/scripts
+      - ./letta:/app/letta
       - ./models:/app/models
       - ./training_data:/app/training_data
       - ./adapters:/app/adapters

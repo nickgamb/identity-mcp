@@ -18,11 +18,14 @@ ENROLLMENT TASKS:
 
 WHAT IT CREATES:
     models/eeg_identity/
-    ├── config.json           # Model configuration and statistics
-    ├── eeg_centroid.npy      # Identity centroid (mean feature vector)
-    ├── spectral_profile.json # Per-channel frequency band power profile
-    ├── feature_scaler.json   # Feature normalization parameters
-    └── enrollment_log.json   # Enrollment metadata and task log
+    ├── config.json                  # Model configuration and statistics
+    ├── eeg_centroid.npy             # Identity centroid (mean feature vector)
+    ├── spectral_profile.json        # Per-channel frequency band power profile
+    ├── feature_scaler.json          # Feature normalization parameters
+    ├── enrollment_log.json          # Flat task log across all enrollment runs
+    ├── accumulated_raw_features.npy # Raw features stacked across runs (for refit)
+    ├── enrollment_history.json      # Per-run session metadata
+    └── sessions/*.json              # Optional per-run snapshots
 
 DEPENDENCIES:
     pip install numpy scipy scikit-learn tqdm
@@ -32,6 +35,7 @@ USAGE:
     python enroll_brainwaves.py --synthetic                       # Test without hardware
     python enroll_brainwaves.py --serial EX0000B29AB0205E         # With EMOTIV dongle
     python enroll_brainwaves.py --synthetic --task-duration 10    # Shorter tasks
+    python enroll_brainwaves.py --synthetic --reset             # Clear accumulated data
 
 CONNECTION:
     Requires the EMOTIV USB wireless dongle (VID 0x1234, PID 0xED02).
@@ -421,6 +425,129 @@ def save_eeg_identity_model(
     print(f"\n   Model saved to {output_dir}")
 
 
+ACCUMULATED_RAW_FILE = "accumulated_raw_features.npy"
+ENROLLMENT_HISTORY_FILE = "enrollment_history.json"
+SESSIONS_SUBDIR = "sessions"
+
+
+def clear_accumulated_enrollment(output_dir: Path) -> None:
+    """Remove cross-run accumulation artifacts (--reset)."""
+    for name in (ACCUMULATED_RAW_FILE, ENROLLMENT_HISTORY_FILE):
+        path = output_dir / name
+        if path.exists():
+            path.unlink()
+    sessions_dir = output_dir / SESSIONS_SUBDIR
+    if sessions_dir.exists():
+        import shutil
+        shutil.rmtree(sessions_dir)
+
+
+def load_accumulated_raw_features(output_dir: Path) -> Optional[np.ndarray]:
+    path = output_dir / ACCUMULATED_RAW_FILE
+    if path.exists():
+        data = np.load(path)
+        if data.ndim == 1:
+            return data.reshape(1, -1)
+        return data
+    return None
+
+
+def append_accumulated_raw_features(output_dir: Path, new_features: np.ndarray) -> np.ndarray:
+    """Stack this run's raw features onto prior runs and persist."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    prior = load_accumulated_raw_features(output_dir)
+    if prior is not None and len(prior) > 0:
+        combined = np.vstack([prior, new_features])
+    else:
+        combined = new_features
+    np.save(output_dir / ACCUMULATED_RAW_FILE, combined)
+    return combined
+
+
+def load_enrollment_history(output_dir: Path) -> List[Dict[str, Any]]:
+    path = output_dir / ENROLLMENT_HISTORY_FILE
+    if not path.exists():
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return data
+        return data.get("sessions", [])
+    except Exception:
+        return []
+
+
+def append_enrollment_session(
+    output_dir: Path,
+    session: Dict[str, Any],
+    spectral_profiles: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Append a run to enrollment_history.json and sessions/<id>.json."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sessions = load_enrollment_history(output_dir)
+    record = {
+        **session,
+        "spectral_profiles": spectral_profiles,
+    }
+    sessions.append(record)
+
+    with open(output_dir / ENROLLMENT_HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(
+            {"sessions": sessions, "updated_at": datetime.now().isoformat()},
+            f,
+            indent=2,
+            default=str,
+        )
+
+    sessions_dir = output_dir / SESSIONS_SUBDIR
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    session_id = session.get("run_id", datetime.now().strftime("%Y%m%d_%H%M%S"))
+    with open(sessions_dir / f"{session_id}.json", "w", encoding="utf-8") as f:
+        json.dump(record, f, indent=2, default=str)
+
+    return sessions
+
+
+def flatten_enrollment_logs(sessions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    logs: List[Dict[str, Any]] = []
+    for s in sessions:
+        for entry in s.get("tasks", []):
+            logs.append({**entry, "enrollment_run": s.get("run_at")})
+    return logs
+
+
+def collect_spectral_profiles_from_history(output_dir: Path) -> List[Dict[str, Any]]:
+    profiles: List[Dict[str, Any]] = []
+    for session in load_enrollment_history(output_dir):
+        profiles.extend(session.get("spectral_profiles", []))
+    return profiles
+
+
+def aggregate_spectral_profiles(all_spectral_profiles: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Average spectral profiles across tasks (and enrollment runs)."""
+    agg_spectral: Dict[str, Any] = {}
+    for ch_name in EEG_CHANNELS:
+        ch_profiles = []
+        for sp in all_spectral_profiles:
+            profile = sp.get("profile", sp)
+            if ch_name in profile:
+                ch_profiles.append(profile[ch_name])
+
+        if ch_profiles:
+            agg_spectral[ch_name] = {}
+            for band_name in FREQ_BANDS:
+                abs_powers = [p[band_name]["absolute_power"] for p in ch_profiles]
+                rel_powers = [p[band_name]["relative_power"] for p in ch_profiles]
+                agg_spectral[ch_name][band_name] = {
+                    "mean_absolute_power": float(np.mean(abs_powers)),
+                    "std_absolute_power": float(np.std(abs_powers)),
+                    "mean_relative_power": float(np.mean(rel_powers)),
+                    "std_relative_power": float(np.std(rel_powers)),
+                }
+    return agg_spectral
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Enrollment flow
 # ─────────────────────────────────────────────────────────────────────────────
@@ -587,6 +714,10 @@ def main():
         "--dashboard", action="store_true",
         help="Emit structured @@EEG_EVENT lines for dashboard SSE streaming"
     )
+    parser.add_argument(
+        "--reset", action="store_true",
+        help="Clear accumulated enrollment data before this run (starts fresh)"
+    )
     
     args = parser.parse_args()
     
@@ -606,6 +737,10 @@ def main():
     print(f"   Channels: {NUM_CHANNELS} ({', '.join(EEG_CHANNELS)})")
     print(f"   Sample rate: {SAMPLE_RATE} Hz")
     print(f"   Output: {MODELS_DIR}")
+
+    if args.reset:
+        print(f"\n   --reset: clearing accumulated enrollment data...")
+        clear_accumulated_enrollment(MODELS_DIR)
     
     if args.synthetic:
         print(f"   Synthetic seed: {args.synthetic_seed}")
@@ -697,16 +832,37 @@ def main():
         sys.exit(1)
     
     feature_matrix = np.array(all_features)
-    print(f"\n   Feature matrix shape: {feature_matrix.shape}")
+    print(f"\n   This run — feature matrix shape: {feature_matrix.shape}")
     print(f"   Valid tasks: {len(all_features)}/{len(tasks)}")
+
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_meta = {
+        "run_id": run_id,
+        "run_at": datetime.now().isoformat(),
+        "mode": mode,
+        "num_tasks": len(tasks),
+        "num_valid_tasks": len(all_features),
+        "tasks": enrollment_log,
+    }
+    all_sessions = append_enrollment_session(
+        MODELS_DIR, session_meta, all_spectral_profiles
+    )
+
+    combined_raw = append_accumulated_raw_features(MODELS_DIR, feature_matrix)
+    prior_rows = len(combined_raw) - len(feature_matrix)
+    print(f"\n   Accumulated raw features: {combined_raw.shape[0]} rows", end="")
+    if prior_rows > 0:
+        print(f" (+{len(feature_matrix)} this run, {prior_rows} from prior runs)")
+    else:
+        print(f" (first run)")
+    print(f"   Enrollment sessions: {len(all_sessions)}")
     
     # ── Normalize features (two-step: StandardScaler then L2) ──
-    print(f"\n   Normalizing features...")
+    print(f"\n   Normalizing all accumulated features...")
     
-    # Step 1: StandardScaler — equalize feature scales so all dimensions
-    # contribute equally (e.g. variance features ~0-1000 vs asymmetry ~0-1)
+    # Step 1: StandardScaler — fit on every enrollment run combined
     scaler = StandardScaler()
-    scaled_features = scaler.fit_transform(feature_matrix)
+    scaled_features = scaler.fit_transform(combined_raw)
     scaler_params = {
         "mean": scaler.mean_.tolist(),
         "scale": scaler.scale_.tolist(),
@@ -735,35 +891,21 @@ def main():
     print(f"   Verification threshold (1 sigma): {statistics['similarity_threshold_1std']:.4f}")
     print(f"   Verification threshold (2 sigma): {statistics['similarity_threshold_2std']:.4f}")
     
-    # ── Aggregate spectral profile ──
+    # ── Aggregate spectral profile (all runs) ──
     print(f"\n   Computing aggregate spectral profile...")
-    # Average spectral profiles across all tasks
-    agg_spectral = {}
-    for ch_name in EEG_CHANNELS:
-        ch_profiles = []
-        for sp in all_spectral_profiles:
-            if ch_name in sp["profile"]:
-                ch_profiles.append(sp["profile"][ch_name])
-        
-        if ch_profiles:
-            agg_spectral[ch_name] = {}
-            for band_name in FREQ_BANDS:
-                abs_powers = [p[band_name]["absolute_power"] for p in ch_profiles]
-                rel_powers = [p[band_name]["relative_power"] for p in ch_profiles]
-                agg_spectral[ch_name][band_name] = {
-                    "mean_absolute_power": float(np.mean(abs_powers)),
-                    "std_absolute_power": float(np.std(abs_powers)),
-                    "mean_relative_power": float(np.mean(rel_powers)),
-                    "std_relative_power": float(np.std(rel_powers)),
-                }
+    all_run_spectral = collect_spectral_profiles_from_history(MODELS_DIR)
+    agg_spectral = aggregate_spectral_profiles(all_run_spectral)
     
     spectral_output = {
         "aggregate": agg_spectral,
-        "per_task": all_spectral_profiles,
+        "per_task": all_run_spectral,
+        "enrollment_sessions": len(all_sessions),
     }
     
     # ── Save model ──
     print(f"\n   Saving EEG identity model...")
+    merged_enrollment_log = flatten_enrollment_logs(all_sessions)
+
     config = {
         "mode": mode,
         "device_type": args.device_type,
@@ -775,9 +917,13 @@ def main():
         "task_duration": args.task_duration,
         "word_duration": args.word_duration,
         "action_duration": args.action_duration,
-        "feature_dim": feature_matrix.shape[1],
+        "feature_dim": combined_raw.shape[1],
         "model_type": "centroid",
         "frequency_bands": {k: list(v) for k, v in FREQ_BANDS.items()},
+        "accumulated": True,
+        "enrollment_sessions": len(all_sessions),
+        "total_accumulated_samples": int(combined_raw.shape[0]),
+        "last_run_id": run_id,
     }
     
     save_eeg_identity_model(
@@ -786,7 +932,7 @@ def main():
         spectral_profile=spectral_output,
         statistics=statistics,
         config=config,
-        enrollment_log=enrollment_log,
+        enrollment_log=merged_enrollment_log,
         output_dir=MODELS_DIR,
     )
     
@@ -796,14 +942,15 @@ def main():
     print("=" * 60)
     print(f"\n   Model saved to: {MODELS_DIR}")
     print(f"\n   EEG Identity Statistics:")
-    print(f"   - Tasks completed: {len(all_features)}/{len(tasks)}")
-    print(f"   - Feature dimensions: {feature_matrix.shape[1]}")
+    print(f"   - Tasks completed (this run): {len(all_features)}/{len(tasks)}")
+    print(f"   - Accumulated samples: {combined_raw.shape[0]} across {len(all_sessions)} session(s)")
+    print(f"   - Feature dimensions: {combined_raw.shape[1]}")
     print(f"   - Mean similarity: {statistics['mean_similarity']:.4f}")
     print(f"   - Verification threshold (1 sigma): {statistics['similarity_threshold_1std']:.4f}")
     print(f"   - Verification threshold (2 sigma): {statistics['similarity_threshold_2std']:.4f}")
     print(f"\n   Next steps:")
     print(f"   1. Run authorize_brainwaves.py to test live verification")
-    print(f"   2. Re-enroll multiple times to improve the model")
+    print(f"   2. Re-enroll to accumulate more samples (use --reset to start over)")
     print(f"   3. Add to dashboard pipeline for UI-based enrollment")
     
     # Dashboard event — enrollment complete

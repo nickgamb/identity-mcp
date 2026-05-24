@@ -17,9 +17,13 @@ RUN npm install --production=false
 COPY src ./src
 COPY memory ./memory
 COPY scripts ./scripts
+COPY letta ./letta
 
 # Install Python dependencies for processing scripts
 RUN pip3 install --no-cache-dir --break-system-packages -r scripts/conversation_processing/requirements.txt
+
+# Letta ingest / register_tools (maintenance pipeline)
+RUN pip3 install --no-cache-dir --break-system-packages -r letta/requirements.txt
 
 # Install Python dependencies for identity model (ML libraries)
 # Use CPU-only PyTorch for compatibility
