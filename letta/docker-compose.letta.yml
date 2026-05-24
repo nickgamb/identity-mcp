@@ -45,6 +45,8 @@ services:
       # Inference + embeddings come from Ollama. Merge mode: http://ollama:11434/v1.
       # Localhost mode: set OLLAMA_BASE_URL=http://<server-ip>:11434/v1
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      # Disable Sentry telemetry — SDK is installed but kept dormant
+      - SENTRY_DSN=
     networks:
       - mcp-network
     depends_on:

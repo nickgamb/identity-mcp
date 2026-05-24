@@ -15,8 +15,8 @@
 #   --profile ollama    Ollama for local inference (faster startup, GGUF models)
 #   --profile hf        HuggingFace service (LoRA hot-swap, multi-GPU sharding)
 #
-# CORE (no profile): mcp-server, identity-service, dashboard, LibreChat deps
-#   identity-service provides semantic embeddings for identity.verify (always on with stack)
+# CORE (no profile): mcp-server, dashboard, LibreChat deps (no GPU)
+#   identity-service (--profile identity), ollama (--profile ollama), hf-service (--profile hf) use GPU
 #
 # COMMON COMMANDS:
 #   docker compose --profile ollama logs -f                    # Follow all logs
@@ -49,7 +49,6 @@ services:
       - MEMORY_DIR=/app/memory
       - FILES_DIR=/app/files
       - IDENTITY_SERVICE_URL=http://identity-service:4001
-      - NVIDIA_VISIBLE_DEVICES=all
     volumes:
       - ./memory:/app/memory
       - ./conversations:/app/conversations
@@ -60,17 +59,6 @@ services:
       - ./adapters:/app/adapters
     networks:
       - mcp-network
-    runtime: nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    depends_on:
-      identity-service:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4000/health"]
       interval: 10s
@@ -253,10 +241,22 @@ services:
       - ALLOW_REGISTRATION=true
       - ALLOW_SOCIAL_LOGIN=false
       - APP_TITLE=Chat
+      - 'CUSTOM_FOOTER=© 2026 MindGarden LLC (UBI: 605 531 024)'
       - ENABLE_AGENTS=true
       - LANGGRAPH_RECURSION_LIMIT=50000
     volumes:
       - ./librechat-config/librechat.yaml:/app/librechat.yaml:ro
+      - ./librechat-config/branding/logo.svg:/app/client/dist/assets/logo.svg:ro
+      - ./librechat-config/branding/logo.svg:/app/client/public/assets/logo.svg:ro
+      - ./librechat-config/branding/favicon-16x16.png:/app/client/dist/assets/favicon-16x16.png:ro
+      - ./librechat-config/branding/favicon-16x16.png:/app/client/public/assets/favicon-16x16.png:ro
+      - ./librechat-config/branding/favicon-32x32.png:/app/client/dist/assets/favicon-32x32.png:ro
+      - ./librechat-config/branding/favicon-32x32.png:/app/client/public/assets/favicon-32x32.png:ro
+      - ./librechat-config/branding/apple-touch-icon-180x180.png:/app/client/dist/assets/apple-touch-icon-180x180.png:ro
+      - ./librechat-config/branding/apple-touch-icon-180x180.png:/app/client/public/assets/apple-touch-icon-180x180.png:ro
+      - ./librechat-config/branding/auth-overrides.css:/app/client/dist/assets/auth-overrides.css:ro
+      - ./librechat-config/branding/auth-overrides.css:/app/client/public/assets/auth-overrides.css:ro
+      - ./librechat-config/branding/index.html:/app/client/dist/index.html:ro
       - librechat-uploads:/app/client/public/uploads
     networks:
       - mcp-network

@@ -32,57 +32,122 @@ http = httpx.Client(base_url=BASE, timeout=30.0, follow_redirects=True)
 TAG = "identity_mcp"
 
 
-def _tool_source(func_name: str, docstring: str, endpoint: str,
-                 params: str = "", body_expr: str = "{}") -> str:
-    lines = [
-        f"def {func_name}({params}) -> str:",
-        f'    """{docstring}"""',
-        "    import urllib.request",
-        "    import json as _json",
-        "",
-        f'    url = "{MCP_URL}{endpoint}"',
-        f"    body = _json.dumps({body_expr}).encode('utf-8')",
-        "    req = urllib.request.Request(url, data=body, method='POST',",
-        "                                headers={'Content-Type': 'application/json'})",
-        "    try:",
-        "        with urllib.request.urlopen(req, timeout=30) as resp:",
-        "            data = _json.loads(resp.read().decode('utf-8'))",
-        "            return _json.dumps(data, indent=2)[:8000]",
-        "    except Exception as e:",
-        "        return f'Error calling identity-mcp: {e}'",
-    ]
-    return "\n".join(lines) + "\n"
+def _tool_source(
+    func_name: str,
+    docstring: str,
+    endpoint: str,
+    params: str = "",
+    body_expr: str = "{}",
+    method: str = "POST",
+) -> str:
+    """Generate Letta Python tool source that calls identity-mcp HTTP API."""
+    if method.upper() == "GET":
+        return "\n".join(
+            [
+                f"def {func_name}({params}) -> str:",
+                f'    """{docstring}"""',
+                "    import urllib.request",
+                "    import json as _json",
+                "",
+                f'    url = "{MCP_URL}{endpoint}"',
+                "    req = urllib.request.Request(url, method='GET')",
+                "    try:",
+                "        with urllib.request.urlopen(req, timeout=60) as resp:",
+                "            data = _json.loads(resp.read().decode('utf-8'))",
+                "            return _json.dumps(data, indent=2)[:8000]",
+                "    except Exception as e:",
+                "        return f'Error calling identity-mcp: {e}'",
+            ]
+        ) + "\n"
+
+    return "\n".join(
+        [
+            f"def {func_name}({params}) -> str:",
+            f'    """{docstring}"""',
+            "    import urllib.request",
+            "    import json as _json",
+            "",
+            f'    url = "{MCP_URL}{endpoint}"',
+            f"    body = _json.dumps({body_expr}).encode('utf-8')",
+            "    req = urllib.request.Request(url, data=body, method='POST',",
+            "                                headers={'Content-Type': 'application/json'})",
+            "    try:",
+            "        with urllib.request.urlopen(req, timeout=60) as resp:",
+            "            data = _json.loads(resp.read().decode('utf-8'))",
+            "            return _json.dumps(data, indent=2)[:8000]",
+            "    except Exception as e:",
+            "        return f'Error calling identity-mcp: {e}'",
+        ]
+    ) + "\n"
 
 
 TOOL_SOURCES = [
+    # ── Search & corpus access ─────────────────────────────────────────────
     _tool_source(
         "identity_search_corpus",
-        "Semantic search across the full identity corpus (conversations, memories, files) via pgvector embeddings. Use to discover relevant history by meaning.\n\n    Args:\n        query: Natural language search query\n        limit: Max results (default 20)\n\n    Returns:\n        str: JSON results",
+        "Semantic search across Letta archival memory (pgvector). Use for meaning-based recall of ingested history.\n\n    Args:\n        query: Natural language search query\n        limit: Max results (default 20)\n\n    Returns:\n        str: JSON results",
         "/mcp/search.semantic",
         params="query: str, limit: int = 20",
         body_expr='{"query": query, "limit": limit or 20}',
     ),
     _tool_source(
-        "identity_get_profile",
-        "Retrieve the full identity bundle including breath, vows, prime directives, and core identity data.\n\n    Returns:\n        str: JSON identity bundle",
-        "/mcp/identity.get_full",
-    ),
-    _tool_source(
-        "identity_analysis_summary",
-        "Get an overview of identity pattern analysis including relational patterns, momentum, and naming events.\n\n    Returns:\n        str: JSON analysis summary",
-        "/mcp/identity.analysis_summary",
-    ),
-    _tool_source(
-        "identity_interaction_summary",
-        "Get a summary of human interaction patterns including event counts, topic and tone distribution.\n\n    Returns:\n        str: JSON interaction summary",
-        "/mcp/interaction.summary",
+        "identity_search_all",
+        "Search the full identity corpus: memory JSONL, uploaded files, parsed conversations, and Letta archival memory. Prefer this when you need complete coverage or files/conversations not found in archival alone.\n\n    Args:\n        query: Natural language or keyword query\n        limit: Max results per source (default 15)\n\n    Returns:\n        str: JSON with memories, files, conversations, and letta sections",
+        "/mcp/search.all",
+        params="query: str, limit: int = 15",
+        body_expr='{"query": query, "limit": limit or 15, "sources": ["memories", "files", "conversations", "letta"]}',
     ),
     _tool_source(
         "identity_memory_search",
-        "Full-text keyword search across all memory files in the identity corpus.\n\n    Args:\n        query: Search query\n        limit: Max results (default 20)\n\n    Returns:\n        str: JSON results",
+        "Full-text keyword search across memory/*.jsonl files on disk.\n\n    Args:\n        query: Search query\n        limit: Max results (default 20)\n\n    Returns:\n        str: JSON results",
         "/mcp/memory.search",
         params="query: str, limit: int = 20",
         body_expr='{"query": query, "limit": limit or 20}',
+    ),
+    _tool_source(
+        "identity_file_search",
+        "Full-text search across documents in the files/ RAG corpus (reports, notes, uploads). Use when archival search misses file-only content.\n\n    Args:\n        query: Search query\n        folder: Optional subfolder under files/\n        limit: Not used by API; kept for compatibility\n\n    Returns:\n        str: JSON file search results",
+        "/mcp/file.search",
+        params='query: str, folder: str = ""',
+        body_expr='({"query": query, "folder": folder} if folder else {"query": query})',
+    ),
+    _tool_source(
+        "identity_conversation_get",
+        "Retrieve a full parsed conversation by ID (from conversation search or data explorer). Use for deep context when updating human memory or summarizing a thread.\n\n    Args:\n        conversation_id: Conversation ID string\n\n    Returns:\n        str: JSON conversation with messages",
+        "/mcp/conversation.get",
+        params="conversation_id: str",
+        body_expr='{"conversationId": conversation_id}',
+    ),
+    # ── Identity bundles & analysis ────────────────────────────────────────
+    _tool_source(
+        "identity_get_profile",
+        "Retrieve the full identity bundle including breath, vows, prime directives, and all memory JSONL files.\n\n    Returns:\n        str: JSON identity bundle",
+        "/mcp/identity.get_full",
+        body_expr="{}",
+    ),
+    _tool_source(
+        "identity_analysis_summary",
+        "Overview of identity pattern analysis: relational patterns, clusters, and summary stats from analyze_identity.py.\n\n    Returns:\n        str: JSON analysis summary",
+        "/mcp/identity.analysis_summary",
+        method="GET",
+    ),
+    _tool_source(
+        "identity_interaction_summary",
+        "Summary of human interaction patterns: event counts, topic and tone distribution.\n\n    Returns:\n        str: JSON interaction summary",
+        "/mcp/interaction.summary",
+        method="GET",
+    ),
+    _tool_source(
+        "identity_get_momentum",
+        "Patterns rising or falling over time in the user's communication (identity evolution). Use when refreshing persona/human blocks or reflecting on change.\n\n    Returns:\n        str: JSON with rising, falling, and stable patterns",
+        "/mcp/identity.momentum",
+        method="GET",
+    ),
+    _tool_source(
+        "identity_model_status",
+        "Trained identity verification model status: stylistic profile, vocabulary fingerprint, and temporal_analysis (similarity over time). Requires train_identity_model.py to have been run.\n\n    Returns:\n        str: JSON model status",
+        "/mcp/identity.model_status",
+        method="GET",
     ),
 ]
 
@@ -162,7 +227,7 @@ def register_tools():
             agent_tool_ids.add(tool_id)
             log.info("Attached tool %s to agent", name)
 
-    log.info("Done: %d tools registered on agent %s", len(TOOL_SOURCES), AGENT_NAME)
+    log.info("Done: %d identity-mcp tools on agent %s", len(TOOL_SOURCES), AGENT_NAME)
 
 
 def main():

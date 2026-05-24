@@ -71,7 +71,48 @@ const ALLOWED_SCRIPTS: Record<string, { path: string; description: string }> = {
     path: "scripts/eeg_identity/authorize_brainwaves.py",
     description: "Test live EEG authorization against enrolled brainwave model",
   },
+  letta_register_tools: {
+    path: "letta/register_tools.py",
+    description: "Attach identity-mcp HTTP tools to the Letta agent (idempotent)",
+  },
+  letta_ingest: {
+    path: "letta/ingest.py",
+    description: "Ingest conversations, memory, and files into Letta archival memory (incremental, deduped)",
+  },
+  letta_ingest_init: {
+    path: "letta/ingest.py",
+    description: "Agent self-init: explore archival memory and refresh persona/human blocks",
+  },
+  letta_bootstrap_persona: {
+    path: "letta/bootstrap_agent.py",
+    description: "Ensure agent exists and seed persona from memory/identity.jsonl (skips archival)",
+  },
 };
+
+/** Default CLI args when script id implies a variant of the same file */
+const SCRIPT_DEFAULT_ARGS: Record<string, string[]> = {
+  letta_ingest_init: ["--init-only"],
+  letta_bootstrap_persona: ["--skip-archival"],
+};
+
+function scriptEnv(
+  scriptId: string,
+  base: NodeJS.ProcessEnv,
+  userId: string | null
+): NodeJS.ProcessEnv {
+  const env = { ...base };
+  if (userId) {
+    env.USER_ID = userId;
+  }
+  if (scriptId.startsWith("letta_")) {
+    env.LETTA_BASE_URL = config.LETTA_BASE_URL;
+    env.LETTA_AGENT_NAME = config.LETTA_AGENT_NAME;
+    env.MCP_SERVER_URL =
+      process.env.MCP_SERVER_URL || `http://127.0.0.1:${config.PORT}`;
+    env.DATA_ROOT = process.env.DATA_ROOT || config.PROJECT_ROOT;
+  }
+  return env;
+}
 
 interface ScriptResult {
   success: boolean;
@@ -115,12 +156,16 @@ export async function handlePipelineList(userId: string | null = null): Promise<
  */
 export async function handlePipelineRun({
   script,
-  args = [],
+  args,
 }: {
   script: string;
   args?: string[];
 }, userId: string | null = null): Promise<ScriptResult> {
   const startTime = Date.now();
+  const runArgs =
+    args !== undefined && args.length > 0
+      ? args
+      : SCRIPT_DEFAULT_ARGS[script] || [];
 
   // Validate script is allowed
   const scriptInfo = ALLOWED_SCRIPTS[script];
@@ -157,20 +202,16 @@ export async function handlePipelineRun({
   }
 
   const scriptPath = path.join(config.PROJECT_ROOT, scriptInfo.path);
-  logger.info("Running pipeline script", { script, scriptPath, args });
+  logger.info("Running pipeline script", { script, scriptPath, args: runArgs });
 
   return new Promise((resolve) => {
     const output: string[] = [];
-    output.push(`$ ${PYTHON_CMD} ${scriptInfo.path} ${args.join(" ")}`);
+    output.push(`$ ${PYTHON_CMD} ${scriptInfo.path} ${runArgs.join(" ")}`);
     output.push("");
 
-    // Pass userId as environment variable for scripts that support it
-    const env = { ...process.env };
-    if (userId) {
-      env.USER_ID = userId;
-    }
-    
-    const proc = spawn(PYTHON_CMD, [scriptPath, ...args], {
+    const env = scriptEnv(script, process.env, userId);
+
+    const proc = spawn(PYTHON_CMD, [scriptPath, ...runArgs], {
       cwd: config.PROJECT_ROOT,
       env,
     });
@@ -179,7 +220,7 @@ export async function handlePipelineRun({
     const runEntry: RunningScript = {
       script,
       startTime,
-      args,
+      args: runArgs,
       process: proc,
       output,
       finished: false,

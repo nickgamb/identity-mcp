@@ -46,6 +46,14 @@ export default {
         sans: ['JetBrains Mono', 'Fira Code', 'monospace'],
         display: ['Space Grotesk', 'system-ui', 'sans-serif'],
       },
+      width: {
+        'sidebar': '240px',
+        'sidebar-collapsed': '64px',
+      },
+      minWidth: {
+        'sidebar': '240px',
+        'sidebar-collapsed': '64px',
+      },
       boxShadow: {
         'glow-accent': '0 0 20px rgba(99, 102, 241, 0.3)',
         'glow-success': '0 0 20px rgba(16, 185, 129, 0.3)',

@@ -112,6 +112,15 @@ import {
   handleSemanticSearch,
 } from "../mcp/semanticSearchTools";
 import {
+  getLettaStatus,
+  getLettaCoreMemory,
+  updateLettaCoreMemory,
+  getLettaArchival,
+  getLettaMessages,
+  updateLettaConfig,
+  listOllamaModels,
+} from "../mcp/lettaProxy";
+import {
   handleDataStatus,
   handleDataUploadConversations,
   handleDataUploadMemories,
@@ -1092,6 +1101,85 @@ mcpRouter.get("/mcp/pipeline.running", async (req: Request, res: Response) => {
   try {
     const userContext = getUserContext(req);
     const result = await handlePipelineListRunning(userContext?.userId);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── Letta Memory System ─────────────────────────────────────────────────
+
+mcpRouter.get("/mcp/ollama.models", async (_req: Request, res: Response) => {
+  try {
+    const result = await listOllamaModels();
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.get("/mcp/letta.status", async (_req: Request, res: Response) => {
+  try {
+    const result = await getLettaStatus();
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.get("/mcp/letta.memory", async (_req: Request, res: Response) => {
+  try {
+    const result = await getLettaCoreMemory();
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.post("/mcp/letta.memory.update", async (req: Request, res: Response) => {
+  try {
+    const { blockLabel, value } = req.body;
+    if (!blockLabel || value === undefined) {
+      res.status(400).json({ error: "blockLabel and value are required" });
+      return;
+    }
+    const result = await updateLettaCoreMemory(blockLabel, value);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.get("/mcp/letta.archival", async (req: Request, res: Response) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const cursor = req.query.cursor as string | undefined;
+    const result = await getLettaArchival(limit, cursor);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.get("/mcp/letta.messages", async (req: Request, res: Response) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 100;
+    const cursor = req.query.cursor as string | undefined;
+    const result = await getLettaMessages(limit, cursor);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.patch("/mcp/letta.config", async (req: Request, res: Response) => {
+  try {
+    const patch = req.body;
+    if (!patch || Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "No config fields provided" });
+      return;
+    }
+    const result = await updateLettaConfig(patch);
     res.json(result);
   } catch (err) {
     handleError(res, err);

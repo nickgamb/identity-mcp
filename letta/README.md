@@ -78,9 +78,36 @@ LETTA_BASE_URL=http://localhost:8283 MCP_SERVER_URL=http://mcp-server:4000 \
 # remove tools:
 python letta/register_tools.py --clean
 ```
-Mounts 5 tools on the Letta agent so sleeptime can discover and call them:
-`identity_search_corpus`, `identity_get_profile`, `identity_analysis_summary`,
-`identity_interaction_summary`, `identity_memory_search`.
+Mounts **10** identity-mcp tools on the Letta agent (plus Letta's built-in memory/conversation tools):
+`identity_search_corpus`, `identity_search_all`, `identity_memory_search`,
+`identity_file_search`, `identity_conversation_get`, `identity_get_profile`,
+`identity_analysis_summary`, `identity_interaction_summary`, `identity_get_momentum`,
+`identity_model_status`.
+
+Re-run after changing `register_tools.py` (idempotent: updates source, attaches new tools).
+
+Or use **Memory → Maintenance** in the dashboard (same run/output UI as Pipeline).
+
+## Maintenance: what is manual vs automatic?
+
+| Task | Who does it | When |
+|------|-------------|------|
+| **Archival ingest** (`ingest.py`) | **You** (batch job) | New bulk data: conversations export, memory upload, files corpus, re-embed into pgvector. Dedupes on re-run. **Not** automatic when you add files in the dashboard. |
+| **Bootstrap** (`bootstrap_agent.py`) | **You** | First-time agent + persona seed from `memory/identity.jsonl` + optional archival backfill. Use `--skip-archival` to refresh persona only. |
+| **Register tools** (`register_tools.py`) | **You** | After changing tool wrappers or first deploy. |
+| **Pipeline scripts** (dashboard) | **You** | Parse conversations, `analyze_identity.py`, `train_identity_model.py` — updates **disk** JSONL/models, not Letta archival. |
+| **Letta sleeptime** | **Agent** (automatic) | Every N messages: consolidates thread into core/archival via `memory_insert` / `memory_replace` and built-in search. |
+| **Self-init** (`ingest.py --init-only`) | **One-shot prompt** | Agent explores archival and rewrites persona/human — optional after ingest. |
+| **Live chat recall** | **Agent** (automatic) | Embeddings + core blocks; may call identity-mcp tools for files/conversations/disk memory. |
+
+**You do not need to re-bootstrap** for normal use. Re-run **ingest** when the on-disk corpus grows significantly and you want that material in **pgvector archival**. The agent can search **files** and **conversations** on disk via `identity_search_all` / `identity_file_search` without re-ingest, but archival semantic search only covers ingested passages.
+
+**Typical refresh cadence**
+1. Upload new data in dashboard (or drop files in `conversations/`, `memory/`, `files/`).
+2. Run pipeline scripts if you want updated identity analysis / verification model.
+3. `python letta/ingest.py` (incremental; skips content hashes already inserted).
+4. Optional: `register_tools.py` after tool changes.
+5. Let sleeptime run — no scheduled job required.
 
 ## Use it
 In LibreChat, pick the **"Identity (Letta memory)"** model spec (endpoint `Letta`).

@@ -1,0 +1,26 @@
+/**
+ * MindGarden auth layout tweaks (LibreChat AuthLayout).
+ * Default layout pins the logo to the top; this groups logo + login card vertically.
+ */
+.relative.flex.min-h-screen.flex-col {
+  justify-content: center !important;
+}
+
+.relative.flex.min-h-screen.flex-col > main {
+  flex-grow: 0 !important;
+  flex: 0 0 auto !important;
+}
+
+.relative.flex.min-h-screen.flex-col .h-10.w-full.bg-cover {
+  margin-top: 0 !important;
+  margin-bottom: 1.25rem !important;
+  height: 3.5rem !important;
+  width: 11rem !important;
+  max-width: min(11rem, 72vw) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+.relative.flex.min-h-screen.flex-col .h-10.w-full.bg-cover img {
+  object-fit: contain !important;
+}

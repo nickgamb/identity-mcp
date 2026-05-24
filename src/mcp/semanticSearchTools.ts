@@ -3,29 +3,9 @@
  * Falls back gracefully when Letta is unavailable.
  */
 
+import { config } from "../config";
 import { logger } from "../utils/logger";
-
-const LETTA_BASE_URL = process.env.LETTA_BASE_URL || "http://letta:8283";
-const LETTA_AGENT_NAME = process.env.LETTA_AGENT_NAME || "identity";
-
-let cachedAgentId: string | null = null;
-
-async function getAgentId(): Promise<string | null> {
-  if (cachedAgentId) return cachedAgentId;
-  try {
-    const resp = await fetch(`${LETTA_BASE_URL}/v1/agents?name=${LETTA_AGENT_NAME}`);
-    if (!resp.ok) return null;
-    const agents = await resp.json() as any[];
-    const agent = agents.find((a: any) => a.name === LETTA_AGENT_NAME);
-    if (agent) {
-      cachedAgentId = agent.id;
-      return agent.id;
-    }
-  } catch (e) {
-    logger.warn("Could not reach Letta to resolve agent ID", { error: String(e) });
-  }
-  return null;
-}
+import { getAgentId } from "./lettaProxy";
 
 export interface SemanticSearchRequest {
   query: string;
@@ -63,7 +43,7 @@ export async function handleSemanticSearch(
 
   try {
     const topK = req.limit ?? 20;
-    const url = `${LETTA_BASE_URL}/v1/agents/${agentId}/archival-memory/search?query=${encodeURIComponent(req.query)}&top_k=${topK}`;
+    const url = `${config.LETTA_BASE_URL}/v1/agents/${agentId}/archival-memory/search?query=${encodeURIComponent(req.query)}&top_k=${topK}`;
     const resp = await fetch(url, {
       headers: { "Content-Type": "application/json" },
     });

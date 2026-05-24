@@ -10,6 +10,7 @@ The `librechat.yaml` file configures:
 - Ollama as a custom endpoint provider
 - Available models from your Ollama installation
 - Connection settings for the Ollama API
+- Interface options (`interface.customFooter`, `customWelcome`, etc.)
 
 ## Accessing LibreChat
 

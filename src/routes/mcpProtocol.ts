@@ -29,6 +29,8 @@ import {
   handleFileGet,
   handleFileSearch,
   handleFileGetNumbered,
+  handleFileUpload,
+  handleFileDelete,
 } from "../mcp/fileTools";
 import {
   handleConversationList,
@@ -86,6 +88,7 @@ import {
   handlePipelineRunAll,
   handlePipelineStatus,
   handlePipelineListRunning,
+  handlePipelineStop,
 } from "../mcp/pipelineTools";
 import {
   handleEegModelStatus,
@@ -108,6 +111,15 @@ import {
   handleDataMemoryFileGet,
   handleDataMemoryFileUpdate,
 } from "../mcp/dataManagementTools";
+import {
+  getLettaStatus,
+  getLettaCoreMemory,
+  updateLettaCoreMemory,
+  getLettaArchival,
+  getLettaMessages,
+  updateLettaConfig,
+  listOllamaModels,
+} from "../mcp/lettaProxy";
 
 export const mcpProtocolRouter = Router();
 
@@ -514,6 +526,18 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
   );
 
   server.registerTool(
+    "pipeline_stop",
+    {
+      title: "Stop Pipeline Script",
+      description: "Stop a running pipeline script by script ID.",
+      inputSchema: z.object({
+        script: z.string().describe("Script ID to stop"),
+      }),
+    },
+    async ({ script }) => toContent(await handlePipelineStop({ script })),
+  );
+
+  server.registerTool(
     "file_list",
     {
       title: "List Files",
@@ -562,6 +586,33 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
       }),
     },
     async ({ folder, maxNumber }) => toContent(await handleFileGetNumbered({ folder, maxNumber }, getUserId())),
+  );
+
+  server.registerTool(
+    "file_upload",
+    {
+      title: "Upload File",
+      description: "Upload a file to RAG storage (files/ directory).",
+      inputSchema: z.object({
+        filename: z.string().describe("Filename to write"),
+        content: z.string().describe("File content"),
+      }),
+    },
+    async ({ filename, content }) =>
+      toContent(await handleFileUpload({ filename, content }, getUserId())),
+  );
+
+  server.registerTool(
+    "file_delete",
+    {
+      title: "Delete File",
+      description: "Delete a file from RAG storage by path.",
+      inputSchema: z.object({
+        filepath: z.string().describe("Relative filepath to delete"),
+      }),
+    },
+    async ({ filepath }) =>
+      toContent(await handleFileDelete({ filepath }, getUserId())),
   );
 
   // Fine-tuning Tools
@@ -919,6 +970,98 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
       }),
     },
     async ({ filename, content }) => toContent(await handleDataMemoryFileUpdate({ filename, content }, getUserId())),
+  );
+
+  // Ollama / Letta (mirrors HTTP /mcp/ollama.* and /mcp/letta.*)
+
+  server.registerTool(
+    "ollama_models",
+    {
+      title: "List Ollama Models",
+      description: "List models installed in the local Ollama instance (for Letta agent model selection).",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(await listOllamaModels()),
+  );
+
+  server.registerTool(
+    "letta_status",
+    {
+      title: "Letta Agent Status",
+      description: "Get Letta agent metadata, core memory block summaries, and archival passage count.",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(await getLettaStatus()),
+  );
+
+  server.registerTool(
+    "letta_memory",
+    {
+      title: "Letta Core Memory",
+      description: "Get full core memory blocks (persona, human, etc.) with content.",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(await getLettaCoreMemory()),
+  );
+
+  server.registerTool(
+    "letta_memory_update",
+    {
+      title: "Update Letta Core Memory Block",
+      description: "Update a single Letta core memory block by label.",
+      inputSchema: z.object({
+        blockLabel: z.string().describe("Block label, e.g. persona or human"),
+        value: z.string().describe("New block content"),
+      }),
+    },
+    async ({ blockLabel, value }) =>
+      toContent(await updateLettaCoreMemory(blockLabel, value)),
+  );
+
+  server.registerTool(
+    "letta_archival",
+    {
+      title: "Letta Archival Memory",
+      description: "List paginated archival memory passages from the Letta agent.",
+      inputSchema: z.object({
+        limit: z.number().nullish().describe("Page size (default 50)"),
+        cursor: z.string().optional().describe("Passage ID to start after"),
+      }),
+    },
+    async ({ limit, cursor }) =>
+      toContent(await getLettaArchival(limit ?? 50, cursor)),
+  );
+
+  server.registerTool(
+    "letta_messages",
+    {
+      title: "Letta Agent Messages",
+      description: "Get recent agent messages (conversation and sleeptime activity).",
+      inputSchema: z.object({
+        limit: z.number().nullish().describe("Max messages (default 100)"),
+        cursor: z.string().optional().describe("Message ID to start after"),
+      }),
+    },
+    async ({ limit, cursor }) =>
+      toContent(await getLettaMessages(limit ?? 100, cursor)),
+  );
+
+  server.registerTool(
+    "letta_config",
+    {
+      title: "Update Letta Agent Config",
+      description:
+        "Patch Letta agent settings: enable_sleeptime, sleeptime_agent_frequency, model, embedding, timezone, description.",
+      inputSchema: z.object({
+        enable_sleeptime: z.boolean().optional(),
+        sleeptime_agent_frequency: z.number().optional(),
+        model: z.string().optional().describe("Ollama model handle or name"),
+        embedding: z.string().optional().describe("Ollama embedding model handle or name"),
+        timezone: z.string().optional(),
+        description: z.string().nullable().optional(),
+      }),
+    },
+    async (patch) => toContent(await updateLettaConfig(patch)),
   );
 }
 

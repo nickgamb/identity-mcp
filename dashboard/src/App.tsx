@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
-import { 
-  Play, 
-  FileText, 
-  FolderOpen, 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
+import {
+  Play,
+  FileText,
+  FolderOpen,
+  CheckCircle,
+  XCircle,
+  Clock,
   Terminal,
   Cpu,
   Database,
@@ -15,16 +15,19 @@ import {
   ChevronRight,
   Eye,
   X,
-  LayoutDashboard,
   Brain,
   Scan
 } from 'lucide-react'
 import { DataExplorer } from './DataExplorer'
+import { MemoryExplorer } from './MemoryExplorer'
+import { LibreChatEmbed } from './components/LibreChatEmbed'
+import { Sidebar, type MainView } from './components/Sidebar'
 import { useAuth } from './auth/AuthContext'
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react'
 import { authenticatedFetch } from './utils/api'
 import { EegEnrollmentModal } from './components/eeg/EegEnrollmentModal'
 import { EegAuthorizationModal } from './components/eeg/EegAuthorizationModal'
+import { BRAND, BrandWordmark } from './brand'
 
 // Script definitions
 const SCRIPTS = [
@@ -127,8 +130,6 @@ interface ScriptState {
   endTime?: number
 }
 
-type MainView = 'pipeline' | 'data'
-
 function App() {
   const { user, isLoading: authLoading, isAuthenticated, isOidcEnabled, login, logout } = useAuth()
   const [mainView, setMainView] = useState<MainView>('pipeline')
@@ -137,29 +138,25 @@ function App() {
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string } | null>(null)
   const [eegModal, setEegModal] = useState<{ type: 'enrollment' | 'authorization' } | null>(null)
   const [mcpStatus, setMcpStatus] = useState<'checking' | 'online' | 'offline'>('checking')
+  const [lettaStatus, setLettaStatus] = useState<'checking' | 'online' | 'offline'>('checking')
   const [pipelineLoading, setPipelineLoading] = useState(true)
-  
-  // Check if any scripts are running
+
   const hasRunningScripts = Object.values(scriptStates).some(state => state.status === 'running')
 
-  // Check MCP status and pipeline completion on mount
   useEffect(() => {
     const initialLoad = async () => {
-      await Promise.all([checkMcpStatus(), checkPipelineCompletion()])
+      await Promise.all([checkMcpStatus(), checkLettaStatus(), checkPipelineCompletion()])
       setPipelineLoading(false)
     }
     initialLoad()
     const interval = setInterval(() => {
       checkMcpStatus()
+      checkLettaStatus()
       checkPipelineCompletion()
     }, 30000)
-    
-    // Listen for data-cleaned event from DataExplorer
-    const handleDataCleaned = () => {
-      checkPipelineCompletion()
-    }
+
+    const handleDataCleaned = () => { checkPipelineCompletion() }
     window.addEventListener('data-cleaned', handleDataCleaned)
-    
     return () => {
       clearInterval(interval)
       window.removeEventListener('data-cleaned', handleDataCleaned)
@@ -175,9 +172,23 @@ function App() {
     }
   }
 
+  const checkLettaStatus = async () => {
+    try {
+      const res = await authenticatedFetch('/api/mcp/letta.status')
+      const data = await res.json()
+      setLettaStatus(data.available ? 'online' : 'offline')
+    } catch {
+      setLettaStatus('offline')
+    }
+  }
+
+  const refreshAllStatus = () => {
+    checkMcpStatus()
+    checkLettaStatus()
+  }
+
   const checkPipelineCompletion = async () => {
     try {
-      // Get current state FIRST to preserve running scripts
       let runningScripts: Record<string, ScriptState> = {}
       setScriptStates(prev => {
         runningScripts = {}
@@ -186,17 +197,13 @@ function App() {
             runningScripts[scriptId] = state
           }
         }
-        return prev // Don't change state yet
+        return prev
       })
-      
-      // Check data status to determine which scripts have completed
+
       const res = await authenticatedFetch('/api/mcp/data.status')
       const data = await res.json()
-      
-      // Start with running scripts - only add completed if files exist
       const finalStates: Record<string, ScriptState> = { ...runningScripts }
-      
-      // Parse Conversations - check if conversation JSONL files exist
+
       if (data.counts?.conversationFiles > 0) {
         try {
           const conversationsRes = await authenticatedFetch('/api/mcp/data.conversations')
@@ -206,55 +213,36 @@ function App() {
               finalStates['parse_conversations'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
             }
           }
-        } catch (e) {
-          // File check failed, not complete - don't add to finalStates
-        }
+        } catch { /* not complete */ }
       }
-      // If no files or check failed, script won't be in finalStates = shows as Ready
-      
-      // Check memory files using the same API the dashboard uses
+
       try {
         const memoryListRes = await authenticatedFetch('/api/mcp/data.memories_list')
         if (memoryListRes.ok) {
           const memoryListData = await memoryListRes.json()
           const memoryFileNames = memoryListData.memories?.map((f: any) => f._file) || []
-          
-          // Analyze Patterns - check if identity.jsonl and patterns.jsonl exist
           if (memoryFileNames.includes('identity.jsonl') && memoryFileNames.includes('patterns.jsonl')) {
             finalStates['analyze_patterns'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
           }
-          
-          // Parse Memories - check if user.context.jsonl exists
           if (memoryFileNames.includes('user.context.jsonl')) {
             finalStates['parse_memories'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
           }
-          
-          // Analyze Identity - check if identity_analysis.jsonl exists
           if (memoryFileNames.includes('identity_analysis.jsonl')) {
             finalStates['analyze_identity'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
           }
         }
-      } catch (e) {
-        // Memory list check failed
-      }
-      
-      // Build Interaction Map - check via data.status
+      } catch { /* failed */ }
+
       if (data.generatedData?.interactionMap) {
         finalStates['build_interaction_map'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
       }
-      
-      // Train Identity Model - use data.status which already checks this
       if (data.generatedData?.identityModel) {
         finalStates['train_identity_model'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
       }
-      
-      // Enroll Brainwaves - check if EEG identity model exists
       if (data.generatedData?.eegIdentityModel) {
         finalStates['enroll_brainwaves'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
       }
-      
-      // COMPLETELY REPLACE state - only scripts with running status or completed files will be in finalStates
-      // Scripts without files won't be in finalStates, so they'll show as Ready (idle)
+
       setScriptStates(finalStates)
     } catch (error) {
       console.error('Failed to check pipeline completion:', error)
@@ -265,72 +253,45 @@ function App() {
     const script = SCRIPTS.find(s => s.id === scriptId)
     if (!script) return
 
-    // ── EEG scripts get a dedicated visual modal ──
-    if (scriptId === 'enroll_brainwaves') {
-      setEegModal({ type: 'enrollment' })
-      return
-    }
-    if (scriptId === 'authorize_brainwaves') {
-      setEegModal({ type: 'authorization' })
-      return
-    }
+    if (scriptId === 'enroll_brainwaves') { setEegModal({ type: 'enrollment' }); return }
+    if (scriptId === 'authorize_brainwaves') { setEegModal({ type: 'authorization' }); return }
 
-    // Clear output and mark running
     setScriptStates(prev => ({
       ...prev,
       [scriptId]: { status: 'running', output: [`Starting ${script.file}...`], startTime: Date.now() }
     }))
     setSelectedScript(scriptId)
 
-    // Fire-and-forget: start the script (response arrives when it finishes)
     authenticatedFetch('/api/mcp/pipeline.run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ script: script.id })
-    }).catch(() => { /* SSE handles output and completion */ })
+    }).catch(() => {})
 
-    // Poll for real-time output (SSE doesn't work through Vite's dev proxy)
     const pollOutput = async () => {
       let cursor = 0
-
       // eslint-disable-next-line no-constant-condition
       while (true) {
         try {
           const res = await fetch(`/api/mcp/pipeline.output/${scriptId}?cursor=${cursor}`)
           const data = await res.json()
-
-          // Script hasn't registered yet — keep waiting
-          if (!data.started && !data.done) {
-            await new Promise(r => setTimeout(r, 300))
-            continue
-          }
-
+          if (!data.started && !data.done) { await new Promise(r => setTimeout(r, 300)); continue }
           for (const { line, index } of data.lines) {
             setScriptStates(prev => ({
               ...prev,
-              [scriptId]: {
-                ...prev[scriptId],
-                output: [...(prev[scriptId]?.output || []), line],
-              }
+              [scriptId]: { ...prev[scriptId], output: [...(prev[scriptId]?.output || []), line] }
             }))
             cursor = index + 1
           }
-
           if (data.done) {
             const success = data.exitCode === 0
             setScriptStates(prev => ({
               ...prev,
-              [scriptId]: {
-                ...prev[scriptId],
-                status: success ? 'success' : 'error',
-                endTime: Date.now(),
-              }
+              [scriptId]: { ...prev[scriptId], status: success ? 'success' : 'error', endTime: Date.now() }
             }))
             return
           }
-        } catch {
-          // Network hiccup — retry
-        }
+        } catch { /* retry */ }
         await new Promise(r => setTimeout(r, 250))
       }
     }
@@ -367,323 +328,263 @@ function App() {
       success: 'bg-success/20 text-success',
       error: 'bg-danger/20 text-danger',
     }
-    const labels = {
-      idle: 'Ready',
-      running: 'Running',
-      success: 'Complete',
-      error: 'Failed',
-    }
-    return (
-      <span className={`status-badge ${styles[status]}`}>
-        {labels[status]}
-      </span>
-    )
+    const labels = { idle: 'Ready', running: 'Running', success: 'Complete', error: 'Failed' }
+    return <span className={`status-badge ${styles[status]}`}>{labels[status]}</span>
   }
 
+  const handleViewChange = (view: MainView) => {
+    if (hasRunningScripts && mainView === 'pipeline') {
+      if (!confirm('Scripts are running. Switching views may lose progress output. Continue?')) return
+    }
+    setMainView(view)
+  }
+
+  const authGate = (
+    <div className="flex flex-col items-center justify-center py-24">
+      <div className="card max-w-md text-center">
+        <img
+          src={BRAND.logoSrc}
+          alt={BRAND.company}
+          className="h-12 w-12 mx-auto mb-4 object-contain opacity-90"
+        />
+        <h2 className="font-display text-xl font-semibold text-text-primary mb-2">Authentication Required</h2>
+        <p className="text-text-secondary mb-6">Please log in to access the dashboard.</p>
+        <button onClick={login} className="btn btn-primary">
+          <LogIn className="w-4 h-4" /><span>Login</span>
+        </button>
+      </div>
+    </div>
+  )
+
+  const requiresAuth = isOidcEnabled && !isAuthenticated
+
   return (
-    <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <header className="border-b border-surface-200 bg-surface-50/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-[1800px] mx-auto px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-accent-bright flex items-center justify-center">
-              <Shield className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="font-display text-xl font-semibold text-text-primary">Identity MCP</h1>
-              <p className="text-xs text-text-muted">Processing Dashboard</p>
-            </div>
+    <div className="flex flex-col h-screen bg-surface overflow-hidden">
+      {/* ── Top bar (full width) ─────────────────────────────────── */}
+      <header className="flex items-center justify-between px-5 py-3 border-b border-surface-200 bg-surface-50/80 backdrop-blur-sm shrink-0 z-10">
+        {/* Left: brand */}
+        <div className="flex items-center gap-3 min-w-0">
+          <img
+            src={BRAND.logoSrc}
+            alt={BRAND.company}
+            className="h-8 w-8 shrink-0 object-contain"
+          />
+          <div className="h-8 w-px bg-surface-200 shrink-0" aria-hidden />
+          <div className="min-w-0">
+            <h1 className="text-sm text-text-primary leading-tight">
+              <BrandWordmark />
+            </h1>
+            <p className="text-[10px] text-text-muted leading-tight truncate">{BRAND.tagline}</p>
           </div>
-          
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${
-                mcpStatus === 'online' ? 'bg-success' : 
-                mcpStatus === 'offline' ? 'bg-danger' : 'bg-warning animate-pulse'
-              }`} />
-              <span className="text-sm text-text-secondary">
-                MCP {mcpStatus === 'online' ? 'Online' : mcpStatus === 'offline' ? 'Offline' : 'Checking...'}
-              </span>
-            </div>
-            <button onClick={checkMcpStatus} className="btn btn-ghost">
-              <RefreshCw className="w-4 h-4" />
-            </button>
-            
-            {/* Auth UI */}
-            {!authLoading && isOidcEnabled && (
-              <>
-                {isAuthenticated && user ? (
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-100">
-                      <UserIcon className="w-4 h-4 text-text-secondary" />
-                      <span className="text-sm text-text-primary">
-                        {user.profile?.preferred_username || user.profile?.email || user.profile?.sub || 'User'}
-                      </span>
-                    </div>
-                    <button onClick={logout} className="btn btn-ghost" title="Logout">
-                      <LogOut className="w-4 h-4" />
-                    </button>
+        </div>
+
+        {/* Right: auth */}
+        <div className="flex items-center gap-3">
+          {!authLoading && isOidcEnabled && (
+            <>
+              {isAuthenticated && user ? (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-100">
+                    <UserIcon className="w-4 h-4 text-text-secondary" />
+                    <span className="text-sm text-text-primary">
+                      {user.profile?.preferred_username || user.profile?.email || user.profile?.sub || 'User'}
+                    </span>
                   </div>
-                ) : (
-                  <button onClick={login} className="btn btn-primary" title="Login">
-                    <LogIn className="w-4 h-4" />
-                    <span>Login</span>
+                  <button onClick={logout} className="btn btn-ghost p-1.5" title="Logout">
+                    <LogOut className="w-4 h-4" />
                   </button>
-                )}
-              </>
-            )}
-          </div>
+                </div>
+              ) : (
+                <button onClick={login} className="btn btn-primary text-sm">
+                  <LogIn className="w-4 h-4" /><span>Login</span>
+                </button>
+              )}
+            </>
+          )}
         </div>
       </header>
 
-      <main className="max-w-[1800px] mx-auto px-8 py-8">
-        {/* View Switcher */}
-        <div className="flex items-center gap-2 mb-6">
-          <button
-            onClick={() => {
-              if (hasRunningScripts && mainView === 'pipeline') {
-                if (!confirm('Scripts are running. Switching views may lose progress output. Continue?')) {
-                  return
-                }
-              }
-              setMainView('pipeline')
-            }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-              mainView === 'pipeline'
-                ? 'bg-accent text-white'
-                : 'bg-surface-100 text-text-secondary hover:bg-surface-200'
-            }`}
-          >
-            <Terminal className="w-4 h-4" />
-            Pipeline
-            {hasRunningScripts && mainView === 'pipeline' && (
-              <RefreshCw className="w-3 h-3 animate-spin" />
-            )}
-          </button>
-          <button
-            onClick={() => {
-              if (hasRunningScripts && mainView === 'pipeline') {
-                if (!confirm('Scripts are running. Switching views may lose progress output. Continue?')) {
-                  return
-                }
-              }
-              setMainView('data')
-            }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-              mainView === 'data'
-                ? 'bg-accent text-white'
-                : 'bg-surface-100 text-text-secondary hover:bg-surface-200'
-            }`}
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            Data Explorer
-          </button>
-        </div>
+      {/* ── Body: sidebar + content ──────────────────────────────── */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <Sidebar
+          activeView={mainView}
+          onViewChange={handleViewChange}
+          mcpStatus={mcpStatus}
+          lettaStatus={lettaStatus}
+          onRefreshStatus={refreshAllStatus}
+          hasRunningScripts={hasRunningScripts}
+        />
 
-        {/* Data Explorer View */}
-        {mainView === 'data' && (
-          isOidcEnabled && !isAuthenticated ? (
-            <div className="flex flex-col items-center justify-center py-24">
-              <div className="card max-w-md text-center">
-                <Shield className="w-16 h-16 mx-auto mb-4 text-accent opacity-50" />
-                <h2 className="font-display text-xl font-semibold text-text-primary mb-2">Authentication Required</h2>
-                <p className="text-text-secondary mb-6">
-                  Please log in to access the Data Explorer.
-                </p>
-                <button onClick={login} className="btn btn-primary">
-                  <LogIn className="w-4 h-4" />
-                  <span>Login</span>
-                </button>
-              </div>
-            </div>
+        {/* Content */}
+        <main
+          className={`flex-1 min-h-0 ${
+            mainView === 'chat' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'
+          }`}
+        >
+          {mainView === 'chat' ? (
+            requiresAuth ? (
+              <div className="flex flex-1 items-center justify-center p-6">{authGate}</div>
+            ) : (
+              <LibreChatEmbed />
+            )
           ) : (
-            <DataExplorer />
-          )
-        )}
+          <div className="max-w-[1600px] mx-auto px-6 py-6">
 
-        {/* Pipeline View */}
-        {mainView === 'pipeline' && (
-          isOidcEnabled && !isAuthenticated ? (
-            <div className="flex flex-col items-center justify-center py-24">
-              <div className="card max-w-md text-center">
-                <Shield className="w-16 h-16 mx-auto mb-4 text-accent opacity-50" />
-                <h2 className="font-display text-xl font-semibold text-text-primary mb-2">Authentication Required</h2>
-                <p className="text-text-secondary mb-6">
-                  Please log in to access the Processing Pipeline.
-                </p>
-                <button onClick={login} className="btn btn-primary">
-                  <LogIn className="w-4 h-4" />
-                  <span>Login</span>
-                </button>
-              </div>
-            </div>
-          ) : pipelineLoading ? (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-              <div className="w-10 h-10 border-4 border-surface-300 border-t-accent rounded-full animate-spin" />
-              <p className="text-text-muted text-sm">Loading pipeline status...</p>
-            </div>
-          ) : (
-          <>
-            {/* Pipeline Overview */}
-            <section className="mb-8">
-          <h2 className="font-display text-lg font-semibold text-text-primary mb-4">Processing Pipeline</h2>
-          <p className="text-text-secondary mb-6">
-            Run these scripts in order to process your ChatGPT formatted conversation export and train your identity model.
-          </p>
-          
-          {/* Pipeline Steps */}
-          <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
-            {SCRIPTS.sort((a, b) => a.order - b.order).map((script, idx) => (
-              <div key={script.id} className="flex items-center">
-                <button
-                  onClick={() => {
-                    // Just change selection - don't clear output
-                    setSelectedScript(script.id)
-                  }}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
-                    selectedScript === script.id 
-                      ? 'bg-accent/20 text-accent border border-accent/30' 
-                      : 'bg-surface-100 text-text-secondary hover:bg-surface-200'
-                  }`}
-                >
-                  <span className="text-xs font-medium">{idx + 1}</span>
-                  <span className="text-sm whitespace-nowrap">{script.name}</span>
-                  {getStatusIcon(scriptStates[script.id]?.status || 'idle')}
-                </button>
-                {idx < SCRIPTS.length - 1 && (
-                  <ChevronRight className="w-4 h-4 text-surface-300 mx-1 flex-shrink-0" />
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
+            {/* Memory Explorer */}
+            {mainView === 'memory' && (requiresAuth ? authGate : <MemoryExplorer />)}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Script Cards */}
-          <div className="lg:col-span-2 space-y-4">
-            {SCRIPTS.sort((a, b) => a.order - b.order).map((script) => {
-              const Icon = script.icon
-              const state = scriptStates[script.id] || { status: 'idle' as ScriptStatus, output: [] }
-              const isSelected = selectedScript === script.id
-              
-              return (
-                <div 
-                  key={script.id}
-                  className={`card cursor-pointer ${isSelected ? 'border-accent shadow-glow-accent' : ''}`}
-                  onClick={() => setSelectedScript(script.id)}
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                        script.color === 'success' ? 'bg-success/20' : 'bg-accent/20'
-                      }`}>
-                        <Icon className={`w-5 h-5 ${
-                          script.color === 'success' ? 'text-success' : 'text-accent'
-                        }`} />
-                      </div>
-                      <div>
-                        <h3 className="font-display font-semibold text-text-primary">{script.name}</h3>
-                        <p className="text-xs text-text-muted font-mono">{script.path}{script.file}</p>
-                      </div>
-                    </div>
-                    {getStatusBadge(state.status)}
-                  </div>
-                  
-                  <p className="text-sm text-text-secondary mb-4">{script.description}</p>
-                  
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-wrap gap-2">
-                      {script.outputs.map((output) => (
+            {/* Data Explorer */}
+            {mainView === 'data' && (requiresAuth ? authGate : <DataExplorer />)}
+
+            {/* Pipeline */}
+            {mainView === 'pipeline' && (
+              requiresAuth ? authGate : pipelineLoading ? (
+                <div className="flex flex-col items-center justify-center py-24 gap-4">
+                  <div className="w-10 h-10 border-4 border-surface-300 border-t-accent rounded-full animate-spin" />
+                  <p className="text-text-muted text-sm">Loading pipeline status...</p>
+                </div>
+              ) : (
+              <>
+                <section className="mb-8">
+                  <h2 className="font-display text-lg font-semibold text-text-primary mb-4">Processing Pipeline</h2>
+                  <p className="text-text-secondary mb-6">
+                    Run these scripts in order to process your ChatGPT formatted conversation export and train your identity model.
+                  </p>
+                  <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
+                    {SCRIPTS.sort((a, b) => a.order - b.order).map((script, idx) => (
+                      <div key={script.id} className="flex items-center">
                         <button
-                          key={output}
-                          onClick={(e) => { e.stopPropagation(); viewFile(output); }}
-                          className="text-xs px-2 py-1 rounded bg-surface-100 text-text-muted hover:bg-surface-200 hover:text-text-primary transition-colors flex items-center gap-1"
+                          onClick={() => setSelectedScript(script.id)}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
+                            selectedScript === script.id
+                              ? 'bg-accent/20 text-accent border border-accent/30'
+                              : 'bg-surface-100 text-text-secondary hover:bg-surface-200'
+                          }`}
                         >
-                          <Eye className="w-3 h-3" />
-                          {output.split('/').pop()}
+                          <span className="text-xs font-medium">{idx + 1}</span>
+                          <span className="text-sm whitespace-nowrap">{script.name}</span>
+                          {getStatusIcon(scriptStates[script.id]?.status || 'idle')}
                         </button>
-                      ))}
-                    </div>
-                    
-                    <button
-                      onClick={(e) => { e.stopPropagation(); runScript(script.id); }}
-                      disabled={state.status === 'running'}
-                      className={`btn ${state.status === 'running' ? 'btn-ghost cursor-not-allowed' : 'btn-primary'}`}
-                    >
-                      {state.status === 'running' ? (
+                        {idx < SCRIPTS.length - 1 && (
+                          <ChevronRight className="w-4 h-4 text-surface-300 mx-1 flex-shrink-0" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2 space-y-4">
+                    {SCRIPTS.sort((a, b) => a.order - b.order).map((script) => {
+                      const Icon = script.icon
+                      const state = scriptStates[script.id] || { status: 'idle' as ScriptStatus, output: [] }
+                      const isSelected = selectedScript === script.id
+                      return (
+                        <div
+                          key={script.id}
+                          className={`card cursor-pointer ${isSelected ? 'border-accent shadow-glow-accent' : ''}`}
+                          onClick={() => setSelectedScript(script.id)}
+                        >
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                                script.color === 'success' ? 'bg-success/20' : 'bg-accent/20'
+                              }`}>
+                                <Icon className={`w-5 h-5 ${script.color === 'success' ? 'text-success' : 'text-accent'}`} />
+                              </div>
+                              <div>
+                                <h3 className="font-display font-semibold text-text-primary">{script.name}</h3>
+                                <p className="text-xs text-text-muted font-mono">{script.path}{script.file}</p>
+                              </div>
+                            </div>
+                            {getStatusBadge(state.status)}
+                          </div>
+                          <p className="text-sm text-text-secondary mb-4">{script.description}</p>
+                          <div className="flex items-center justify-between">
+                            <div className="flex flex-wrap gap-2">
+                              {script.outputs.map((output) => (
+                                <button
+                                  key={output}
+                                  onClick={(e) => { e.stopPropagation(); viewFile(output) }}
+                                  className="text-xs px-2 py-1 rounded bg-surface-100 text-text-muted hover:bg-surface-200 hover:text-text-primary transition-colors flex items-center gap-1"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  {output.split('/').pop()}
+                                </button>
+                              ))}
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); runScript(script.id) }}
+                              disabled={state.status === 'running'}
+                              className={`btn ${state.status === 'running' ? 'btn-ghost cursor-not-allowed' : 'btn-primary'}`}
+                            >
+                              {state.status === 'running' ? (
+                                <><RefreshCw className="w-4 h-4 animate-spin" />Running</>
+                              ) : (
+                                <><Play className="w-4 h-4" />Run</>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  <div className="lg:col-span-1">
+                    <div className="card sticky top-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Terminal className="w-5 h-5 text-accent" />
+                        <h3 className="font-display font-semibold text-text-primary">Output</h3>
+                      </div>
+                      {selectedScript ? (
                         <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          Running
+                          <div className="terminal max-h-[500px] overflow-y-auto">
+                            {scriptStates[selectedScript]?.output && scriptStates[selectedScript].output.length > 0 ? (
+                              scriptStates[selectedScript].output.map((line, idx) => (
+                                <div key={idx} className="terminal-line stdout">{line}</div>
+                              ))
+                            ) : (
+                              <div className="terminal-line text-text-muted italic">No output yet. Run the script to see output.</div>
+                            )}
+                            {scriptStates[selectedScript]?.status === 'running' && (
+                              <div className="terminal-line text-accent animate-pulse">&#x25CB;</div>
+                            )}
+                          </div>
+                          {scriptStates[selectedScript]?.status === 'running' && (
+                            <div className="mt-2 text-xs text-text-muted flex items-center gap-2">
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                              Running... {scriptStates[selectedScript]?.startTime && (
+                                <span>({Math.floor((Date.now() - scriptStates[selectedScript].startTime!) / 1000)}s elapsed)</span>
+                              )}
+                            </div>
+                          )}
+                          {scriptStates[selectedScript]?.endTime && (
+                            <div className="mt-2 text-xs text-text-muted">
+                              {scriptStates[selectedScript].status === 'success' ? (
+                                <span className="text-success">Completed</span>
+                              ) : scriptStates[selectedScript].status === 'error' ? (
+                                <span className="text-danger">Failed</span>
+                              ) : null}
+                              {' '}in {((scriptStates[selectedScript].endTime! - scriptStates[selectedScript].startTime!) / 1000).toFixed(1)}s
+                            </div>
+                          )}
                         </>
                       ) : (
-                        <>
-                          <Play className="w-4 h-4" />
-                          Run
-                        </>
+                        <div className="text-center py-12 text-text-muted">
+                          <Terminal className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                          <p>Select a script to see output</p>
+                        </div>
                       )}
-                    </button>
+                    </div>
                   </div>
                 </div>
+              </>
               )
-            })}
+            )}
           </div>
-
-          {/* Output Panel */}
-          <div className="lg:col-span-1">
-            <div className="card sticky top-24">
-              <div className="flex items-center gap-2 mb-4">
-                <Terminal className="w-5 h-5 text-accent" />
-                <h3 className="font-display font-semibold text-text-primary">Output</h3>
-              </div>
-              
-              {selectedScript ? (
-                <>
-                  <div className="terminal max-h-[500px] overflow-y-auto">
-                    {scriptStates[selectedScript]?.output && scriptStates[selectedScript].output.length > 0 ? (
-                      scriptStates[selectedScript].output.map((line, idx) => (
-                        <div key={idx} className="terminal-line stdout">{line}</div>
-                      ))
-                    ) : (
-                      <div className="terminal-line text-text-muted italic">No output yet. Run the script to see output.</div>
-                    )}
-                    {scriptStates[selectedScript]?.status === 'running' && (
-                      <div className="terminal-line text-accent animate-pulse">▋</div>
-                    )}
-                  </div>
-                  {selectedScript && scriptStates[selectedScript]?.status === 'running' && (
-                    <div className="mt-2 text-xs text-text-muted flex items-center gap-2">
-                      <RefreshCw className="w-3 h-3 animate-spin" />
-                      Running... {scriptStates[selectedScript]?.startTime && (
-                        <span>
-                          ({Math.floor((Date.now() - scriptStates[selectedScript].startTime!) / 1000)}s elapsed)
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {selectedScript && scriptStates[selectedScript]?.endTime && (
-                    <div className="mt-2 text-xs text-text-muted">
-                      {scriptStates[selectedScript].status === 'success' ? (
-                        <span className="text-success">✓ Completed</span>
-                      ) : scriptStates[selectedScript].status === 'error' ? (
-                        <span className="text-danger">✗ Failed</span>
-                      ) : null}
-                      {' '}in {((scriptStates[selectedScript].endTime! - scriptStates[selectedScript].startTime!) / 1000).toFixed(1)}s
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-12 text-text-muted">
-                  <Terminal className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                  <p>Select a script to see output</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-          </>
-          )
-        )}
-      </main>
+          )}
+        </main>
+      </div>
 
       {/* File Viewer Modal */}
       {fileViewer && (
@@ -694,42 +595,23 @@ function App() {
                 <FileText className="w-5 h-5 text-accent" />
                 <span className="font-mono text-sm text-text-primary">{fileViewer.path}</span>
               </div>
-              <button onClick={() => setFileViewer(null)} className="btn btn-ghost">
-                <X className="w-5 h-5" />
-              </button>
+              <button onClick={() => setFileViewer(null)} className="btn btn-ghost"><X className="w-5 h-5" /></button>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <pre className="font-mono text-sm text-text-secondary whitespace-pre-wrap">
-                {fileViewer.content}
-              </pre>
+              <pre className="font-mono text-sm text-text-secondary whitespace-pre-wrap">{fileViewer.content}</pre>
             </div>
           </div>
         </div>
       )}
 
-      {/* EEG Enrollment Modal */}
       {eegModal?.type === 'enrollment' && (
-        <EegEnrollmentModal
-          onClose={() => {
-            setEegModal(null)
-            checkPipelineCompletion()
-          }}
-          authenticatedFetch={authenticatedFetch}
-        />
+        <EegEnrollmentModal onClose={() => { setEegModal(null); checkPipelineCompletion() }} authenticatedFetch={authenticatedFetch} />
       )}
-
-      {/* EEG Authorization Modal */}
       {eegModal?.type === 'authorization' && (
-        <EegAuthorizationModal
-          onClose={() => {
-            setEegModal(null)
-          }}
-          authenticatedFetch={authenticatedFetch}
-        />
+        <EegAuthorizationModal onClose={() => { setEegModal(null) }} authenticatedFetch={authenticatedFetch} />
       )}
     </div>
   )
 }
 
 export default App
-
