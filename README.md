@@ -4,12 +4,13 @@ A behavioral identity verification system that creates an "identity fingerprint"
 
 ## What It Does
 
-- **Parses** your ChatGPT formatted conversation export (conversations.json, memories.json)
+- **Parses** conversation exports from ChatGPT and Anthropic/Claude formats
 - **Discovers** patterns unique to you (topics, vocabulary, style)
 - **Trains** an embedding model on your communication patterns
 - **Verifies** new messages against your identity fingerprint
 - **Enrolls brainwaves** via EMOTIV Epoc X EEG for neurophysiological identity assurance
 - **Authorizes** live EEG against your enrolled brainwave model as a continuous assurance signal
+- **Remembers** via Letta stateful agent with self-editing memory and pgvector semantic search
 - **Visualizes** enrollment and authorization in real-time dashboard modals via output polling
 - **Serves** identity data via MCP protocol (for LibreChat, etc.)
 - **Multi-user and OIDC**: Supports OIDC authentication with complete data isolation per user.
@@ -199,8 +200,20 @@ docker-compose up -d                              # MCP only
 │  │  │ • memory/*.jsonl     │    │ • Loads trained model          │ │    │
 │  │  │ • files/* (RAG)      │    │ • Sentence transformer         │ │    │
 │  │  │ • conversations/*    │    │ • Computes similarity to       │ │    │
-│  │  │ • Stylistic check    │    │   identity centroid            │ │    │
+│  │  │ • Semantic search    │    │   identity centroid            │ │    │
+│  │  │   (Letta/pgvector)   │    │                                │ │    │
+│  │  │ • Stylistic check    │    │                                │ │    │
 │  │  │   (fallback)         │    │                                │ │    │
+│  │  └──────────┬───────────┘    └────────────────────────────────┘ │    │
+│  │             │                                                    │    │
+│  │             ▼                                                    │    │
+│  │  ┌──────────────────────┐    ┌────────────────────────────────┐ │    │
+│  │  │  Letta (:8283)       │──▶ │ Postgres + pgvector            │ │    │
+│  │  │                      │    │                                │ │    │
+│  │  │ • Stateful agent     │    │ • Archival memory (21k+        │ │    │
+│  │  │ • Self-editing memory│    │   embedded passages)           │ │    │
+│  │  │ • identity-mcp tools │    │ • Semantic vector search       │ │    │
+│  │  │ • Sleeptime enabled  │    │                                │ │    │
 │  │  └──────────────────────┘    └────────────────────────────────┘ │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │           │                                                              │
@@ -227,7 +240,7 @@ docker-compose up -d                              # MCP only
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-## MCP Tools (54 total)
+## MCP Tools (62 total)
 
 The MCP server exposes tools for:
 - **Memory** (7 tools) - Read/write/search identity memories
@@ -237,10 +250,12 @@ The MCP server exposes tools for:
 - **Identity Verification** (4 tools) - Verify messages against your conversation fingerprint
 - **EEG Identity Assurance** (4 tools) - Enroll brainwaves, authorize via live EEG, inspect EEG profile
 - **Files** (4 tools) - RAG over your documents
+- **Search** (2 tools) - Unified cross-source search, semantic search via Letta/pgvector
 - **Fine-tuning** (5 tools) - LoRA training and dataset export
 - **Pipeline** (5 tools) - Run processing scripts, check status
-- **Data Management** (9 tools) - Upload, browse, edit, and clean data
+- **Data Management** (13 tools) - Upload (ChatGPT + Anthropic formats), browse, edit, and clean data
 - **Statistics** (2 tools) - Memory and conversation analytics
+- **Export** (2 tools) - Export memories and conversations
 
 See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for full tool reference.
 
@@ -274,7 +289,7 @@ Access at: http://localhost:3001 (after starting dashboard)
 
 | Status | Feature |
 |--------|---------|
-| ✅ | Parse ChatGPT conversation exports |
+| ✅ | Parse ChatGPT and Anthropic/Claude conversation exports |
 | ✅ | Discover identity patterns (vocabulary, style, topics) |
 | ✅ | Train semantic embedding model |
 | ✅ | Identity verification via MCP tools |
@@ -283,6 +298,9 @@ Access at: http://localhost:3001 (after starting dashboard)
 | ✅ | Enroll and train a model on EEG signal data from EMOTIV Epoc X ([docs](docs/EEG_IDENTITY_ASSURANCE.md)) |
 | ✅ | Live EEG verification assurance signals based on enrolled brainwave model |
 | ✅ | Dashboard visual modals for EEG enrollment (guided experience) and authorization (live spectral overlay) |
+| ✅ | Letta stateful agent with self-editing memory and pgvector semantic search (21k+ passages) |
+| ✅ | Semantic search across full corpus via Letta archival memory embeddings |
+| ✅ | Identity-mcp tools mounted on Letta agent for sleeptime discovery |
 | 🔲 | **Non-conversational data support** - Train on essays, journals, emails, blog posts, social media |
 | 🔲 | Multiple identity profiles (compare/switch between identities) |
 | 🔲 | Identity drift detection (alert when patterns change over time) |

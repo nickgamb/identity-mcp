@@ -40,6 +40,9 @@ __pycache__/
 *$py.class
 .Python
 
+# Letta ingest state (runtime, not source)
+letta/ingest_state.json
+
 ollama_models/
 
 .cursor/

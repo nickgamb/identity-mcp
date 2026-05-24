@@ -15,7 +15,7 @@ This system preserves **patterns of continuity** from your conversations—provi
 - **Model-Agnostic**: Works with any LLM (OpenAI, Anthropic, Ollama, local models, etc.)
 - **Pattern Discovery**: Analyze your conversations to discover unique patterns and themes
 - **MCP Protocol**: Full MCP 2024-11-05 implementation with streaming support
-- **Comprehensive Access**: 50 tools for accessing memories, conversations, files, and identity verification
+- **Comprehensive Access**: 62 tools for accessing memories, conversations, files, identity verification, and semantic search
 - **Fine-Tuning Support**: LoRA fine-tuning with dual GPU support and CPU offloading
 - **Web Dashboard**: Upload, process, browse, and edit all data with Monaco editor
 - **Pipeline Automation**: Run processing scripts via MCP tools or dashboard
@@ -61,7 +61,7 @@ identity-mcp/
 │   │   ├── health.ts         # Health check endpoint
 │   │   ├── httpApi.ts        # Direct HTTP REST API
 │   │   └── mcpProtocol.ts    # MCP protocol implementation
-│   ├── mcp/                  # MCP tool handlers (50 tools)
+│   ├── mcp/                  # MCP tool handlers (62 tools)
 │   │   ├── memoryTools.ts
 │   │   ├── memorySearchTools.ts
 │   │   ├── identityTools.ts

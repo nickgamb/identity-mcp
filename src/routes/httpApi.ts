@@ -109,9 +109,14 @@ import {
   handleEegProfileSummary,
 } from "../mcp/eegIdentityTools";
 import {
+  handleSemanticSearch,
+} from "../mcp/semanticSearchTools";
+import {
   handleDataStatus,
   handleDataUploadConversations,
   handleDataUploadMemories,
+  handleDataUploadAnthropicConversations,
+  handleDataUploadAnthropicMemories,
   handleDataClean,
   handleDataDeleteSource,
   handleDataConversationsList,
@@ -435,7 +440,7 @@ mcpRouter.post("/mcp/search.all", async (req: Request, res: Response) => {
     const userContext = getUserContext(req);
     const schema = z.object({
       query: z.string(),
-      sources: z.array(z.enum(["memories", "files", "conversations"])).optional(),
+      sources: z.array(z.enum(["memories", "files", "conversations", "letta"])).optional(),
       limit: z.number().nullish(),
     });
     const parsed = schema.parse(req.body);
@@ -887,6 +892,56 @@ mcpRouter.post("/mcp/data.upload_memories", async (req: Request, res: Response) 
     }
     
     const result = await handleDataUploadMemories({ data }, userContext?.userId);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Upload Claude/Anthropic conversations.json
+mcpRouter.post("/mcp/data.upload_anthropic_conversations", async (req: Request, res: Response) => {
+  try {
+    const userContext = getUserContext(req);
+    const { data } = req.body;
+    if (!data) {
+      res.status(400).json({ error: "No data provided" });
+      return;
+    }
+
+    const result = await handleDataUploadAnthropicConversations({ data }, userContext?.userId);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Upload Claude/Anthropic memories.json
+mcpRouter.post("/mcp/data.upload_anthropic_memories", async (req: Request, res: Response) => {
+  try {
+    const userContext = getUserContext(req);
+    const { data } = req.body;
+    if (!data) {
+      res.status(400).json({ error: "No data provided" });
+      return;
+    }
+
+    const result = await handleDataUploadAnthropicMemories({ data }, userContext?.userId);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Semantic search via Letta archival memory
+mcpRouter.post("/mcp/search.semantic", async (req: Request, res: Response) => {
+  try {
+    const userContext = getUserContext(req);
+    const { query, limit } = req.body;
+    if (!query) {
+      res.status(400).json({ error: "No query provided" });
+      return;
+    }
+    const result = await handleSemanticSearch({ query, limit }, userContext?.userId);
     res.json(result);
   } catch (err) {
     handleError(res, err);

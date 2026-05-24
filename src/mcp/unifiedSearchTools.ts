@@ -5,11 +5,12 @@
 import { handleMemorySearch, MemorySearchRequest } from "./memorySearchTools";
 import { handleFileSearch, FileSearchRequest } from "./fileTools";
 import { handleConversationSearch, ConversationSearchRequest } from "./conversationTools";
+import { handleSemanticSearch, SemanticSearchResult } from "./semanticSearchTools";
 import { logger } from "../utils/logger";
 
 export interface UnifiedSearchRequest {
   query: string;
-  sources?: Array<"memories" | "files" | "conversations">;
+  sources?: Array<"memories" | "files" | "conversations" | "letta">;
   limit?: number; // Per source
 }
 
@@ -41,6 +42,11 @@ export interface UnifiedSearchResponse {
     }>;
     count: number;
   };
+  letta: {
+    results: SemanticSearchResult[];
+    count: number;
+    error?: string;
+  };
   totalResults: number;
 }
 
@@ -56,6 +62,7 @@ export async function handleUnifiedSearch(
       memories: { results: [], count: 0 },
       files: { results: [], count: 0 },
       conversations: { conversations: [], count: 0 },
+      letta: { results: [], count: 0 },
       totalResults: 0,
     };
     
@@ -121,10 +128,26 @@ export async function handleUnifiedSearch(
       }
     }
     
-    results.totalResults = 
-      results.memories.count + 
-      results.files.count + 
-      results.conversations.count;
+    // Semantic search via Letta archival memory
+    if (sources.includes("letta")) {
+      try {
+        const lettaResults = await handleSemanticSearch({ query: req.query, limit }, userId);
+        results.letta = {
+          results: lettaResults.results,
+          count: lettaResults.count,
+          error: lettaResults.error,
+        };
+      } catch (error) {
+        logger.warn("Error in unified Letta search", error);
+        results.letta = { results: [], count: 0, error: String(error) };
+      }
+    }
+
+    results.totalResults =
+      results.memories.count +
+      results.files.count +
+      results.conversations.count +
+      results.letta.count;
     
     return results;
   } catch (error) {
@@ -133,6 +156,7 @@ export async function handleUnifiedSearch(
       memories: { results: [], count: 0 },
       files: { results: [], count: 0 },
       conversations: { conversations: [], count: 0 },
+      letta: { results: [], count: 0 },
       totalResults: 0,
     };
   }

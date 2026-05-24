@@ -1,0 +1,87 @@
+# Portable Letta memory stack: letta + letta-postgres + letta-bridge.
+# Kept as a SEPARATE fragment (not folded into the main docker-compose.yml) so it can run
+# either merged on the server OR standalone on localhost — the portability the design calls for.
+#
+# All-on-server (merge with the main stack, shares mcp-network, Ollama via docker DNS):
+#   cd ~/ai
+#   docker compose -f docker-compose.yml -f letta/docker-compose.letta.yml \
+#     --profile ollama --profile identity --profile letta up -d
+#
+# Localhost (point at remote Ollama over the LAN):
+#   OLLAMA_BASE_URL=http://<server-ip>:11434/v1 \
+#   docker compose -f letta/docker-compose.letta.yml --profile letta up -d
+#
+# Driver model (Design A — also the chat model): reliable native tool-caller, NOT a Q2 ARK model.
+#   LETTA_MODEL=ollama/qwen3:32b  (or llama3.3:70b / gpt-oss:20b)
+services:
+  letta-postgres:
+    profiles: ["letta"]
+    image: pgvector/pgvector:pg16
+    container_name: letta-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=letta
+      - POSTGRES_PASSWORD=letta
+      - POSTGRES_DB=letta
+    volumes:
+      - letta-pgdata:/var/lib/postgresql/data
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U letta"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  letta:
+    profiles: ["letta"]
+    image: letta/letta:latest
+    container_name: letta
+    restart: unless-stopped
+    ports:
+      - "8283:8283"   # API + ADE (Agent Dev Environment) web UI
+    environment:
+      - LETTA_PG_URI=postgresql://letta:letta@letta-postgres:5432/letta
+      # Inference + embeddings come from Ollama. Merge mode: http://ollama:11434/v1.
+      # Localhost mode: set OLLAMA_BASE_URL=http://<server-ip>:11434/v1
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+    networks:
+      - mcp-network
+    depends_on:
+      letta-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8283/v1/health/')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  letta-bridge:
+    profiles: ["letta"]
+    build:
+      context: ./letta/letta-bridge
+      dockerfile: Dockerfile
+    container_name: letta-bridge
+    restart: unless-stopped
+    ports:
+      - "8284:8284"
+    environment:
+      - LETTA_BASE_URL=http://letta:8283
+      - LETTA_AGENT_NAME=${LETTA_AGENT_NAME:-identity}
+      - LETTA_MODEL=${LETTA_MODEL:-ollama/qwen3:32b}
+      - LETTA_EMBEDDING=${LETTA_EMBEDDING:-ollama/nomic-embed-text:latest}
+      - MODEL_ID=${LETTA_MODEL_ID:-letta-identity}
+    networks:
+      - mcp-network
+    depends_on:
+      letta:
+        condition: service_started   # don't block on letta's healthcheck path
+
+networks:
+  mcp-network:
+    driver: bridge
+
+volumes:
+  letta-pgdata:
+    driver: local

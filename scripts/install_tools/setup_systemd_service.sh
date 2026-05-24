@@ -7,7 +7,7 @@ echo "=== Setting up systemd service for Docker Compose stack ==="
 echo ""
 
 SERVICE_FILE="/etc/systemd/system/identity-mcp.service"
-WORK_DIR="/home/nick/ai"
+WORK_DIR="${1:-/opt/identity-mcp}"
 
 # Check if running as root or with sudo
 if [ "$EUID" -ne 0 ]; then 
@@ -18,7 +18,7 @@ fi
 
 # Create the service file
 echo "Creating systemd service file..."
-cat > "$SERVICE_FILE" << 'EOF'
+cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=Identity MCP Stack
 Requires=docker.service
@@ -28,12 +28,12 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/home/nick/ai
+WorkingDirectory=$WORK_DIR
 ExecStart=/usr/bin/docker compose --profile hf --profile identity up -d
 ExecStop=/usr/bin/docker compose --profile hf --profile identity down
 TimeoutStartSec=0
-User=nick
-Group=nick
+User=$USER
+Group=$USER
 
 [Install]
 WantedBy=multi-user.target

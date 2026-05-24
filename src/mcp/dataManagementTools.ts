@@ -19,6 +19,8 @@ export interface DataStatusResponse {
   sourceFiles: {
     conversationsJson: boolean;
     memoriesJson: boolean;
+    anthropicConversationsJson: boolean;
+    anthropicMemoriesJson: boolean;
   };
   generatedData: {
     conversations: boolean;
@@ -45,6 +47,8 @@ export async function handleDataStatus(userId: string | null = null): Promise<Da
     sourceFiles: {
       conversationsJson: fs.existsSync(path.join(conversationsDir, "conversations.json")),
       memoriesJson: fs.existsSync(path.join(memoryDir, "memories.json")),
+      anthropicConversationsJson: fs.existsSync(path.join(conversationsDir, "anthropic_conversations.json")),
+      anthropicMemoriesJson: fs.existsSync(path.join(memoryDir, "anthropic_memories.json")),
     },
     generatedData: {
       conversations: fs.existsSync(conversationsDir) && 
@@ -73,10 +77,10 @@ export async function handleDataUploadConversations({ data }: { data: string | a
   const conversationsDir = getUserDataPath(baseDir, userId);
   ensureUserDirectory(conversationsDir);
   fs.mkdirSync(conversationsDir, { recursive: true });
-  
+
   const filePath = path.join(conversationsDir, "conversations.json");
   fs.writeFileSync(filePath, typeof data === "string" ? data : JSON.stringify(data, null, 2));
-  
+
   return { success: true, message: "conversations.json uploaded successfully", path: filePath };
 }
 
@@ -85,11 +89,35 @@ export async function handleDataUploadMemories({ data }: { data: string | any },
   const memoryDir = getUserDataPath(baseDir, userId);
   ensureUserDirectory(memoryDir);
   fs.mkdirSync(memoryDir, { recursive: true });
-  
+
   const filePath = path.join(memoryDir, "memories.json");
   fs.writeFileSync(filePath, typeof data === "string" ? data : JSON.stringify(data, null, 2));
-  
+
   return { success: true, message: "memories.json uploaded successfully", path: filePath };
+}
+
+export async function handleDataUploadAnthropicConversations({ data }: { data: string | any }, userId: string | null = null): Promise<{ success: boolean; message: string; path: string }> {
+  const baseDir = path.join(PROJECT_ROOT, "conversations");
+  const conversationsDir = getUserDataPath(baseDir, userId);
+  ensureUserDirectory(conversationsDir);
+  fs.mkdirSync(conversationsDir, { recursive: true });
+
+  const filePath = path.join(conversationsDir, "anthropic_conversations.json");
+  fs.writeFileSync(filePath, typeof data === "string" ? data : JSON.stringify(data, null, 2));
+
+  return { success: true, message: "Claude conversations uploaded successfully", path: filePath };
+}
+
+export async function handleDataUploadAnthropicMemories({ data }: { data: string | any }, userId: string | null = null): Promise<{ success: boolean; message: string; path: string }> {
+  const baseDir = path.join(PROJECT_ROOT, "memory");
+  const memoryDir = getUserDataPath(baseDir, userId);
+  ensureUserDirectory(memoryDir);
+  fs.mkdirSync(memoryDir, { recursive: true });
+
+  const filePath = path.join(memoryDir, "anthropic_memories.json");
+  fs.writeFileSync(filePath, typeof data === "string" ? data : JSON.stringify(data, null, 2));
+
+  return { success: true, message: "Claude memories uploaded successfully", path: filePath };
 }
 
 export async function handleDataClean({ directory }: { directory: string }, userId: string | null = null): Promise<{ success: boolean; message: string; deletedCount: number }> {
@@ -115,8 +143,8 @@ export async function handleDataClean({ directory }: { directory: string }, user
     return { success: true, message: `Directory ${directory} does not exist`, deletedCount: 0 };
   }
   
-  const filesToKeep = directory === "conversations" ? ["conversations.json"] : 
-                     directory === "memory" ? ["memories.json"] : [];
+  const filesToKeep = directory === "conversations" ? ["conversations.json", "anthropic_conversations.json"] :
+                     directory === "memory" ? ["memories.json", "anthropic_memories.json"] : [];
   
   const files = fs.readdirSync(targetDir);
   let deletedCount = 0;

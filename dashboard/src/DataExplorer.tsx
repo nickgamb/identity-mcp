@@ -370,31 +370,42 @@ export function DataExplorer() {
     }
   }
 
-  const handleFileUpload = async (type: 'conversations' | 'memories', file: File) => {
+  const handleFileUpload = async (type: 'conversations' | 'memories' | 'anthropic_conversations' | 'anthropic_memories', file: File) => {
     setLoading(true)
     try {
       const text = await file.text()
       const data = JSON.parse(text)
-      const endpoint = type === 'conversations' ? '/api/mcp/data.upload_conversations' : '/api/mcp/data.upload_memories'
-      
-      // Show progress for large files
+      const endpoints: Record<string, string> = {
+        conversations: '/api/mcp/data.upload_conversations',
+        memories: '/api/mcp/data.upload_memories',
+        anthropic_conversations: '/api/mcp/data.upload_anthropic_conversations',
+        anthropic_memories: '/api/mcp/data.upload_anthropic_memories',
+      }
+      const endpoint = endpoints[type]
+
       const sizeInMB = file.size / (1024 * 1024)
       if (sizeInMB > 10) {
         console.log(`Uploading large file (${sizeInMB.toFixed(1)} MB), this may take a minute...`)
       }
-      
+
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data })
       })
-      
+
       if (res.ok) {
-        alert(`${type}.json uploaded successfully!`)
+        const labels: Record<string, string> = {
+          conversations: 'ChatGPT conversations.json',
+          memories: 'ChatGPT memories.json',
+          anthropic_conversations: 'Claude conversations.json',
+          anthropic_memories: 'Claude memories.json',
+        }
+        alert(`${labels[type]} uploaded successfully!`)
         loadStatus()
       } else {
         const error = await res.text()
-        alert(`Failed to upload ${type}.json: ${error}`)
+        alert(`Upload failed: ${error}`)
       }
     } catch (error) {
       console.error('Upload error:', error)
@@ -629,7 +640,9 @@ export function DataExplorer() {
           {/* Source Files */}
           <div className="card">
             <h3 className="font-display font-semibold text-text-primary mb-4">Source Files</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+            <h4 className="text-sm font-medium text-text-muted mb-2">ChatGPT Export</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div className="p-4 rounded-lg bg-surface-100">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-medium">conversations.json</span>
@@ -651,7 +664,7 @@ export function DataExplorer() {
                     />
                   </label>
                   {status.sourceFiles.conversationsJson && (
-                    <button 
+                    <button
                       onClick={() => handleDeleteSourceFile('conversations')}
                       className="btn btn-ghost text-danger"
                       disabled={loading}
@@ -684,7 +697,7 @@ export function DataExplorer() {
                     />
                   </label>
                   {status.sourceFiles.memoriesJson && (
-                    <button 
+                    <button
                       onClick={() => handleDeleteSourceFile('memories')}
                       className="btn btn-ghost text-danger"
                       disabled={loading}
@@ -692,6 +705,57 @@ export function DataExplorer() {
                       <Trash2 className="w-4 h-4" />
                     </button>
                   )}
+                </div>
+                {loading && <div className="text-sm text-text-muted mt-2">Uploading...</div>}
+              </div>
+            </div>
+
+            <h4 className="text-sm font-medium text-text-muted mb-2">Claude / Anthropic Export</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-lg bg-surface-100">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-medium">conversations.json</span>
+                  <span className={`w-3 h-3 rounded-full ${status.sourceFiles.anthropicConversationsJson ? 'bg-success' : 'bg-danger'}`} />
+                </div>
+                <div className="flex gap-2">
+                  <label className={`btn btn-secondary flex-1 ${loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                    <Upload className="w-4 h-4" />
+                    {loading ? 'Uploading...' : 'Upload'}
+                    <input
+                      type="file"
+                      accept=".json"
+                      className="hidden"
+                      disabled={loading}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) handleFileUpload('anthropic_conversations', file)
+                      }}
+                    />
+                  </label>
+                </div>
+                {loading && <div className="text-sm text-text-muted mt-2">Large files may take 1-2 minutes...</div>}
+              </div>
+
+              <div className="p-4 rounded-lg bg-surface-100">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-medium">memories.json</span>
+                  <span className={`w-3 h-3 rounded-full ${status.sourceFiles.anthropicMemoriesJson ? 'bg-success' : 'bg-danger'}`} />
+                </div>
+                <div className="flex gap-2">
+                  <label className={`btn btn-secondary flex-1 ${loading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                    <Upload className="w-4 h-4" />
+                    {loading ? 'Uploading...' : 'Upload'}
+                    <input
+                      type="file"
+                      accept=".json"
+                      className="hidden"
+                      disabled={loading}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) handleFileUpload('anthropic_memories', file)
+                      }}
+                    />
+                  </label>
                 </div>
                 {loading && <div className="text-sm text-text-muted mt-2">Uploading...</div>}
               </div>

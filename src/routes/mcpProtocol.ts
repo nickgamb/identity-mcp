@@ -47,6 +47,9 @@ import {
   handleUnifiedSearch,
 } from "../mcp/unifiedSearchTools";
 import {
+  handleSemanticSearch,
+} from "../mcp/semanticSearchTools";
+import {
   handleExportMemories,
   handleExportConversations,
 } from "../mcp/exportTools";
@@ -94,6 +97,8 @@ import {
   handleDataStatus,
   handleDataUploadConversations,
   handleDataUploadMemories,
+  handleDataUploadAnthropicConversations,
+  handleDataUploadAnthropicMemories,
   handleDataClean,
   handleDataDeleteSource,
   handleDataConversationsList,
@@ -218,7 +223,7 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
     "identity_get_full",
     {
       title: "Full Identity Bundle",
-      description: "Retrieve the complete Cathedral identity bundle.",
+      description: "Retrieve the complete identity bundle.",
       inputSchema: z.object({}).optional(),
     },
     async () => toContent(await handleIdentityGetFull(getUserId())),
@@ -708,14 +713,27 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
     "search_all",
     {
       title: "Unified Search",
-      description: "Search across memories, files, and conversations simultaneously. Returns results from all sources.",
+      description: "Search across memories, files, conversations, and Letta archival memory. Sources: memories, files, conversations, letta. Default searches all local sources; add 'letta' for semantic/vector search.",
       inputSchema: z.object({
         query: z.string(),
-        sources: z.array(z.enum(["memories", "files", "conversations"])).optional(),
+        sources: z.array(z.enum(["memories", "files", "conversations", "letta"])).optional(),
         limit: z.number().nullish(),
       }),
     },
     async (payload) => toContent(await handleUnifiedSearch(payload, getUserId())),
+  );
+
+  server.registerTool(
+    "search_semantic",
+    {
+      title: "Semantic Search",
+      description: "Vector similarity search across all ingested data via Letta archival memory (pgvector embeddings). More accurate than keyword search for meaning-based queries.",
+      inputSchema: z.object({
+        query: z.string().describe("Natural language query"),
+        limit: z.number().nullish().describe("Max results (default 20)"),
+      }),
+    },
+    async ({ query, limit }) => toContent(await handleSemanticSearch({ query, limit: limit ?? undefined }, getUserId())),
   );
 
   // Export Tools
@@ -783,6 +801,30 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
       }),
     },
     async ({ data }) => toContent(await handleDataUploadMemories({ data }, getUserId())),
+  );
+
+  server.registerTool(
+    "data_upload_anthropic_conversations",
+    {
+      title: "Upload Claude Conversations",
+      description: "Upload Claude/Anthropic conversations.json export. Overwrites existing file if present.",
+      inputSchema: z.object({
+        data: z.union([z.string(), z.any()]).describe("JSON content as string or object"),
+      }),
+    },
+    async ({ data }) => toContent(await handleDataUploadAnthropicConversations({ data }, getUserId())),
+  );
+
+  server.registerTool(
+    "data_upload_anthropic_memories",
+    {
+      title: "Upload Claude Memories",
+      description: "Upload Claude/Anthropic memories.json export. Overwrites existing file if present.",
+      inputSchema: z.object({
+        data: z.union([z.string(), z.any()]).describe("JSON content as string or object"),
+      }),
+    },
+    async ({ data }) => toContent(await handleDataUploadAnthropicMemories({ data }, getUserId())),
   );
 
   server.registerTool(

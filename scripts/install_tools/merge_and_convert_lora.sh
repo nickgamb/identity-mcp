@@ -2,31 +2,29 @@
 # Merge LoRA adapter into base model and convert to GGUF for Ollama
 #
 # Usage: ./merge_and_convert_lora.sh <adapter_path> <output_name>
-# Example: ./merge_and_convert_lora.sh /home/nick/ai/adapters/lora-gpt-oss-20b-1766515801769 gpt-oss-20b-finetuned
+# Example: ./merge_and_convert_lora.sh ./adapters/lora-my-model output-name
 #
 # Prerequisites:
 # - Python with transformers, peft, torch installed
 # - llama.cpp repo cloned (for convert script)
 #
 # After running, add to docker-compose.yml ollama volumes:
-#   - /home/nick/models/ollama_models/imports:/imports:ro
+#   - ${OLLAMA_MODELS_PATH}/imports:/imports:ro
 
 set -e
 
-# Activate the Python venv with torch/transformers/peft
-source /home/nick/ai/venv/bin/activate
+# Activate the Python venv with torch/transformers/peft (adjust path as needed)
+source "${VENV_PATH:-./venv}/bin/activate"
 
-ADAPTER_PATH="${1:-/home/nick/ai/adapters/lora-gpt-oss-20b-1766515801769}"
-OUTPUT_NAME="${2:-gpt-oss-20b-finetuned}"
-BASE_MODEL_PATH="/home/nick/models/hf_models/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee"
+ADAPTER_PATH="${1:?Usage: $0 <adapter_path> <output_name>}"
+OUTPUT_NAME="${2:?Usage: $0 <adapter_path> <output_name>}"
+BASE_MODEL_PATH="${BASE_MODEL_PATH:?Set BASE_MODEL_PATH to your HF model snapshot directory}"
 # Keep merged HF models in hf_models folder (organized with other HF models)
-MERGED_OUTPUT_DIR="/home/nick/models/hf_models/${OUTPUT_NAME}"
+MERGED_OUTPUT_DIR="${HF_MODELS_PATH:-./models/hf_models}/${OUTPUT_NAME}"
 # GGUF staging area - Ollama will import this into its blob storage
-# Using ollama_models/imports/ as staging (add volume mount to docker-compose)
-GGUF_OUTPUT_DIR="/home/nick/models/ollama_models/imports"
-LLAMA_CPP_PATH="/home/nick/tools/llama.cpp"
+GGUF_OUTPUT_DIR="${OLLAMA_MODELS_PATH:-./models/ollama_models}/imports"
+LLAMA_CPP_PATH="${LLAMA_CPP_PATH:?Set LLAMA_CPP_PATH to your llama.cpp directory}"
 # Container path for GGUF staging (needs volume mount in docker-compose.yml):
-#   - /home/nick/models/ollama_models/imports:/imports:ro
 CONTAINER_GGUF_PATH="/imports"
 
 echo "=== LoRA Merge and GGUF Conversion ==="
@@ -136,7 +134,7 @@ echo "Modelfile uses template from gpt-oss:20b with GGUF: ${CONTAINER_GGUF_FILE}
 echo ""
 echo "Registering model '${OUTPUT_NAME}' with Ollama..."
 echo "NOTE: Make sure docker-compose.yml has this volume mount for ollama:"
-echo "  - /home/nick/models/ollama_models/imports:/imports:ro"
+echo "  - \${OLLAMA_MODELS_PATH}/imports:/imports:ro"
 echo ""
 docker exec ollama-server ollama create "${OUTPUT_NAME}" -f "${CONTAINER_GGUF_PATH}/${OUTPUT_NAME}.Modelfile"
 
