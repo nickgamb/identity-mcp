@@ -19,6 +19,7 @@ import {
   User as UserIcon,
   Cpu,
   AlertCircle,
+  CheckCircle,
   Workflow,
   ArrowUpDown,
   Filter,
@@ -56,6 +57,11 @@ function buildHandleOptions(ollamaNames: string[], currentHandle: string): strin
 // ── Types ───────────────────────────────────────────────────────────────
 
 type Tab = 'overview' | 'maintenance' | 'core' | 'archival' | 'activity' | 'settings'
+
+/** Map stored Letta frequency to editor (0 from API = default cadence 5). */
+function sleeptimeFreqForEditor(stored: number): number {
+  return stored > 0 ? stored : 5
+}
 
 interface LettaStatus {
   available: boolean
@@ -175,7 +181,7 @@ export function MemoryExplorer() {
       if (data.agent) {
         setSleeptimeEnabled(data.agent.enable_sleeptime ?? false)
         const freq = data.agent.sleeptime_agent_frequency ?? 0
-        setSleeptimeFreq(freq > 0 ? freq : 5)
+        setSleeptimeFreq(sleeptimeFreqForEditor(freq))
         const modelHandle =
           data.agent.model_handle ||
           (data.agent.model ? toOllamaHandle(data.agent.model) : '')
@@ -377,7 +383,13 @@ export function MemoryExplorer() {
         body: JSON.stringify(patch),
       })
       const data = await res.json()
+      if (!res.ok) {
+        alert(`Update failed: ${data.error || res.statusText}`)
+        return
+      }
       if (data.success) {
+        setSaveSuccess('sleeptime')
+        setTimeout(() => setSaveSuccess(null), 2000)
         await loadStatus()
       } else {
         alert(`Update failed: ${data.error}`)
@@ -393,7 +405,8 @@ export function MemoryExplorer() {
     status?.agent &&
     (sleeptimeEnabled !== (status.agent.enable_sleeptime ?? false) ||
       (sleeptimeEnabled &&
-        sleeptimeFreq !== (status.agent.sleeptime_agent_frequency ?? 0)))
+        sleeptimeFreq !==
+          sleeptimeFreqForEditor(status.agent.sleeptime_agent_frequency ?? 0)))
 
   const savedModelHandle =
     status?.agent?.model_handle ||
@@ -1134,12 +1147,24 @@ export function MemoryExplorer() {
                 {sleeptimeFreq === 1 ? 'Every message' : `Every ${sleeptimeFreq} messages`}
               </span>
               <button
+                type="button"
                 onClick={updateSleeptimeConfig}
                 disabled={updatingConfig || !sleeptimeConfigDirty}
                 className="btn btn-primary ml-auto"
+                title={
+                  !sleeptimeConfigDirty
+                    ? 'Change frequency or toggles to enable Save'
+                    : undefined
+                }
               >
-                {updatingConfig ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save
+                {updatingConfig ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : saveSuccess === 'sleeptime' ? (
+                  <CheckCircle className="w-4 h-4" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                {updatingConfig ? 'Saving…' : saveSuccess === 'sleeptime' ? 'Saved' : 'Save'}
               </button>
             </div>
           </div>

@@ -67,8 +67,12 @@ async function lettaFetch(path: string, init?: RequestInit): Promise<any> {
 }
 
 /** Letta 0.16+ stores sleeptime frequency on the agent group, not top-level. */
+function resolveManagedGroup(agentData: any): any | null {
+  return agentData?.multi_agent_group ?? agentData?.managed_group ?? null;
+}
+
 function resolveSleeptimeFrequency(agentData: any): number {
-  const group = agentData?.multi_agent_group ?? agentData?.managed_group;
+  const group = resolveManagedGroup(agentData);
   if (group?.sleeptime_agent_frequency != null) {
     return group.sleeptime_agent_frequency;
   }
@@ -615,37 +619,73 @@ export async function updateLettaConfig(
     return { success: false, error: "Letta agent not available" };
   }
 
-  const body: Record<string, unknown> = {};
+  const hasAgentFields =
+    patch.enable_sleeptime !== undefined ||
+    patch.model !== undefined ||
+    patch.embedding !== undefined ||
+    patch.timezone !== undefined ||
+    patch.description !== undefined ||
+    (patch.sleeptime_agent_frequency !== undefined &&
+      patch.sleeptime_agent_frequency !== null);
 
-  if (patch.enable_sleeptime !== undefined) {
-    body.enable_sleeptime = patch.enable_sleeptime;
-  }
-  if (patch.sleeptime_agent_frequency !== undefined) {
-    body.sleeptime_agent_frequency = patch.sleeptime_agent_frequency;
-  }
-  if (patch.model !== undefined) {
-    body.model = toOllamaHandle(String(patch.model));
-  }
-  if (patch.embedding !== undefined) {
-    body.embedding = toOllamaHandle(String(patch.embedding));
-  }
-  if (patch.timezone !== undefined) {
-    body.timezone = patch.timezone;
-  }
-  if (patch.description !== undefined) {
-    body.description = patch.description;
-  }
-
-  if (Object.keys(body).length === 0) {
+  if (!hasAgentFields) {
     return { success: false, error: "No supported config fields in patch" };
   }
 
   try {
-    await lettaFetch(`/v1/agents/${agentId}`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    });
-    // Note: agent ID doesn't change from a config PATCH, so no need to clear cache
+    const agentData = await lettaFetch(`/v1/agents/${agentId}`);
+    const group = resolveManagedGroup(agentData);
+    const groupId = group?.id as string | undefined;
+
+    const agentBody: Record<string, unknown> = {};
+    if (patch.enable_sleeptime !== undefined) {
+      agentBody.enable_sleeptime = patch.enable_sleeptime;
+    }
+    if (patch.model !== undefined) {
+      agentBody.model = toOllamaHandle(String(patch.model));
+    }
+    if (patch.embedding !== undefined) {
+      agentBody.embedding = toOllamaHandle(String(patch.embedding));
+    }
+    if (patch.timezone !== undefined) {
+      agentBody.timezone = patch.timezone;
+    }
+    if (patch.description !== undefined) {
+      agentBody.description = patch.description;
+    }
+    // Legacy: frequency on agent only when there is no sleeptime group
+    if (
+      patch.sleeptime_agent_frequency !== undefined &&
+      !groupId
+    ) {
+      agentBody.sleeptime_agent_frequency = patch.sleeptime_agent_frequency;
+    }
+
+    if (Object.keys(agentBody).length > 0) {
+      await lettaFetch(`/v1/agents/${agentId}`, {
+        method: "PATCH",
+        body: JSON.stringify(agentBody),
+      });
+    }
+
+    if (
+      groupId &&
+      patch.sleeptime_agent_frequency !== undefined &&
+      patch.enable_sleeptime !== false
+    ) {
+      const freq = Number(patch.sleeptime_agent_frequency);
+      await lettaFetch(`/v1/groups/${groupId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          manager_config: {
+            manager_type: group?.manager_type ?? "sleeptime",
+            sleeptime_agent_frequency: freq,
+          },
+        }),
+      });
+      logger.info("Updated sleeptime group frequency", { groupId, freq });
+    }
+
     return { success: true };
   } catch (e) {
     logger.error("updateLettaConfig failed", { error: String(e) });

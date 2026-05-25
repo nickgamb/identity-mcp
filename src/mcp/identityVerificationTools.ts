@@ -13,6 +13,7 @@ import path from "path";
 import { config } from "../config";
 import { logger } from "../utils/logger";
 import { getUserDataPath, ensureUserDirectory } from "../utils/userContext";
+import { countConversationCorpus } from "../utils/conversationCorpusStats";
 
 // Identity service configuration
 let serviceAvailable: boolean | null = null; // null = not checked yet
@@ -301,6 +302,11 @@ export async function handleIdentityModelStatus(userId: string | null = null): P
   exists: boolean;
   available?: boolean;
   config?: IdentityConfig;
+  corpus_stats?: {
+    conversation_files: number;
+    conversations_with_messages: number;
+    parse_errors: number;
+  };
   stylistic_profile?: StylisticProfile;
   vocabulary_profile?: VocabularyProfile;
   temporal_analysis?: any;
@@ -333,10 +339,17 @@ export async function handleIdentityModelStatus(userId: string | null = null): P
     logger.warn("Failed to load identity report", { error: String(error) });
   }
 
+  const conversationsDir = getUserDataPath(
+    path.join(config.PROJECT_ROOT, "conversations"),
+    userId
+  );
+  const corpus_stats = countConversationCorpus(conversationsDir);
+
   return {
     exists: true,
     available: true,
     config: identityConfig,
+    corpus_stats,
     stylistic_profile: stylisticProfile || undefined,
     vocabulary_profile: vocabularyProfile || undefined,
     temporal_analysis: temporalAnalysis || undefined,

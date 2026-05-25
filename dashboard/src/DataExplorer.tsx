@@ -47,6 +47,11 @@ type Tab = 'status' | 'conversations' | 'memories' | 'files' | 'identity'
 interface IdentityModel {
   exists: boolean
   config?: any
+  corpus_stats?: {
+    conversation_files: number
+    conversations_with_messages: number
+    parse_errors: number
+  }
   stylistic_profile?: any
   vocabulary_profile?: any
   temporal_analysis?: any
@@ -263,6 +268,7 @@ export function DataExplorer() {
       setIdentityModel({
         exists: true,
         config: statusData.config || null,
+        corpus_stats: statusData.corpus_stats || null,
         stylistic_profile: statusData.stylistic_profile || null,
         vocabulary_profile: statusData.vocabulary_profile || null,
         temporal_analysis: statusData.temporal_analysis || null,
@@ -976,14 +982,45 @@ export function DataExplorer() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="p-4 rounded-lg bg-surface-100 border border-accent/20">
                       <div className="text-xs text-text-muted mb-1">Training Data Quality</div>
-                      <div className="text-2xl font-bold text-text-primary mb-1">
-                        {identityModel.config.num_messages >= 1000 ? 'Excellent' : 
-                         identityModel.config.num_messages >= 500 ? 'Good' : 
-                         identityModel.config.num_messages >= 100 ? 'Fair' : 'Limited'}
-                      </div>
-                      <div className="text-sm text-text-muted">
-                        {identityModel.config.num_messages?.toLocaleString() || 0} messages, {identityModel.config.num_conversations || 0} conversations
-                      </div>
+                      {(() => {
+                        const corpusConvs =
+                          identityModel.corpus_stats?.conversations_with_messages ??
+                          identityModel.config.num_conversations ??
+                          0
+                        const trainedMsgs = identityModel.config.num_messages ?? 0
+                        const trainedConvs = identityModel.config.num_conversations ?? 0
+                        const corpusStale =
+                          identityModel.corpus_stats != null &&
+                          trainedConvs > 0 &&
+                          corpusConvs !== trainedConvs
+                        const qualityLabel =
+                          corpusConvs >= 500 ? 'Excellent' :
+                          corpusConvs >= 200 ? 'Good' :
+                          corpusConvs >= 50 ? 'Fair' : 'Limited'
+                        return (
+                          <>
+                            <div className="text-2xl font-bold text-text-primary mb-1">{qualityLabel}</div>
+                            <div className="text-sm text-text-muted">
+                              Corpus: {corpusConvs.toLocaleString()} conversations
+                              {identityModel.corpus_stats &&
+                                identityModel.corpus_stats.conversation_files !== corpusConvs && (
+                                  <> ({identityModel.corpus_stats.conversation_files} files)</>
+                                )}
+                            </div>
+                            <div className="text-xs text-text-muted mt-1">
+                              Model trained: {trainedMsgs.toLocaleString()} messages, {trainedConvs.toLocaleString()} conversations
+                              {identityModel.config.created_at && (
+                                <> · {new Date(identityModel.config.created_at).toLocaleDateString()}</>
+                              )}
+                            </div>
+                            {corpusStale && (
+                              <div className="text-xs text-warning mt-2">
+                                Corpus changed since last train — re-run Train Identity Model to refresh the embedding model.
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
                     </div>
                     <div className="p-4 rounded-lg bg-surface-100 border border-accent/20">
                       <div className="text-xs text-text-muted mb-1">Model Stability</div>

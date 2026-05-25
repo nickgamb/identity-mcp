@@ -251,7 +251,8 @@ export async function handleDataConversationsList(userId: string | null = null):
       }
       
       return { id, filename: f, messageCount, firstDate, lastDate, title };
-    });
+    })
+    .filter((c) => c.messageCount > 0);
   
   return { conversations: files };
 }
