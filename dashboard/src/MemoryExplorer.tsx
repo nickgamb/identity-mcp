@@ -172,11 +172,26 @@ export function MemoryExplorer() {
   // Reverie
   const [reverieEnabled, setReverieEnabled] = useState(false)
   const [reverieInterval, setReverieInterval] = useState(120)
+  const [reverieActiveHoursRestricted, setReverieActiveHoursRestricted] = useState(false)
+  const [reverieActiveHoursStart, setReverieActiveHoursStart] = useState('00:00')
+  const [reverieActiveHoursEnd, setReverieActiveHoursEnd] = useState('23:59')
+  const [reverieTimezone, setReverieTimezone] = useState('')
   const [reverieStatus, setReverieStatus] = useState<{
-    config: { enabled: boolean; intervalMinutes: number }
+    config: {
+      enabled: boolean
+      intervalMinutes: number
+      activeHours?: {
+        restricted: boolean
+        start: string
+        end: string
+        timezone: string
+      }
+    }
     running: boolean
     lastReverieTime: string | null
     nextPromptLabel: string
+    withinActiveHours?: boolean
+    activeHoursLabel?: string
   } | null>(null)
   const [updatingReverie, setUpdatingReverie] = useState(false)
 
@@ -328,6 +343,11 @@ export function MemoryExplorer() {
       if (!settingsDraftActiveRef.current) {
         setReverieEnabled(data.config?.enabled ?? false)
         setReverieInterval(data.config?.intervalMinutes ?? 120)
+        const ah = data.config?.activeHours
+        setReverieActiveHoursRestricted(ah?.restricted ?? false)
+        setReverieActiveHoursStart(ah?.start ?? '00:00')
+        setReverieActiveHoursEnd(ah?.end ?? '23:59')
+        setReverieTimezone(ah?.timezone ?? '')
       }
     } catch (error) {
       console.error('Failed to load reverie status:', error)
@@ -458,6 +478,14 @@ export function MemoryExplorer() {
         body: JSON.stringify({
           enabled: reverieEnabled,
           intervalMinutes: Math.max(30, reverieInterval),
+          activeHours: {
+            restricted: reverieActiveHoursRestricted,
+            start: reverieActiveHoursStart,
+            end: reverieActiveHoursEnd,
+            timezone:
+              reverieTimezone ||
+              Intl.DateTimeFormat().resolvedOptions().timeZone,
+          },
         }),
       })
       const data = await res.json()
@@ -530,10 +558,16 @@ export function MemoryExplorer() {
     }
   }, [promptsJson, loadReverieStatus])
 
+  const savedReverieActiveHours = reverieStatus?.config.activeHours
   const reverieConfigDirty =
     reverieStatus != null &&
     (reverieEnabled !== reverieStatus.config.enabled ||
-      reverieInterval !== reverieStatus.config.intervalMinutes)
+      reverieInterval !== reverieStatus.config.intervalMinutes ||
+      reverieActiveHoursRestricted !== (savedReverieActiveHours?.restricted ?? false) ||
+      (reverieActiveHoursRestricted &&
+        (reverieActiveHoursStart !== (savedReverieActiveHours?.start ?? '00:00') ||
+          reverieActiveHoursEnd !== (savedReverieActiveHours?.end ?? '23:59') ||
+          reverieTimezone !== (savedReverieActiveHours?.timezone ?? ''))))
 
   const sleeptimeConfigDirty =
     status?.agent &&
@@ -1400,6 +1434,85 @@ export function MemoryExplorer() {
                     ? '1 hour'
                     : `${(reverieInterval / 60).toFixed(1).replace(/\.0$/, '')} hours`}
               </span>
+            </div>
+
+            <div
+              className={`mt-4 pt-4 border-t border-surface-200 space-y-3 ${!reverieEnabled ? 'opacity-50' : ''}`}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-text-primary">Active hours</p>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    {reverieActiveHoursRestricted
+                      ? `Only between ${reverieActiveHoursStart} and ${reverieActiveHoursEnd}`
+                      : '24 hours — reverie may run any time'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={reverieActiveHoursRestricted}
+                  data-on={reverieActiveHoursRestricted}
+                  className="toggle-track"
+                  disabled={!reverieEnabled}
+                  onClick={() => {
+                    markSettingsDraft()
+                    setReverieActiveHoursRestricted(v => !v)
+                  }}
+                >
+                  <span className="toggle-thumb" />
+                </button>
+              </div>
+
+              {reverieActiveHoursRestricted && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="text-sm text-text-secondary">
+                    From
+                    <input
+                      type="time"
+                      value={reverieActiveHoursStart}
+                      disabled={!reverieEnabled}
+                      onChange={e => {
+                        markSettingsDraft()
+                        setReverieActiveHoursStart(e.target.value)
+                      }}
+                      className="select ml-2 w-[7.5rem]"
+                    />
+                  </label>
+                  <label className="text-sm text-text-secondary">
+                    Until
+                    <input
+                      type="time"
+                      value={reverieActiveHoursEnd}
+                      disabled={!reverieEnabled}
+                      onChange={e => {
+                        markSettingsDraft()
+                        setReverieActiveHoursEnd(e.target.value)
+                      }}
+                      className="select ml-2 w-[7.5rem]"
+                    />
+                  </label>
+                  <p className="text-[11px] text-text-muted w-full">
+                    End time is exclusive (e.g. until 22:00 stops at 21:59). Overnight ranges
+                    work (e.g. 22:00–06:00). Timezone:{' '}
+                    {reverieTimezone ||
+                      Intl.DateTimeFormat().resolvedOptions().timeZone}{' '}
+                    (from your browser when you save).
+                  </p>
+                </div>
+              )}
+
+              {reverieEnabled &&
+                reverieStatus &&
+                reverieActiveHoursRestricted &&
+                reverieStatus.withinActiveHours === false && (
+                  <p className="text-xs text-warning">
+                    Outside active hours now — reverie will wait until the window opens.
+                  </p>
+                )}
+            </div>
+
+            <div className={`flex flex-wrap items-center gap-4 mt-4 ${!reverieEnabled ? 'opacity-50' : ''}`}>
               <button
                 type="button"
                 onClick={updateReverieConfig}
@@ -1407,7 +1520,7 @@ export function MemoryExplorer() {
                 className="btn btn-primary ml-auto"
                 title={
                   !reverieConfigDirty
-                    ? 'Change interval or toggle to enable Save'
+                    ? 'Change settings to enable Save'
                     : undefined
                 }
               >
@@ -1426,6 +1539,9 @@ export function MemoryExplorer() {
               <p className="text-xs text-text-muted mt-4">
                 Last reverie: {new Date(reverieStatus.lastReverieTime).toLocaleString()}
                 {' — next prompt: '}{reverieStatus.nextPromptLabel}
+                {reverieStatus.activeHoursLabel && (
+                  <> — schedule: {reverieStatus.activeHoursLabel}</>
+                )}
               </p>
             )}
 

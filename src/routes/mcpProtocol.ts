@@ -1108,10 +1108,19 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
     "reverie_config",
     {
       title: "Update Reverie Config",
-      description: "Update reverie settings: enabled (boolean), intervalMinutes (30-720).",
+      description:
+        "Update reverie settings: enabled, intervalMinutes (30-720), activeHours (restricted + start/end HH:mm + timezone).",
       inputSchema: z.object({
         enabled: z.boolean().optional(),
         intervalMinutes: z.number().min(30).max(720).optional(),
+        activeHours: z
+          .object({
+            restricted: z.boolean().optional(),
+            start: z.string().optional(),
+            end: z.string().optional(),
+            timezone: z.string().optional(),
+          })
+          .optional(),
       }),
     },
     async (patch) => toContent(updateReverieConfig(patch)),

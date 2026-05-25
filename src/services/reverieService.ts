@@ -11,12 +11,20 @@ import {
   formatReverieUserContent,
   type ReveriePrompt,
 } from "../utils/reveriePrompts";
+import {
+  DEFAULT_ACTIVE_HOURS,
+  formatActiveHoursLabel,
+  isWithinActiveHours,
+  normalizeActiveHours,
+  type ReverieActiveHours,
+} from "../utils/reverieActiveHours";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
 interface ReverieConfig {
   enabled: boolean;
   intervalMinutes: number;
+  activeHours: ReverieActiveHours;
 }
 
 interface ReverieState {
@@ -31,6 +39,8 @@ export interface ReverieStatus {
   running: boolean;
   lastReverieTime: string | null;
   nextPromptLabel: string;
+  withinActiveHours: boolean;
+  activeHoursLabel: string;
 }
 
 // ── Module state ───────────────────────────────────────────────────────
@@ -40,6 +50,7 @@ const CONFIG_PATH = path.join(config.MEMORY_DIR, "reverie-config.json");
 let reverieConfig: ReverieConfig = {
   enabled: config.REVERIE_ENABLED,
   intervalMinutes: config.REVERIE_INTERVAL_MINUTES,
+  activeHours: { ...DEFAULT_ACTIVE_HOURS },
 };
 
 let state: ReverieState = {
@@ -61,6 +72,9 @@ function loadConfig(): void {
       if (typeof raw.intervalMinutes === "number" && raw.intervalMinutes >= 30) {
         reverieConfig.intervalMinutes = raw.intervalMinutes;
       }
+      if (raw.activeHours !== undefined) {
+        reverieConfig.activeHours = normalizeActiveHours(raw.activeHours);
+      }
       if (typeof raw.promptIndex === "number" && raw.promptIndex >= 0) {
         state.promptIndex = raw.promptIndex % getActivePrompts().length;
       }
@@ -81,6 +95,7 @@ function saveConfig(): void {
         {
           enabled: reverieConfig.enabled,
           intervalMinutes: reverieConfig.intervalMinutes,
+          activeHours: reverieConfig.activeHours,
           promptIndex: state.promptIndex,
         },
         null,
@@ -102,6 +117,7 @@ function saveConfig(): void {
 function shouldFire(): boolean {
   if (!reverieConfig.enabled) return false;
   if (state.running) return false;
+  if (!isWithinActiveHours(reverieConfig.activeHours)) return false;
   if (state.lastReverieTime !== null) {
     const elapsed = Date.now() - state.lastReverieTime;
     const intervalMs = reverieConfig.intervalMinutes * 60 * 1000;
@@ -171,13 +187,20 @@ async function checkLoop(): Promise<void> {
 // ── Exported API ───────────────────────────────────────────────────────
 
 export function getReverieStatus(): ReverieStatus {
+  const activeHours = { ...reverieConfig.activeHours };
   return {
-    config: { ...reverieConfig },
+    config: {
+      enabled: reverieConfig.enabled,
+      intervalMinutes: reverieConfig.intervalMinutes,
+      activeHours,
+    },
     running: state.running,
     lastReverieTime: state.lastReverieTime
       ? new Date(state.lastReverieTime).toISOString()
       : null,
     nextPromptLabel: getActivePrompts()[state.promptIndex % getActivePrompts().length].label,
+    withinActiveHours: isWithinActiveHours(activeHours),
+    activeHoursLabel: formatActiveHoursLabel(activeHours),
   };
 }
 
@@ -189,6 +212,9 @@ export function updateReverieConfig(
   }
   if (typeof patch.intervalMinutes === "number") {
     reverieConfig.intervalMinutes = Math.max(30, Math.min(720, patch.intervalMinutes));
+  }
+  if (patch.activeHours !== undefined) {
+    reverieConfig.activeHours = normalizeActiveHours(patch.activeHours);
   }
   saveConfig();
   logger.info("Reverie config updated", reverieConfig);
