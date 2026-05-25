@@ -112,6 +112,41 @@ interface RunningScript {
 // Track currently running scripts
 const runningScripts = new Map<string, RunningScript>();
 
+/** After a run ends, keep done/exitCode visible to pollers (entry is removed later). */
+const finishedScripts = new Map<
+  string,
+  { exitCode: number | null; finishedAt: number }
+>();
+
+const MAX_OUTPUT_LINES = 6000;
+const FINISHED_RETAIN_MS = 30 * 60 * 1000;
+const RUNNING_ENTRY_RETAIN_MS = 30 * 60 * 1000;
+
+function pushOutputLines(output: string[], chunk: string): void {
+  const rawParts = chunk.split(/\n/);
+  for (let part of rawParts) {
+    if (part.includes("\r")) {
+      part = part.split("\r").pop() || part;
+    }
+    const line = part.trimEnd();
+    if (!line) continue;
+    output.push(line);
+    if (output.length > MAX_OUTPUT_LINES) {
+      const drop = output.length - MAX_OUTPUT_LINES;
+      output.splice(0, drop);
+      if (!output[0]?.startsWith("[...")) {
+        output.unshift(`[... ${drop} earlier lines truncated ...]`);
+      }
+    }
+  }
+}
+
+function markScriptFinished(script: string, exitCode: number | null): void {
+  finishedScripts.set(script, { exitCode, finishedAt: Date.now() });
+  setTimeout(() => finishedScripts.delete(script), FINISHED_RETAIN_MS);
+  setTimeout(() => runningScripts.delete(script), RUNNING_ENTRY_RETAIN_MS);
+}
+
 /**
  * List available pipeline scripts
  */
@@ -128,7 +163,96 @@ export async function handlePipelineList(userId: string | null = null): Promise<
 }
 
 /**
- * Run a pipeline script
+ * Start a pipeline script without waiting for completion (dashboard / polling UI).
+ */
+export function startPipelineRun(
+  {
+    script,
+    args,
+  }: {
+    script: string;
+    args?: string[];
+  },
+  userId: string | null = null
+): { started: boolean; script: string; error?: string; alreadyRunning?: boolean } {
+  const runArgs =
+    args !== undefined && args.length > 0
+      ? args
+      : SCRIPT_DEFAULT_ARGS[script] || [];
+
+  const scriptInfo = ALLOWED_SCRIPTS[script];
+  if (!scriptInfo) {
+    return {
+      started: false,
+      script,
+      error: `Script '${script}' is not in the allowed list.`,
+    };
+  }
+
+  const existing = runningScripts.get(script);
+  if (existing && !existing.finished) {
+    return { started: true, script, alreadyRunning: true };
+  }
+
+  const scriptPath = path.join(config.PROJECT_ROOT, scriptInfo.path);
+  logger.info("Starting pipeline script (async)", { script, scriptPath, args: runArgs });
+
+  const output: string[] = [];
+  output.push(`$ ${PYTHON_CMD} ${scriptInfo.path} ${runArgs.join(" ")}`);
+  output.push("");
+
+  const proc = spawn(PYTHON_CMD, [scriptPath, ...runArgs], {
+    cwd: config.PROJECT_ROOT,
+    env: scriptEnv(script, process.env, userId),
+  });
+
+  const runEntry: RunningScript = {
+    script,
+    startTime: Date.now(),
+    args: runArgs,
+    process: proc,
+    output,
+    finished: false,
+    exitCode: null,
+  };
+  runningScripts.set(script, runEntry);
+
+  proc.stdout.on("data", (data: Buffer) => {
+    pushOutputLines(output, data.toString());
+  });
+
+  proc.stderr.on("data", (data: Buffer) => {
+    const text = data.toString();
+    for (const line of text.split(/\n/)) {
+      if (line.trim()) {
+        pushOutputLines(output, `[stderr] ${line}`);
+      }
+    }
+  });
+
+  proc.on("error", (error: Error) => {
+    pushOutputLines(output, `[error] Failed to start: ${error.message}`);
+    runEntry.finished = true;
+    runEntry.exitCode = null;
+    markScriptFinished(script, null);
+  });
+
+  proc.on("close", (code: number | null) => {
+    pushOutputLines(
+      output,
+      `\nProcess exited with code ${code} (${((Date.now() - runEntry.startTime) / 1000).toFixed(1)}s)`
+    );
+    logger.info("Pipeline script completed", { script, exitCode: code });
+    runEntry.finished = true;
+    runEntry.exitCode = code;
+    markScriptFinished(script, code);
+  });
+
+  return { started: true, script };
+}
+
+/**
+ * Run a pipeline script (blocks until exit — MCP tools / run_all).
  */
 export async function handlePipelineRun({
   script,
@@ -177,82 +301,26 @@ export async function handlePipelineRun({
     });
   }
 
-  const scriptPath = path.join(config.PROJECT_ROOT, scriptInfo.path);
-  logger.info("Running pipeline script", { script, scriptPath, args: runArgs });
+  startPipelineRun({ script, args: runArgs }, userId);
 
   return new Promise((resolve) => {
-    const output: string[] = [];
-    output.push(`$ ${PYTHON_CMD} ${scriptInfo.path} ${runArgs.join(" ")}`);
-    output.push("");
-
-    const env = scriptEnv(script, process.env, userId);
-
-    const proc = spawn(PYTHON_CMD, [scriptPath, ...runArgs], {
-      cwd: config.PROJECT_ROOT,
-      env,
-    });
-
-    // Track running script (share the output array so SSE can read it)
-    const runEntry: RunningScript = {
-      script,
-      startTime,
-      args: runArgs,
-      process: proc,
-      output,
-      finished: false,
-      exitCode: null,
-    };
-    runningScripts.set(script, runEntry);
-
-    proc.stdout.on("data", (data: Buffer) => {
-      const lines = data.toString().split("\n").filter((l: string) => l);
-      output.push(...lines);
-    });
-
-    proc.stderr.on("data", (data: Buffer) => {
-      const lines = data.toString().split("\n").filter((l: string) => l);
-      output.push(...lines.map((l: string) => `[stderr] ${l}`));
-    });
-
-    proc.on("error", (error: Error) => {
-      const duration = Date.now() - startTime;
-      output.push(`[error] Failed to start: ${error.message}`);
-      
-      // Mark finished so SSE clients see it, then clean up after a delay
-      runEntry.finished = true;
-      runEntry.exitCode = null;
-      setTimeout(() => runningScripts.delete(script), 5000);
-      
-      resolve({
-        success: false,
-        script,
-        output,
-        exitCode: null,
-        duration,
-        error: error.message,
-      });
-    });
-
-    proc.on("close", (code: number | null) => {
-      const duration = Date.now() - startTime;
-      output.push("");
-      output.push(`Process exited with code ${code} (${(duration / 1000).toFixed(1)}s)`);
-
-      logger.info("Pipeline script completed", { script, exitCode: code, duration });
-
-      // Mark finished so SSE clients see it, then clean up after a delay
-      runEntry.finished = true;
-      runEntry.exitCode = code;
-      setTimeout(() => runningScripts.delete(script), 5000);
-
-      resolve({
-        success: code === 0,
-        script,
-        output,
-        exitCode: code,
-        duration,
-      });
-    });
+    const poll = setInterval(() => {
+      const entry = runningScripts.get(script);
+      const finished = finishedScripts.get(script);
+      if (entry?.finished || finished) {
+        clearInterval(poll);
+        const exitCode = entry?.exitCode ?? finished?.exitCode ?? null;
+        const output = entry?.output ?? [];
+        const duration = Date.now() - (entry?.startTime ?? startTime);
+        resolve({
+          success: exitCode === 0,
+          script,
+          output,
+          exitCode,
+          duration,
+        });
+      }
+    }, 200);
   });
 }
 
@@ -373,8 +441,17 @@ export function handlePipelineOutput(
   cursor: number
 ): { lines: Array<{ line: string; index: number }>; started: boolean; done: boolean; exitCode?: number } {
   const entry = runningScripts.get(scriptId);
+  const finished = finishedScripts.get(scriptId);
+
   if (!entry) {
-    // Script not yet registered — tell frontend to keep polling
+    if (finished) {
+      return {
+        lines: [],
+        started: true,
+        done: true,
+        exitCode: finished.exitCode ?? undefined,
+      };
+    }
     return { lines: [], started: false, done: false };
   }
 
@@ -390,7 +467,9 @@ export function handlePipelineOutput(
   };
 
   if (entry.finished) {
-    result.exitCode = entry.exitCode;
+    result.exitCode = entry.exitCode ?? undefined;
+  } else if (finished && result.done) {
+    result.exitCode = finished.exitCode ?? undefined;
   }
 
   return result;

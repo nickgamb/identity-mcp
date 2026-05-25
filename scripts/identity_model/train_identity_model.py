@@ -189,9 +189,12 @@ def load_memory_files() -> Dict[str, List[Dict]]:
 
         memory_data["parsed_memories"] = load_parsed_memories(MEMORY_DIR)
         if memory_data["parsed_memories"]:
-            print(
-                f"  ✓ Loaded parsed memories ({len(memory_data['parsed_memories'])} records, ChatGPT + Claude)"
-            )
+            by_source: Dict[str, int] = {}
+            for rec in memory_data["parsed_memories"]:
+                src = rec.get("source", "memory")
+                by_source[src] = by_source.get(src, 0) + 1
+            parts = ", ".join(f"{k}: {v}" for k, v in sorted(by_source.items()))
+            print(f"  ✓ Loaded parsed memories ({len(memory_data['parsed_memories'])} records — {parts})")
     except Exception as e:
         print(f"  ⚠ Error loading parsed memory JSONL: {e}")
 
@@ -838,6 +841,14 @@ def main():
     if use_multi_gpu:
         print(f"   Using batch size {effective_batch_size} (base: {args.batch_size} × {num_gpus} GPUs)")
         print(f"   DataParallel will split batches across {num_gpus} GPUs automatically")
+    batches = max(1, (len(user_messages) + effective_batch_size - 1) // effective_batch_size)
+    if device == "cpu":
+        est_min = batches * 10 / 60
+        print(
+            f"   ⏱️  Estimated embedding time on CPU: ~{est_min:.0f} min "
+            f"({len(user_messages)} messages, {batches} batches) — leave running until complete"
+        )
+
     embeddings = compute_semantic_embeddings(
         user_messages, model, batch_size=effective_batch_size
     )

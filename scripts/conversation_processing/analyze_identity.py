@@ -393,6 +393,15 @@ def detect_naming_events(conversations: List[Dict]) -> List[Dict[str, Any]]:
     return naming_events
 
 
+def split_conversation_corpus(
+    conversations: List[Dict],
+) -> Tuple[List[Dict], Optional[Dict]]:
+    """Separate parsed memory blob from real conversation JSONL threads."""
+    real = [c for c in conversations if c.get("id") != "parsed_memories"]
+    memory = next((c for c in conversations if c.get("id") == "parsed_memories"), None)
+    return real, memory
+
+
 def analyze_identity_patterns(conversations: List[Dict], num_windows: int = 5) -> Dict[str, Any]:
     """
     Comprehensive human identity pattern analysis.
@@ -406,7 +415,7 @@ def analyze_identity_patterns(conversations: List[Dict], num_windows: int = 5) -
         "summary": {
             "total_conversations": len(conversations),
             "time_windows": len(windows),
-            "analysis_timestamp": datetime.now().isoformat()
+            "analysis_timestamp": datetime.now().isoformat(),
         },
         "human_identity": {},  # Primary focus: human patterns
         "relational_context": {},  # How human relates to agent (includes assistant patterns for context)
@@ -471,12 +480,33 @@ def analyze_identity_patterns(conversations: List[Dict], num_windows: int = 5) -
     return analysis
 
 
+def analyze_parsed_memories(memory_conversation: Optional[Dict]) -> Dict[str, Any]:
+    """Lightweight pattern counts on parsed memory JSONL only (not mixed into chat stats)."""
+    if not memory_conversation or not memory_conversation.get("messages"):
+        return {"record_count": 0}
+
+    texts = [m.get("content", "") for m in memory_conversation["messages"] if m.get("content")]
+    combined = " ".join(texts)
+    return {
+        "record_count": len(texts),
+        "relational_patterns": count_pattern_matches(combined, RELATIONAL_PATTERNS),
+        "self_referential_patterns": count_pattern_matches(combined, SELF_REFERENTIAL_PATTERNS),
+        "note": "Parsed ChatGPT/Claude memory JSONL — kept separate from conversation threads",
+    }
+
+
 def generate_identity_report(analysis: Dict[str, Any], output_path: Path):
     """Generate human-readable identity analysis report."""
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write("# Identity Pattern Analysis Report\n\n")
         f.write(f"Generated: {analysis['summary']['analysis_timestamp']}\n")
         f.write(f"Conversations analyzed: {analysis['summary']['total_conversations']}\n")
+        mem_records = analysis["summary"].get("parsed_memory_records", 0)
+        if mem_records:
+            f.write(
+                f"Parsed memory records (separate): {mem_records} "
+                f"(not included in conversation pattern totals below)\n"
+            )
         f.write(f"Time windows: {analysis['summary']['time_windows']}\n\n")
         
         # Human Identity (Primary Focus)
@@ -501,6 +531,16 @@ def generate_identity_report(analysis: Dict[str, Any], output_path: Path):
         f.write("| Pattern | Count |\n|---------|-------|\n")
         for pattern, count in human.get("stylistic_patterns", {}).items():
             f.write(f"| {pattern.replace('_', ' ').title()} | {count} |\n")
+
+        parsed_mem = analysis.get("parsed_memories", {})
+        if parsed_mem.get("record_count", 0) > 0:
+            f.write("\n## Parsed Memories (ChatGPT / Claude JSONL)\n\n")
+            f.write(
+                f"Separate from conversation threads — {parsed_mem['record_count']} memory records.\n\n"
+            )
+            f.write("| Pattern | Count |\n|---------|-------|\n")
+            for pattern, count in parsed_mem.get("relational_patterns", {}).items():
+                f.write(f"| {pattern.replace('_', ' ').title()} | {count} |\n")
         
         # Relational Context (Human-Agent Dynamics)
         f.write("\n## Relational Context (Human-Agent Dynamics)\n\n")
@@ -686,18 +726,24 @@ def main():
         print("Run parse_conversations.py and/or parse_memories first.")
         sys.exit(1)
 
+    real_conversations, memory_conversation = split_conversation_corpus(conversations)
+    memory_analysis = analyze_parsed_memories(memory_conversation)
+
     if not args.quiet:
-        conv_count = sum(1 for c in conversations if c.get("id") != "parsed_memories")
-        mem_count = len(memories)
-        print(f"Loaded {conv_count} conversations", end="")
+        conv_count = len(real_conversations)
+        mem_count = memory_analysis.get("record_count", 0)
+        print(f"Analyzing {conv_count} conversation threads", end="")
         if mem_count:
-            print(f" + {mem_count} parsed memory records (ChatGPT/Claude)")
+            print(f" (+ {mem_count} parsed memory records in separate section)")
         else:
             print()
         print("Analyzing identity patterns...")
-    
-    # Run analysis
-    analysis = analyze_identity_patterns(conversations, args.time_windows)
+
+    # Run analysis on conversation threads only (not parsed memory JSONL)
+    analysis = analyze_identity_patterns(real_conversations, args.time_windows)
+    if memory_analysis.get("record_count", 0) > 0:
+        analysis["parsed_memories"] = memory_analysis
+        analysis["summary"]["parsed_memory_records"] = memory_analysis["record_count"]
     
     # Save outputs
     MEMORY_DIR.mkdir(exist_ok=True)

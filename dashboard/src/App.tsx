@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Play,
   FileText,
@@ -95,7 +95,8 @@ const SCRIPTS = [
     name: 'Train Identity Model',
     file: 'train_identity_model.py',
     path: 'scripts/identity_model/',
-    description: 'Trains the semantic embedding model using all processed data. Creates your identity fingerprint.',
+    description:
+      'Trains the semantic embedding model from conversation user messages (~60–90 min on CPU; wait for "TRAINING COMPLETE").',
     outputs: ['models/identity/config.json', 'models/identity/identity_centroid.npy', 'models/identity/stylistic_profile.json', 'models/identity/vocabulary_profile.json'],
     icon: Shield,
     color: 'success',
@@ -139,11 +140,24 @@ function App() {
   const [mainView, setMainView] = useState<MainView>('pipeline')
   const { scriptStates, setStates: setScriptStates, runScript: hookRunScript, hasRunning: hasRunningScripts } = useScriptRunner()
   const [selectedScript, setSelectedScript] = useState<string | null>(null)
+  const pipelineTerminalRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = pipelineTerminalRef.current
+    if (!el || !selectedScript) return
+    el.scrollTop = el.scrollHeight
+  }, [selectedScript, scriptStates[selectedScript ?? '']?.output?.length, scriptStates[selectedScript ?? '']?.status])
   const [fileViewer, setFileViewer] = useState<{ path: string; content: string } | null>(null)
   const [eegModal, setEegModal] = useState<{ type: 'enrollment' | 'authorization' } | null>(null)
   const [mcpStatus, setMcpStatus] = useState<'checking' | 'online' | 'offline'>('checking')
   const [lettaStatus, setLettaStatus] = useState<'checking' | 'online' | 'offline'>('checking')
   const [pipelineLoading, setPipelineLoading] = useState(true)
+  const pipelineStatusRequestRef = useRef(0)
+  const hasRunningScriptsRef = useRef(false)
+
+  useEffect(() => {
+    hasRunningScriptsRef.current = hasRunningScripts
+  }, [hasRunningScripts])
 
   useEffect(() => {
     const initialLoad = async () => {
@@ -154,7 +168,9 @@ function App() {
     const interval = setInterval(() => {
       checkMcpStatus()
       checkLettaStatus()
-      checkPipelineCompletion()
+      if (!hasRunningScriptsRef.current) {
+        checkPipelineCompletion()
+      }
     }, 30000)
 
     const handleDataCleaned = () => { checkPipelineCompletion() }
@@ -189,63 +205,95 @@ function App() {
     checkLettaStatus()
   }
 
-  const checkPipelineCompletion = async () => {
-    try {
-      let runningScripts: Record<string, ScriptState> = {}
-      setScriptStates(prev => {
-        runningScripts = {}
-        for (const [scriptId, state] of Object.entries(prev)) {
-          if (state.status === 'running') {
-            runningScripts[scriptId] = state
-          }
-        }
-        return prev
-      })
+  const isPlaceholderOutput = (output: string[] | undefined) =>
+    output?.length === 1 && output[0] === 'Completed previously'
 
+  /** Only show disk-based "Completed previously" when the user has not run the step this session. */
+  const shouldApplyArtifactHint = (prev: ScriptState | undefined) => {
+    if (!prev || prev.status === 'idle') return true
+    if (prev.status === 'running') return false
+    if (prev.startTime && prev.startTime > 0) return false
+    if (prev.output?.length && !isPlaceholderOutput(prev.output)) return false
+    return isPlaceholderOutput(prev.output)
+  }
+
+  const applyArtifactHint = (
+    next: Record<string, ScriptState>,
+    prev: Record<string, ScriptState>,
+    scriptId: string,
+    artifactPresent: boolean
+  ) => {
+    if (!artifactPresent) {
+      const cur = next[scriptId] ?? prev[scriptId]
+      if (cur && isPlaceholderOutput(cur.output)) {
+        delete next[scriptId]
+      }
+      return
+    }
+    if (shouldApplyArtifactHint(prev[scriptId])) {
+      next[scriptId] = {
+        status: 'success',
+        output: ['Completed previously'],
+        startTime: 0,
+        endTime: 0,
+      }
+    }
+  }
+
+  const checkPipelineCompletion = async () => {
+    const requestId = ++pipelineStatusRequestRef.current
+    try {
       const res = await authenticatedFetch('/api/mcp/data.status')
       const data = await res.json()
-      const finalStates: Record<string, ScriptState> = { ...runningScripts }
+      if (requestId !== pipelineStatusRequestRef.current) return
 
+      let hasConversations = false
       if (data.counts?.conversationFiles > 0) {
         try {
           const conversationsRes = await authenticatedFetch('/api/mcp/data.conversations')
           if (conversationsRes.ok) {
             const conversationsData = await conversationsRes.json()
-            if (conversationsData.conversations && conversationsData.conversations.length > 0) {
-              finalStates['parse_conversations'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-            }
+            hasConversations =
+              Array.isArray(conversationsData.conversations) &&
+              conversationsData.conversations.length > 0
           }
         } catch { /* not complete */ }
       }
+      if (requestId !== pipelineStatusRequestRef.current) return
 
+      let memoryFileNames: string[] = []
       try {
         const memoryListRes = await authenticatedFetch('/api/mcp/data.memories_list')
         if (memoryListRes.ok) {
           const memoryListData = await memoryListRes.json()
-          const memoryFileNames = memoryListData.memories?.map((f: any) => f._file) || []
-          if (memoryFileNames.includes('identity.jsonl') && memoryFileNames.includes('patterns.jsonl')) {
-            finalStates['analyze_patterns'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-          }
-          if (memoryFileNames.includes('user.context.jsonl')) {
-            finalStates['parse_memories'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-          }
-          if (memoryFileNames.includes('identity_analysis.jsonl')) {
-            finalStates['analyze_identity'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-          }
+          memoryFileNames = memoryListData.memories?.map((f: { _file: string }) => f._file) || []
         }
       } catch { /* failed */ }
+      if (requestId !== pipelineStatusRequestRef.current) return
 
-      if (data.generatedData?.interactionMap) {
-        finalStates['build_interaction_map'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-      }
-      if (data.generatedData?.identityModel) {
-        finalStates['train_identity_model'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-      }
-      if (data.generatedData?.eegIdentityModel) {
-        finalStates['enroll_brainwaves'] = { status: 'success', output: ['Completed previously'], startTime: 0, endTime: 0 }
-      }
+      setScriptStates(prev => {
+        const next: Record<string, ScriptState> = { ...prev }
 
-      setScriptStates(finalStates)
+        applyArtifactHint(next, prev, 'parse_conversations', hasConversations)
+        applyArtifactHint(
+          next,
+          prev,
+          'analyze_patterns',
+          memoryFileNames.includes('identity.jsonl') && memoryFileNames.includes('patterns.jsonl')
+        )
+        applyArtifactHint(next, prev, 'parse_memories', memoryFileNames.includes('user.context.jsonl'))
+        applyArtifactHint(
+          next,
+          prev,
+          'analyze_identity',
+          memoryFileNames.includes('identity_analysis.jsonl')
+        )
+        applyArtifactHint(next, prev, 'build_interaction_map', !!data.generatedData?.interactionMap)
+        applyArtifactHint(next, prev, 'train_identity_model', !!data.generatedData?.identityModel)
+        applyArtifactHint(next, prev, 'enroll_brainwaves', !!data.generatedData?.eegIdentityModel)
+
+        return next
+      })
     } catch (error) {
       console.error('Failed to check pipeline completion:', error)
     }
@@ -505,7 +553,7 @@ function App() {
                       </div>
                       {selectedScript ? (
                         <>
-                          <div className="terminal max-h-[500px] overflow-y-auto">
+                          <div ref={pipelineTerminalRef} className="terminal max-h-[500px] overflow-y-auto">
                             {scriptStates[selectedScript]?.output && scriptStates[selectedScript].output.length > 0 ? (
                               scriptStates[selectedScript].output.map((line, idx) => (
                                 <div key={idx} className="terminal-line stdout">{line}</div>
@@ -525,7 +573,8 @@ function App() {
                               )}
                             </div>
                           )}
-                          {scriptStates[selectedScript]?.endTime && (
+                          {scriptStates[selectedScript]?.endTime &&
+                            (scriptStates[selectedScript].startTime ?? 0) > 0 && (
                             <div className="mt-2 text-xs text-text-muted">
                               {scriptStates[selectedScript].status === 'success' ? (
                                 <span className="text-success">Completed</span>

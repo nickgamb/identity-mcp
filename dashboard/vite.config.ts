@@ -11,6 +11,8 @@ export default defineConfig({
         // In Docker, set VITE_API_TARGET=http://mcp-server:4000 (see docker-compose)
         target: process.env.VITE_API_TARGET || process.env.API_TARGET || 'http://localhost:4000',
         changeOrigin: true,
+        timeout: 0,
+        proxyTimeout: 0,
         rewrite: (path) => path.replace(/^\/api/, ''),
         // Prevent proxy from buffering SSE (Server-Sent Events) responses
         configure: (proxy) => {

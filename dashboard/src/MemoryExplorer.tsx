@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Brain,
   Database,
@@ -155,6 +155,14 @@ export function MemoryExplorer() {
   // Settings
   const [sleeptimeEnabled, setSleeptimeEnabled] = useState(false)
   const [sleeptimeFreq, setSleeptimeFreq] = useState(5)
+  /** Blocks status poll/tab refresh from resetting settings inputs while user is editing */
+  const settingsDraftActiveRef = useRef(false)
+  const markSettingsDraft = () => {
+    settingsDraftActiveRef.current = true
+  }
+  const clearSettingsDraft = () => {
+    settingsDraftActiveRef.current = false
+  }
   const [updatingConfig, setUpdatingConfig] = useState(false)
 
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
@@ -178,7 +186,7 @@ export function MemoryExplorer() {
       const res = await authenticatedFetch('/api/mcp/letta.status')
       const data = await res.json()
       setStatus(data)
-      if (data.agent) {
+      if (data.agent && !settingsDraftActiveRef.current) {
         setSleeptimeEnabled(data.agent.enable_sleeptime ?? false)
         const freq = data.agent.sleeptime_agent_frequency ?? 0
         setSleeptimeFreq(sleeptimeFreqForEditor(freq))
@@ -388,6 +396,7 @@ export function MemoryExplorer() {
         return
       }
       if (data.success) {
+        clearSettingsDraft()
         setSaveSuccess('sleeptime')
         setTimeout(() => setSaveSuccess(null), 2000)
         await loadStatus()
@@ -436,6 +445,7 @@ export function MemoryExplorer() {
       })
       const data = await res.json()
       if (data.success) {
+        clearSettingsDraft()
         await loadStatus()
       } else {
         alert(`Update failed: ${data.error}`)
@@ -1106,7 +1116,10 @@ export function MemoryExplorer() {
                 aria-checked={sleeptimeEnabled}
                 data-on={sleeptimeEnabled}
                 className="toggle-track"
-                onClick={() => setSleeptimeEnabled(v => !v)}
+                onClick={() => {
+                  markSettingsDraft()
+                  setSleeptimeEnabled(v => !v)
+                }}
               >
                 <span className="toggle-thumb" />
               </button>
@@ -1121,14 +1134,20 @@ export function MemoryExplorer() {
                   max={100}
                   value={sleeptimeFreq}
                   disabled={!sleeptimeEnabled}
-                  onChange={e => setSleeptimeFreq(Math.min(100, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                  onChange={e => {
+                    markSettingsDraft()
+                    setSleeptimeFreq(Math.min(100, Math.max(1, parseInt(e.target.value, 10) || 1)))
+                  }}
                   className="input-number-field"
                 />
                 <div className="input-number-step">
                   <button
                     type="button"
                     disabled={!sleeptimeEnabled || sleeptimeFreq >= 100}
-                    onClick={() => setSleeptimeFreq(f => Math.min(100, f + 1))}
+                    onClick={() => {
+                      markSettingsDraft()
+                      setSleeptimeFreq(f => Math.min(100, f + 1))
+                    }}
                     aria-label="Increase frequency"
                   >
                     <ChevronUp className="w-3.5 h-3.5" />
@@ -1136,7 +1155,10 @@ export function MemoryExplorer() {
                   <button
                     type="button"
                     disabled={!sleeptimeEnabled || sleeptimeFreq <= 1}
-                    onClick={() => setSleeptimeFreq(f => Math.max(1, f - 1))}
+                    onClick={() => {
+                      markSettingsDraft()
+                      setSleeptimeFreq(f => Math.max(1, f - 1))
+                    }}
                     aria-label="Decrease frequency"
                   >
                     <ChevronDown className="w-3.5 h-3.5" />
@@ -1250,7 +1272,10 @@ export function MemoryExplorer() {
                     <select
                       className="select"
                       value={selectedModel}
-                      onChange={e => setSelectedModel(e.target.value)}
+                      onChange={e => {
+                        markSettingsDraft()
+                        setSelectedModel(e.target.value)
+                      }}
                       disabled={modelHandleOptions.length === 0}
                     >
                       {modelHandleOptions.length === 0 ? (
@@ -1279,7 +1304,10 @@ export function MemoryExplorer() {
                     <select
                       className="select"
                       value={selectedEmbedding}
-                      onChange={e => setSelectedEmbedding(e.target.value)}
+                      onChange={e => {
+                        markSettingsDraft()
+                        setSelectedEmbedding(e.target.value)
+                      }}
                       disabled={embeddingHandleOptions.length === 0}
                     >
                       {embeddingHandleOptions.length === 0 ? (

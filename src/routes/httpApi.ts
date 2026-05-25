@@ -75,6 +75,7 @@ import {
 import {
   handlePipelineList,
   handlePipelineRun,
+  startPipelineRun,
   handlePipelineRunAll,
   handlePipelineStatus,
   handlePipelineListRunning,
@@ -817,8 +818,9 @@ mcpRouter.post("/mcp/pipeline.run", async (req: Request, res: Response) => {
       args: z.array(z.string()).optional(),
     });
     const parsed = schema.parse(req.body);
-    const result = await handlePipelineRun(parsed, userContext?.userId);
-    res.json(result);
+    // Return immediately; clients poll /mcp/pipeline.output/:id (long jobs can run for hours).
+    const result = startPipelineRun(parsed, userContext?.userId);
+    res.status(result.started ? 202 : 400).json(result);
   } catch (err) {
     handleError(res, err);
   }

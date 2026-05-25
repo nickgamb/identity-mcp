@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Play,
   RefreshCw,
@@ -103,6 +103,13 @@ export function MemoryMaintenance({ onJobComplete }: MemoryMaintenanceProps) {
   const [selectedScript, setSelectedScript] = useState<string>(
     MAINTENANCE_SCRIPTS[0].id
   )
+  const terminalRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = terminalRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [selectedScript, scriptStates[selectedScript]?.output?.length, scriptStates[selectedScript]?.status])
 
   const runScript = (scriptId: string) => {
     const script = MAINTENANCE_SCRIPTS.find(s => s.id === scriptId)
@@ -213,7 +220,7 @@ export function MemoryMaintenance({ onJobComplete }: MemoryMaintenanceProps) {
             {selectedScript ? (
               <>
                 <p className="text-xs text-text-muted mb-2 font-mono">{selectedScript}</p>
-                <div className="terminal max-h-[500px] overflow-y-auto">
+                <div ref={terminalRef} className="terminal max-h-[500px] overflow-y-auto">
                   {selectedState?.output && selectedState.output.length > 0 ? (
                     selectedState.output.map((line, idx) => (
                       <div key={idx} className="terminal-line stdout">
