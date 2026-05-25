@@ -32,6 +32,14 @@ export interface ActivityMessage {
   is_err?: boolean
   approve?: boolean
   approval_reason?: string
+  is_reverie?: boolean
+  reverie_label?: string
+}
+
+const REVERIE_MARKER_RE = /^\[reverie:\s*[^\]]+\]\s*\n*/i
+
+function stripReverieMarker(text: string): string {
+  return text.replace(REVERIE_MARKER_RE, '').trim()
 }
 
 export const PREVIEW_CHARS = 200
@@ -118,9 +126,17 @@ export function formatToolArguments(raw: string): string {
 }
 
 /** Primary expandable body text for any activity card. */
+export function isReverieActivity(m: ActivityMessage): boolean {
+  if (m.is_reverie === true) return true
+  const c = m.content?.trim()
+  return !!c && /^\[reverie:/i.test(c)
+}
+
 export function activityBodyText(m: ActivityMessage): string {
   const parts: string[] = []
-  if (m.content?.trim()) parts.push(m.content.trim())
+  if (m.content?.trim()) {
+    parts.push(m.is_reverie ? stripReverieMarker(m.content) : m.content.trim())
+  }
   if (m.reasoning?.trim() && m.reasoning !== m.content) parts.push(m.reasoning.trim())
   if (m.summary?.trim() && m.summary !== m.content) parts.push(m.summary.trim())
   if (m.tool_calls?.length) {
@@ -173,8 +189,28 @@ export function activityMatchesFilter(
       m.role === 'tool' ||
       m.role === 'tool_call' ||
       (m.tool_calls?.length ?? 0) > 0 ||
-      m.message_type.includes('tool')
+      (m.message_type?.includes('tool') ?? false)
     )
   }
   return isSleeptimeActivity(m)
+}
+
+/** Stable list/expand id — never use array index (breaks when sort order changes). */
+export function activityMessageKey(m: ActivityMessage, index: number): string {
+  if (m.id) return m.id
+  return [
+    m.created_at ?? '',
+    m.step_id ?? '',
+    m.run_id ?? '',
+    m.tool_call_id ?? '',
+    m.role,
+    m.message_type ?? '',
+    String(index),
+  ].join('|')
+}
+
+export function activityTimestamp(m: ActivityMessage): number {
+  if (!m.created_at) return 0
+  const t = Date.parse(m.created_at)
+  return Number.isNaN(t) ? 0 : t
 }

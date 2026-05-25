@@ -1,34 +1,36 @@
-import { ChevronDown, ChevronUp, Copy, Check, Clock, Moon, AlertCircle } from 'lucide-react'
+import { memo, useMemo } from 'react'
+import { ChevronDown, ChevronUp, Copy, Check, Clock, Moon, Sparkles, AlertCircle } from 'lucide-react'
 import {
   type ActivityMessage,
   activityBodyText,
   activityRoleConfig,
   isSleeptimeActivity,
+  isReverieActivity,
   PREVIEW_CHARS,
 } from '../utils/lettaActivity'
 
 interface ActivityMessageCardProps {
   message: ActivityMessage
-  index: number
+  cardKey: string
   expanded: boolean
   copiedId: string | null
-  onToggleExpand: () => void
+  onToggleExpand: (cardKey: string) => void
   onCopy: (text: string, id: string) => void
 }
 
-export function ActivityMessageCard({
+export const ActivityMessageCard = memo(function ActivityMessageCard({
   message: m,
-  index,
+  cardKey,
   expanded,
   copiedId,
   onToggleExpand,
   onCopy,
 }: ActivityMessageCardProps) {
-  const cardId = m.id || String(index)
   const roleConf = activityRoleConfig(m.role)
   const Icon = roleConf.icon
   const isSleeptime = isSleeptimeActivity(m)
-  const body = activityBodyText(m)
+  const isReverie = isReverieActivity(m)
+  const body = useMemo(() => activityBodyText(m), [m])
   const preview =
     body.length > PREVIEW_CHARS && !expanded ? body.slice(0, PREVIEW_CHARS) + '...' : body
   const canExpand = body.length > PREVIEW_CHARS
@@ -45,7 +47,9 @@ export function ActivityMessageCard({
   if (m.name) metaItems.push(m.name)
 
   return (
-    <div className={`stat-card ${isSleeptime ? 'border-accent/20' : ''}`}>
+    <div
+      className={`stat-card ${isSleeptime ? 'border-accent/20' : ''} ${isReverie ? 'border-violet-500/20' : ''}`}
+    >
       <div className="flex items-start gap-2">
         <div className={`mt-0.5 shrink-0 ${roleConf.iconClass}`}>
           <Icon className="w-3.5 h-3.5" />
@@ -61,6 +65,15 @@ export function ActivityMessageCard({
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent font-medium inline-flex items-center gap-0.5">
                 <Moon className="w-2.5 h-2.5" />
                 Sleeptime
+              </span>
+            )}
+            {isReverie && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 font-medium inline-flex items-center gap-0.5"
+                title={m.reverie_label ? `Reverie: ${m.reverie_label}` : 'Background reverie reflection'}
+              >
+                <Sparkles className="w-2.5 h-2.5" />
+                Reverie
               </span>
             )}
             {m.is_err && (
@@ -115,7 +128,7 @@ export function ActivityMessageCard({
           {canExpand && (
             <button
               type="button"
-              onClick={onToggleExpand}
+              onClick={() => onToggleExpand(cardKey)}
               className="text-[11px] text-accent hover:text-accent-bright mt-1 flex items-center gap-1"
             >
               {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
@@ -139,11 +152,11 @@ export function ActivityMessageCard({
         {body && (
           <button
             type="button"
-            onClick={() => onCopy(body, cardId)}
+            onClick={() => onCopy(body, cardKey)}
             className="btn btn-ghost p-1.5 shrink-0"
             title="Copy content"
           >
-            {copiedId === cardId ? (
+            {copiedId === cardKey ? (
               <Check className="w-3.5 h-3.5 text-success" />
             ) : (
               <Copy className="w-3.5 h-3.5" />
@@ -153,7 +166,7 @@ export function ActivityMessageCard({
       </div>
     </div>
   )
-}
+})
 
 function shortId(id: string): string {
   if (id.length <= 12) return id

@@ -13,6 +13,7 @@ import {
   passageMatchesDateRange,
   preferNewestScanForType,
 } from "../utils/archivalPassage";
+import { parseReverieFromText } from "../utils/reveriePrompts";
 
 export type ArchivalTypeFilter = ArchivalPassageType;
 
@@ -247,6 +248,8 @@ export interface LettaMessage {
   is_err?: boolean;
   approve?: boolean;
   approval_reason?: string;
+  is_reverie?: boolean;
+  reverie_label?: string;
 }
 
 function extractLettaTextContent(content: unknown): string | null {
@@ -408,6 +411,10 @@ function mapLettaMessage(m: any): LettaMessage {
     tool_calls = m.tool_calls.map(mapToolCall);
   }
 
+  const reverie =
+    parseReverieFromText(content) ||
+    (role === "user" ? parseReverieFromText(reasoning) : { isReverie: false });
+
   return {
     id: m.id || "",
     role,
@@ -427,7 +434,23 @@ function mapLettaMessage(m: any): LettaMessage {
     is_err: m.is_err,
     approve,
     approval_reason,
+    is_reverie: reverie.isReverie,
+    reverie_label: reverie.label,
   };
+}
+
+/** Tag follow-on messages in the same Letta run as the reverie user prompt. */
+function tagReverieRuns(messages: LettaMessage[]): void {
+  const reverieRuns = new Set<string>();
+  for (const m of messages) {
+    if (m.is_reverie && m.run_id) reverieRuns.add(m.run_id);
+  }
+  if (reverieRuns.size === 0) return;
+  for (const m of messages) {
+    if (m.run_id && reverieRuns.has(m.run_id)) {
+      m.is_reverie = true;
+    }
+  }
 }
 
 export interface LettaMessagesPage {
@@ -751,6 +774,7 @@ export async function getLettaMessages(
     const rawMessages = Array.isArray(data) ? data : data.messages || [];
 
     const messages: LettaMessage[] = rawMessages.map(mapLettaMessage);
+    tagReverieRuns(messages);
 
     return { available: true, messages };
   } catch (e) {

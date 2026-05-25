@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Brain,
   Database,
@@ -33,7 +33,12 @@ import {
 import { EmptyState } from './components/EmptyState'
 import { MemoryMaintenance } from './components/MemoryMaintenance'
 import { ActivityMessageCard } from './components/ActivityMessageCard'
-import { type ActivityMessage, activityMatchesFilter } from './utils/lettaActivity'
+import {
+  type ActivityMessage,
+  activityMatchesFilter,
+  activityMessageKey,
+  activityTimestamp,
+} from './utils/lettaActivity'
 
 // ── Ollama / Letta model handles (Letta expects ollama/model-name) ───────
 
@@ -509,11 +514,11 @@ export function MemoryExplorer() {
     }
   }
 
-  const copyToClipboard = (text: string, id: string) => {
+  const copyToClipboard = useCallback((text: string, id: string) => {
     navigator.clipboard.writeText(text)
     setCopiedId(id)
     setTimeout(() => setCopiedId(null), 1500)
-  }
+  }, [])
 
   const toggleExpand = (id: string, set: Set<string>, setter: (s: Set<string>) => void) => {
     const next = new Set(set)
@@ -522,19 +527,29 @@ export function MemoryExplorer() {
     setter(next)
   }
 
+  const toggleActivityExpand = useCallback((cardKey: string) => {
+    setExpandedMessages(prev => {
+      const next = new Set(prev)
+      if (next.has(cardKey)) next.delete(cardKey)
+      else next.add(cardKey)
+      return next
+    })
+  }, [])
+
   // ── Derived ─────────────────────────────────────────────────────────
 
-  const filteredMessages = (() => {
+  const filteredMessages = useMemo(() => {
     const filtered = messages.filter(m => {
       if (!activityMatchesFilter(m, activityFilter)) return false
       if (activityDateFrom && m.created_at && m.created_at.slice(0, 10) < activityDateFrom) return false
       if (activityDateTo && m.created_at && m.created_at.slice(0, 10) > activityDateTo) return false
       return true
     })
-    // API returns newest-first (order=desc); reverse only for oldest-first
-    if (activitySort === 'oldest') return [...filtered].reverse()
-    return filtered
-  })()
+    return [...filtered].sort((a, b) => {
+      const diff = activityTimestamp(b) - activityTimestamp(a)
+      return activitySort === 'newest' ? diff : -diff
+    })
+  }, [messages, activityFilter, activityDateFrom, activityDateTo, activitySort])
 
   // ── Tab config ──────────────────────────────────────────────────────
 
@@ -1098,19 +1113,20 @@ export function MemoryExplorer() {
             <EmptyState icon={Activity} title="No Activity" message={activityFilter === 'all' ? 'No messages yet' : `No ${activityFilter} activity found`} />
           ) : (
             <div className="space-y-1.5">
-              {filteredMessages.map((m, idx) => (
-                <ActivityMessageCard
-                  key={m.id || idx}
-                  message={m}
-                  index={idx}
-                  expanded={expandedMessages.has(m.id || String(idx))}
-                  copiedId={copiedId}
-                  onToggleExpand={() =>
-                    toggleExpand(m.id || String(idx), expandedMessages, setExpandedMessages)
-                  }
-                  onCopy={copyToClipboard}
-                />
-              ))}
+              {filteredMessages.map((m, idx) => {
+                const cardKey = activityMessageKey(m, idx)
+                return (
+                  <ActivityMessageCard
+                    key={cardKey}
+                    message={m}
+                    cardKey={cardKey}
+                    expanded={expandedMessages.has(cardKey)}
+                    copiedId={copiedId}
+                    onToggleExpand={toggleActivityExpand}
+                    onCopy={copyToClipboard}
+                  />
+                )
+              })}
             </div>
           )}
         </div>
@@ -1332,7 +1348,7 @@ export function MemoryExplorer() {
           </div>
 
           {/* Agent Info */}
-          <div className="card lg:col-span-1">
+          <div className="card lg:col-span-2">
             <div className="flex items-center gap-2 mb-4">
               <Bot className="w-5 h-5 text-accent" />
               <h3 className="font-display font-semibold text-text-primary">Agent Info</h3>
