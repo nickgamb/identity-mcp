@@ -359,6 +359,7 @@ endpoints:
       summarize: false
       forcePrompt: false
       modelDisplayLabel: "Letta (memory)"
+      timeout: 1800000
 
   agents:
     recursionLimit: 50000

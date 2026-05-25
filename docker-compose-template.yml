@@ -225,10 +225,13 @@ services:
     image: ghcr.io/danny-avila/librechat:latest
     container_name: librechat-api
     restart: unless-stopped
+    # Default image CMD is "npm run backend" which forces NODE_ENV=production and
+    # Secure cookies — breaks login persistence on HTTP (e.g. iPhone pull-to-refresh).
+    command: node api/server/index.js
     ports:
       - "3080:3080"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - MONGO_URI=mongodb://librechat:librechat@mongodb:27017/LibreChat?authSource=admin
       - REDIS_URI=redis://redis:6379
       - MEILI_HOST=http://meilisearch:7700
@@ -237,6 +240,10 @@ services:
       - JWT_REFRESH_SECRET=mcp-demo-refresh-secret-change-in-production
       - JWT_EXPIRES_IN=1d
       - JWT_REFRESH_EXPIRES_IN=7d
+      # HTTP/LAN (e.g. iPhone Safari): Secure cookies are dropped without HTTPS
+      - SESSION_COOKIE_SECURE=false
+      - SESSION_EXPIRY=43200000
+      - REFRESH_TOKEN_EXPIRY=604800000
       - DOMAIN_CLIENT=${LIBRECHAT_DOMAIN:-http://localhost:3080}
       - DOMAIN_SERVER=${LIBRECHAT_DOMAIN:-http://localhost:3080}
       - ALLOW_REGISTRATION=true

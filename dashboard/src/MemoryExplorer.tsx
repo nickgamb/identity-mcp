@@ -14,16 +14,13 @@ import {
   Wrench,
   Moon,
   Clock,
-  MessageSquare,
   Bot,
-  User as UserIcon,
   Cpu,
   AlertCircle,
   CheckCircle,
   Workflow,
   ArrowUpDown,
   Filter,
-  Calendar,
 } from 'lucide-react'
 import { authenticatedFetch } from './utils/api'
 import {
@@ -34,6 +31,8 @@ import {
 } from './utils/archivalPassage'
 import { EmptyState } from './components/EmptyState'
 import { MemoryMaintenance } from './components/MemoryMaintenance'
+import { ActivityMessageCard } from './components/ActivityMessageCard'
+import { type ActivityMessage, activityMatchesFilter } from './utils/lettaActivity'
 
 // ── Ollama / Letta model handles (Letta expects ollama/model-name) ───────
 
@@ -102,15 +101,6 @@ interface Passage {
   metadata?: Record<string, any>
 }
 
-interface LettaMessage {
-  id: string
-  role: string
-  content: string | null
-  created_at?: string
-  tool_calls?: Array<{ name: string; arguments: string }>
-  tool_call_id?: string
-}
-
 // ── Archival passage type helpers ────────────────────────────────────────
 
 const ARCHIVAL_TYPE_CONFIG: Record<ArchivalPassageType, { label: string; className: string }> = {
@@ -148,9 +138,12 @@ export function MemoryExplorer() {
   const [searchLoading, setSearchLoading] = useState(false)
 
   // Activity
-  const [messages, setMessages] = useState<LettaMessage[]>([])
+  const [messages, setMessages] = useState<ActivityMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [activityFilter, setActivityFilter] = useState<'all' | 'sleeptime' | 'tools'>('all')
+  const [activitySort, setActivitySort] = useState<'newest' | 'oldest'>('newest')
+  const [activityDateFrom, setActivityDateFrom] = useState('')
+  const [activityDateTo, setActivityDateTo] = useState('')
 
   // Settings
   const [sleeptimeEnabled, setSleeptimeEnabled] = useState(false)
@@ -472,26 +465,16 @@ export function MemoryExplorer() {
 
   // ── Derived ─────────────────────────────────────────────────────────
 
-  const filteredMessages = messages.filter(m => {
-    if (activityFilter === 'all') return true
-    if (activityFilter === 'tools') return m.role === 'tool' || (m.tool_calls && m.tool_calls.length > 0)
-    if (activityFilter === 'sleeptime') {
-      // Sleeptime messages often come from system with memory operations
-      const content = (m.content || '').toLowerCase()
-      return (
-        content.includes('memory') ||
-        content.includes('sleeptime') ||
-        content.includes('memory_insert') ||
-        content.includes('memory_finish') ||
-        content.includes('archival_memory') ||
-        content.includes('core_memory') ||
-        (m.tool_calls?.some(tc =>
-          tc.name.includes('memory') || tc.name.includes('archival') || tc.name.includes('core_memory')
-        ))
-      )
-    }
-    return true
-  })
+  const filteredMessages = (() => {
+    const filtered = messages.filter(m => {
+      if (!activityMatchesFilter(m, activityFilter)) return false
+      if (activityDateFrom && m.created_at && m.created_at.slice(0, 10) < activityDateFrom) return false
+      if (activityDateTo && m.created_at && m.created_at.slice(0, 10) > activityDateTo) return false
+      return true
+    })
+    if (activitySort === 'newest') return [...filtered].reverse()
+    return filtered
+  })()
 
   // ── Tab config ──────────────────────────────────────────────────────
 
@@ -840,7 +823,7 @@ export function MemoryExplorer() {
             ))}
             <div className="flex-1" />
             <div className="flex items-center gap-1.5 text-xs text-text-muted">
-              <Calendar className="w-3.5 h-3.5" />
+              <span className="font-medium text-text-secondary">Date:</span>
               <input
                 type="date"
                 value={archivalDateFrom}
@@ -1006,6 +989,41 @@ export function MemoryExplorer() {
               </button>
             ))}
             <div className="flex-1" />
+            <div className="flex items-center gap-1.5 text-xs text-text-muted">
+              <span className="font-medium text-text-secondary">Date:</span>
+              <input
+                type="date"
+                value={activityDateFrom}
+                onChange={e => setActivityDateFrom(e.target.value)}
+                className="px-2 py-1 rounded border border-surface-200 bg-surface-50 text-text-secondary text-xs outline-none focus:border-accent"
+                title="From date"
+              />
+              <span>–</span>
+              <input
+                type="date"
+                value={activityDateTo}
+                onChange={e => setActivityDateTo(e.target.value)}
+                className="px-2 py-1 rounded border border-surface-200 bg-surface-50 text-text-secondary text-xs outline-none focus:border-accent"
+                title="To date"
+              />
+              {(activityDateFrom || activityDateTo) && (
+                <button
+                  onClick={() => { setActivityDateFrom(''); setActivityDateTo('') }}
+                  className="btn btn-ghost text-xs px-2 py-1 text-accent"
+                  title="Clear date filter"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setActivitySort(prev => prev === 'newest' ? 'oldest' : 'newest')}
+              className="btn btn-ghost text-xs shrink-0 gap-1.5"
+              title={`Sorted ${activitySort} first — click to flip`}
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+              {activitySort === 'newest' ? 'Newest' : 'Oldest'}
+            </button>
             <button onClick={loadMessages} disabled={messagesLoading} className="btn btn-ghost text-xs">
               <RefreshCw className={`w-3.5 h-3.5 ${messagesLoading ? 'animate-spin' : ''}`} />
               Refresh
@@ -1020,71 +1038,19 @@ export function MemoryExplorer() {
             <EmptyState icon={Activity} title="No Activity" message={activityFilter === 'all' ? 'No messages yet' : `No ${activityFilter} activity found`} />
           ) : (
             <div className="space-y-1.5">
-              {filteredMessages.map((m, idx) => {
-                const isExpanded = expandedMessages.has(m.id || String(idx))
-                const isSleeptime =
-                  (m.content || '').toLowerCase().includes('memory') ||
-                  (m.content || '').toLowerCase().includes('sleeptime') ||
-                  m.tool_calls?.some(tc => tc.name.includes('memory') || tc.name.includes('archival'))
-                const content = m.content || ''
-                const preview = content.length > 150 && !isExpanded ? content.slice(0, 150) + '...' : content
-
-                const roleIcon = () => {
-                  switch (m.role) {
-                    case 'user': return <UserIcon className="w-3.5 h-3.5 text-accent" />
-                    case 'assistant': return <Bot className="w-3.5 h-3.5 text-success" />
-                    case 'tool': return <Wrench className="w-3.5 h-3.5 text-warning" />
-                    default: return <MessageSquare className="w-3.5 h-3.5 text-text-muted" />
+              {filteredMessages.map((m, idx) => (
+                <ActivityMessageCard
+                  key={m.id || idx}
+                  message={m}
+                  index={idx}
+                  expanded={expandedMessages.has(m.id || String(idx))}
+                  copiedId={copiedId}
+                  onToggleExpand={() =>
+                    toggleExpand(m.id || String(idx), expandedMessages, setExpandedMessages)
                   }
-                }
-
-                return (
-                  <div
-                    key={m.id || idx}
-                    className={`stat-card ${isSleeptime ? 'border-accent/20' : ''}`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <div className="mt-0.5 shrink-0">{roleIcon()}</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-medium text-text-primary capitalize">{m.role}</span>
-                          {isSleeptime && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent font-medium">
-                              Sleeptime
-                            </span>
-                          )}
-                          {m.tool_calls && m.tool_calls.length > 0 && (
-                            m.tool_calls.map((tc, i) => (
-                              <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning font-medium">
-                                {tc.name}
-                              </span>
-                            ))
-                          )}
-                          {m.created_at && (
-                            <span className="text-[10px] text-text-muted ml-auto shrink-0">
-                              {new Date(m.created_at).toLocaleString()}
-                            </span>
-                          )}
-                        </div>
-                        {content && (
-                          <pre className="text-xs text-text-secondary whitespace-pre-wrap font-mono leading-relaxed break-words">
-                            {preview}
-                          </pre>
-                        )}
-                        {content.length > 150 && (
-                          <button
-                            onClick={() => toggleExpand(m.id || String(idx), expandedMessages, setExpandedMessages)}
-                            className="text-[11px] text-accent hover:text-accent-bright mt-1 flex items-center gap-1"
-                          >
-                            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                            {isExpanded ? 'Less' : 'More'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+                  onCopy={copyToClipboard}
+                />
+              ))}
             </div>
           )}
         </div>

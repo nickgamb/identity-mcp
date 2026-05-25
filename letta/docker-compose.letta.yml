@@ -45,6 +45,9 @@ services:
       # Inference + embeddings come from Ollama. Merge mode: http://ollama:11434/v1.
       # Localhost mode: set OLLAMA_BASE_URL=http://<server-ip>:11434/v1
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      # Slow local inference (P40 + ~30k ctx): default 600s stream cap causes 500 at 10m
+      - LETTA_LLM_STREAM_TIMEOUT_SECONDS=1800
+      - LETTA_LLM_REQUEST_TIMEOUT_SECONDS=1800
       # Disable Sentry telemetry — SDK is installed but kept dormant
       - SENTRY_DSN=
     networks:
@@ -74,6 +77,7 @@ services:
       - LETTA_MODEL=${LETTA_MODEL:-ollama/qwen3:32b}
       - LETTA_EMBEDDING=${LETTA_EMBEDDING:-ollama/nomic-embed-text:latest}
       - MODEL_ID=${LETTA_MODEL_ID:-letta-identity}
+      - LETTA_STREAM_TIMEOUT=1800
     networks:
       - mcp-network
     depends_on:

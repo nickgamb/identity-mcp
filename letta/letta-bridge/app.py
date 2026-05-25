@@ -219,7 +219,36 @@ async def _stream_letta(agent_id: str, user_text: str) -> AsyncGenerator[str, No
                 return
 
             # --- Parse Letta SSE events ---
-            async for line in resp.aiter_lines():
+            # Letta can go silent for minutes while Ollama processes a
+            # large prompt.  We pipe lines through an asyncio.Queue so
+            # the main loop can emit SSE keepalive comments every 15s
+            # without cancelling the httpx read (asyncio.wait_for on
+            # an async-iterator __anext__ corrupts the stream).
+            KEEPALIVE_INTERVAL = 15  # seconds
+            line_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
+
+            async def _sse_reader():
+                try:
+                    async for raw_line in resp.aiter_lines():
+                        await line_queue.put(raw_line)
+                except Exception as exc:
+                    log.warning("SSE reader error: %s", exc)
+                finally:
+                    await line_queue.put(None)  # sentinel
+
+            reader_task = asyncio.create_task(_sse_reader())
+
+            while True:
+                try:
+                    line = await asyncio.wait_for(
+                        line_queue.get(), timeout=KEEPALIVE_INTERVAL
+                    )
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if line is None:
+                    break  # reader finished
+
                 line = line.strip()
                 if not line or not line.startswith("data:"):
                     continue
@@ -272,6 +301,12 @@ async def _stream_letta(agent_id: str, user_text: str) -> AsyncGenerator[str, No
                         yield _oai_chunk(cid, created, {"content": "\n</think>\n\n"})
                     has_assistant = True
                     yield _oai_chunk(cid, created, {"content": text})
+
+            reader_task.cancel()
+            try:
+                await reader_task
+            except asyncio.CancelledError:
+                pass
 
     except httpx.ReadTimeout:
         log.error("Letta stream timed out after %ss", STREAM_TIMEOUT)

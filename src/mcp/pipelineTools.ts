@@ -84,7 +84,7 @@ function scriptEnv(
     env.LETTA_BASE_URL = config.LETTA_BASE_URL;
     env.LETTA_AGENT_NAME = config.LETTA_AGENT_NAME;
     env.MCP_SERVER_URL =
-      process.env.MCP_SERVER_URL || `http://127.0.0.1:${config.PORT}`;
+      process.env.MCP_SERVER_URL || config.MCP_SERVER_URL;
     env.DATA_ROOT = process.env.DATA_ROOT || config.PROJECT_ROOT;
   }
   return env;

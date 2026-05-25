@@ -15,7 +15,7 @@ export function LibreChatEmbed() {
     <div className="flex flex-col flex-1 min-h-0 bg-surface">
       <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-surface-200 bg-surface-50/80 shrink-0">
         <p className="text-xs text-text-muted">
-          Embedded LibreChat — same app as{' '}
+          Embedded Chat: {' '}
           <a
             href={src}
             target="_blank"

@@ -15,6 +15,9 @@ const IDENTITY_SERVICE_URL = process.env.IDENTITY_SERVICE_URL || "http://localho
 // Letta Configuration (optional - for memory system)
 const LETTA_BASE_URL = process.env.LETTA_BASE_URL || "http://letta:8283";
 const LETTA_AGENT_NAME = process.env.LETTA_AGENT_NAME || "identity";
+/** URL baked into Letta tool code — must be reachable from the letta container, not localhost. */
+const MCP_SERVER_URL =
+  process.env.MCP_SERVER_URL || "http://mcp-server:4000";
 const OLLAMA_BASE_URL =
   process.env.OLLAMA_BASE_URL || "http://ollama:11434";
 
@@ -45,6 +48,7 @@ export const config = {
   IDENTITY_SERVICE_URL,
   LETTA_BASE_URL,
   LETTA_AGENT_NAME,
+  MCP_SERVER_URL,
   OLLAMA_BASE_URL,
   OIDC_ENABLED,
   OIDC_ISSUER,

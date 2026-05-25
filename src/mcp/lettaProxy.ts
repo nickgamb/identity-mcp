@@ -227,13 +227,207 @@ function sortPassagesByDate<T extends { text: string; created_at?: string }>(
 export interface LettaMessage {
   id: string;
   role: string;
+  message_type: string;
   content: string | null;
   created_at?: string;
   tool_calls?: Array<{
     name: string;
     arguments: string;
+    tool_call_id?: string;
   }>;
   tool_call_id?: string;
+  tool_status?: "success" | "error";
+  reasoning?: string;
+  summary?: string;
+  event_type?: string;
+  name?: string;
+  sender_id?: string;
+  step_id?: string;
+  run_id?: string;
+  is_err?: boolean;
+  approve?: boolean;
+  approval_reason?: string;
+}
+
+function extractLettaTextContent(content: unknown): string | null {
+  if (content == null) return null;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object") {
+          const p = part as Record<string, unknown>;
+          if (typeof p.text === "string") return p.text;
+          if (typeof p.tool_return === "string") return p.tool_return;
+        }
+        return null;
+      })
+      .filter((p): p is string => !!p);
+    return parts.length ? parts.join("\n") : JSON.stringify(content);
+  }
+  if (typeof content === "object") {
+    const c = content as Record<string, unknown>;
+    if (typeof c.text === "string") return c.text;
+    if (typeof c.content === "string") return c.content;
+    return JSON.stringify(content);
+  }
+  return String(content);
+}
+
+function mapToolCall(tc: any): {
+  name: string;
+  arguments: string;
+  tool_call_id?: string;
+} {
+  const args = tc?.function?.arguments ?? tc?.arguments ?? {};
+  return {
+    name: tc?.function?.name || tc?.name || "unknown",
+    arguments:
+      typeof args === "string" ? args : JSON.stringify(args ?? {}, null, 2),
+    tool_call_id: tc?.tool_call_id || tc?.id,
+  };
+}
+
+function mapLettaMessage(m: any): LettaMessage {
+  const messageType = m.message_type || m.role || "unknown";
+  let role = "unknown";
+  let content: string | null = null;
+  let tool_calls: LettaMessage["tool_calls"];
+  let tool_call_id = m.tool_call_id;
+  let tool_status: LettaMessage["tool_status"];
+  let reasoning: string | undefined;
+  let summary: string | undefined;
+  let event_type: string | undefined;
+  let approve: boolean | undefined;
+  let approval_reason: string | undefined;
+
+  switch (messageType) {
+    case "user_message":
+      role = "user";
+      content = extractLettaTextContent(m.content);
+      break;
+    case "assistant_message":
+      role = "assistant";
+      content = extractLettaTextContent(m.content ?? m.assistant_message);
+      break;
+    case "reasoning_message":
+      role = "reasoning";
+      reasoning =
+        m.reasoning ||
+        m.internal_monologue ||
+        extractLettaTextContent(m.content) ||
+        undefined;
+      content = reasoning ?? null;
+      break;
+    case "hidden_reasoning_message":
+      role = "reasoning";
+      content = m.hidden_reasoning
+        ? `[${m.state || "hidden"}] ${m.hidden_reasoning}`
+        : `[${m.state || "hidden"} reasoning omitted]`;
+      break;
+    case "tool_call_message": {
+      role = "tool_call";
+      const calls = m.tool_calls?.length
+        ? m.tool_calls
+        : m.tool_call
+          ? [m.tool_call]
+          : [];
+      tool_calls = calls.map(mapToolCall);
+      if (tool_calls[0]) {
+        tool_call_id = tool_calls[0].tool_call_id;
+        content = `Calling ${tool_calls[0].name}`;
+      }
+      break;
+    }
+    case "tool_return_message":
+      role = "tool";
+      tool_call_id =
+        m.tool_call_id || m.tool_returns?.[0]?.tool_call_id || tool_call_id;
+      tool_status = m.status || m.tool_returns?.[0]?.status;
+      content =
+        extractLettaTextContent(m.tool_return) ||
+        extractLettaTextContent(m.tool_returns?.[0]?.tool_return) ||
+        null;
+      if (m.stdout?.length) {
+        content = `${content || ""}\n[stdout]\n${m.stdout.join("\n")}`.trim();
+      }
+      if (m.stderr?.length) {
+        content = `${content || ""}\n[stderr]\n${m.stderr.join("\n")}`.trim();
+      }
+      break;
+    case "system_message":
+      role = "system";
+      content = extractLettaTextContent(m.content);
+      break;
+    case "summary_message":
+      role = "summary";
+      summary = m.summary;
+      content = summary ?? null;
+      break;
+    case "event_message":
+      role = "event";
+      event_type = m.event_type;
+      content = m.event_data
+        ? JSON.stringify(m.event_data, null, 2)
+        : m.event_type || null;
+      break;
+    case "approval_request_message": {
+      role = "approval";
+      const tc = m.tool_call || m.tool_calls?.[0];
+      if (tc) {
+        tool_calls = [mapToolCall(tc)];
+        content = `Approval requested: ${tool_calls[0].name}`;
+      }
+      break;
+    }
+    case "approval_response_message":
+      role = "approval";
+      approve = m.approve;
+      approval_reason = m.reason;
+      content =
+        approve === true
+          ? "Tool execution approved"
+          : approve === false
+            ? "Tool execution denied"
+            : "Approval response";
+      break;
+    default:
+      role = messageType.replace(/_message$/, "") || m.role || "unknown";
+      content =
+        extractLettaTextContent(m.content) ||
+        extractLettaTextContent(m.assistant_message) ||
+        null;
+      if (m.tool_calls?.length) {
+        tool_calls = m.tool_calls.map(mapToolCall);
+      }
+      break;
+  }
+
+  if (!tool_calls && m.tool_calls?.length) {
+    tool_calls = m.tool_calls.map(mapToolCall);
+  }
+
+  return {
+    id: m.id || "",
+    role,
+    message_type: messageType,
+    content,
+    created_at: m.created_at || m.date,
+    tool_calls,
+    tool_call_id,
+    tool_status,
+    reasoning,
+    summary,
+    event_type,
+    name: m.name,
+    sender_id: m.sender_id,
+    step_id: m.step_id,
+    run_id: m.run_id,
+    is_err: m.is_err,
+    approve,
+    approval_reason,
+  };
 }
 
 export interface LettaMessagesPage {
@@ -550,31 +744,13 @@ export async function getLettaMessages(
   }
 
   try {
-    let url = `/v1/agents/${agentId}/messages?limit=${limit}`;
+    let url = `/v1/agents/${agentId}/messages?limit=${limit}&order=desc&include_err=true`;
     if (cursor) url += `&after=${encodeURIComponent(cursor)}`;
 
     const data = await lettaFetch(url);
     const rawMessages = Array.isArray(data) ? data : data.messages || [];
 
-    const messages: LettaMessage[] = rawMessages.map((m: any) => ({
-      id: m.id || "",
-      role: m.role || m.message_type || "unknown",
-      content:
-        typeof m.content === "string"
-          ? m.content
-          : m.content?.text ||
-            m.content?.content ||
-            (m.content ? JSON.stringify(m.content) : null),
-      created_at: m.created_at || m.timestamp,
-      tool_calls: m.tool_calls?.map((tc: any) => ({
-        name: tc.function?.name || tc.name || "unknown",
-        arguments:
-          typeof tc.function?.arguments === "string"
-            ? tc.function.arguments
-            : JSON.stringify(tc.function?.arguments || tc.arguments || {}),
-      })),
-      tool_call_id: m.tool_call_id,
-    }));
+    const messages: LettaMessage[] = rawMessages.map(mapLettaMessage);
 
     return { available: true, messages };
   } catch (e) {

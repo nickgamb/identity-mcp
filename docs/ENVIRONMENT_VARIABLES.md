@@ -101,6 +101,8 @@ These are Vite environment variables (prefixed with `VITE_`):
 
 ### LibreChat
 
+Session cookies on **HTTP** (LAN / iPhone Safari): override the image default `npm run backend` (it forces `NODE_ENV=production` and Secure cookies). Use `command: node api/server/index.js` with `NODE_ENV=development`, plus `SESSION_COOKIE_SECURE=false` and millisecond `SESSION_EXPIRY` / `REFRESH_TOKEN_EXPIRY` (see `docker-compose-template.yml`). See [LibreChat: Prevent logout over HTTP](https://www.librechat.ai/blog/2024-05-16_unsecured_http).
+
 LibreChat has its own OIDC configuration. Check LibreChat documentation for exact variable names. Common variables:
 
 - `LIBRECHAT_OIDC_ENABLED` (default: `false`)
