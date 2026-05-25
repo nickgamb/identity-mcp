@@ -3,7 +3,7 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY letta-bridge/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY letta-bridge/app.py .
+COPY letta-bridge/app.py letta-bridge/reasoning_guard.py .
 COPY model_prefs.py .
 
 EXPOSE 8284

@@ -6,19 +6,25 @@ This directory contains the LibreChat configuration file that connects LibreChat
 
 ## Configuration
 
-The `librechat.yaml` file configures:
-- Ollama as a custom endpoint provider
-- Available models from your Ollama installation
-- Connection settings for the Ollama API
-- Interface options (`interface.customFooter`, `customWelcome`, etc.)
+`librechat.yaml` is **gitignored** (per-machine). Copy from the template:
+
+```bash
+cp librechat-config/librechat.yaml.example librechat-config/librechat.yaml
+```
+
+Full multi-model configs are kept under `librechat-config/backups/` (also gitignored).
+
+The live file configures:
+- **Letta** via `letta-bridge` (default/only model preset in the example)
+- **identity-mcp** MCP server
+- Branding assets in `branding/`
 
 ## Accessing LibreChat
 
 Once the services are running:
 1. Open your browser to `http://localhost:3080`
 2. Register a new account (registration is enabled by default)
-3. Select "Ollama" as your endpoint
-4. Choose a model from your available Ollama models
+3. Select **Identity (Letta memory)** as the model
 
 ## Using Identity MCP
 

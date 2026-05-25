@@ -66,6 +66,10 @@ notes.dev
 deploy.sh
 docker-compose-dev.yml
 docker-compose.yml
+
+# LibreChat — live config + backups (use librechat.yaml.example as template)
+librechat-config/librechat.yaml
+librechat-config/backups/
 screenshots/vibes.gif
 compress_gif.py
 svg_to_gif.py

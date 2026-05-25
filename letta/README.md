@@ -122,7 +122,8 @@ Success criterion: ask about something only in your past conversations — it re
 | `LETTA_EMBEDDING` | `ollama/nomic-embed-text` | archival embeddings |
 | `LETTA_AGENT_NAME` | `identity` | the agent the bridge talks to |
 | `LETTA_BASE_URL` | `http://letta:8283` | bridge → Letta server |
-| `LETTA_STREAM_TIMEOUT` | `600` | seconds; long for cold-loaded big models on Pascal |
+| `LETTA_STREAM_TIMEOUT` | `600` | HTTP stream + post-trim cancel wait (seconds); `0` = no timeout |
+| `LETTA_TOOL_RETURN_MAX_CHARS` | `4000` | max tool result text shown in a thinking block |
 
 ## Known limitations / follow-ups
 - **One continuous identity.** A single agent with persistent memory is the whole point. Every
