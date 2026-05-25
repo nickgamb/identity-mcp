@@ -196,9 +196,11 @@ export function activityMatchesFilter(
   return isSleeptimeActivity(m)
 }
 
-/** Stable list/expand id — must NOT depend on array position (breaks on re-sort). */
+/** Stable list/expand id — must NOT depend on array position (breaks on re-sort).
+ *  Letta reuses the same message id for reasoning + assistant in the same step,
+ *  so we always append message_type to disambiguate. */
 export function activityMessageKey(m: ActivityMessage, _index: number): string {
-  if (m.id) return m.id
+  if (m.id) return `${m.id}:${m.message_type ?? m.role}`
   return [
     m.created_at ?? '',
     m.step_id ?? '',
