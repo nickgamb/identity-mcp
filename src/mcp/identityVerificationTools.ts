@@ -329,7 +329,6 @@ export async function handleIdentityModelStatus(userId: string | null = null): P
   // Try to load identity report from memory directory (per-user)
   let identityReport: string | undefined = undefined;
   try {
-    const { getUserDataPath } = require("../utils/userContext");
     const memoryDir = getUserDataPath(config.MEMORY_DIR, userId);
     const reportPath = path.join(memoryDir, "identity_report.md");
     if (fs.existsSync(reportPath)) {

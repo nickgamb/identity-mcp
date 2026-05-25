@@ -25,6 +25,33 @@ This document describes all environment variables used by the Identity MCP syste
   - URL of the Python identity verification service
   - Used for semantic identity verification
 
+### Letta / Ollama Configuration
+
+- `LETTA_BASE_URL` (default: `http://letta:8283`)
+  - URL of the Letta server for the stateful memory agent
+
+- `LETTA_AGENT_NAME` (default: `identity`)
+  - Name of the Letta agent to use
+
+- `MCP_SERVER_URL` (default: `http://mcp-server:4000`)
+  - URL baked into Letta tool code — must be reachable from the Letta container
+
+- `OLLAMA_BASE_URL` (default: `http://ollama:11434`)
+  - URL of the Ollama server for LLM inference
+
+- `OLLAMA_KEEP_ALIVE` (default: `-1`)
+  - How long Ollama keeps models loaded in VRAM (`-1` = forever, `5m` = 5 minutes)
+  - Set in the Ollama container's environment, not the MCP server
+
+### Reverie Configuration
+
+- `REVERIE_ENABLED` (default: `false`)
+  - Enable background self-reflection when the GPU is idle
+
+- `REVERIE_INTERVAL_MINUTES` (default: `120`)
+  - Minimum minutes between reveries (range: 30-720)
+  - Also configurable at runtime via the dashboard or MCP tools
+
 ### OIDC Configuration
 
 - `OIDC_ENABLED` (default: `false`)
@@ -157,7 +184,7 @@ This allows gradual migration without breaking existing deployments.
 ## Related Documentation
 
 - **[Getting Started](./GETTING_STARTED.md)** - End-to-end setup with your ChatGPT data
-- **[MCP Protocol Reference](./MCP_README.md)** - Complete API reference for all 50 MCP tools
+- **[MCP Protocol Reference](./MCP_README.md)** - Complete API reference for all 76 MCP tools
 - **[Identity Verification](./IDENTITY_VERIFICATION.md)** - How the verification system works
 - **[Multi-User & OIDC Support](./MULTI_USER_OIDC.md)** - Multi-user data isolation and OIDC authentication
 - **[Docker Setup](./DOCKER_SETUP.md)** - Container deployment guide

@@ -120,6 +120,12 @@ import {
   updateLettaConfig,
   listOllamaModels,
 } from "../mcp/lettaProxy";
+import {
+  getReverieStatus,
+  updateReverieConfig,
+  getReveriePrompts,
+  updateReveriePrompts,
+} from "../services/reverieService";
 
 export const mcpProtocolRouter = Router();
 
@@ -1084,6 +1090,56 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
       }),
     },
     async (patch) => toContent(await updateLettaConfig(patch)),
+  );
+
+  // ── Reverie (background self-reflection) ──────────────────────────────
+
+  server.registerTool(
+    "reverie_status",
+    {
+      title: "Reverie Status",
+      description: "Get the current reverie (background self-reflection) status and config.",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(getReverieStatus()),
+  );
+
+  server.registerTool(
+    "reverie_config",
+    {
+      title: "Update Reverie Config",
+      description: "Update reverie settings: enabled (boolean), intervalMinutes (30-720).",
+      inputSchema: z.object({
+        enabled: z.boolean().optional(),
+        intervalMinutes: z.number().min(30).max(720).optional(),
+      }),
+    },
+    async (patch) => toContent(updateReverieConfig(patch)),
+  );
+
+  server.registerTool(
+    "reverie_prompts_get",
+    {
+      title: "Get Reverie Prompts",
+      description: "Get the current list of reverie self-reflection prompts.",
+      inputSchema: z.object({}),
+    },
+    async () => toContent({ prompts: getReveriePrompts() }),
+  );
+
+  server.registerTool(
+    "reverie_prompts_update",
+    {
+      title: "Update Reverie Prompts",
+      description: "Replace the reverie prompt list. Each prompt needs a label and text field.",
+      inputSchema: z.object({
+        prompts: z.array(z.object({
+          label: z.string().describe("Short name for the prompt"),
+          text: z.string().describe("The full reflection prompt text"),
+        })).min(1),
+      }),
+    },
+    async ({ prompts }) => toContent(updateReveriePrompts(prompts)),
   );
 }
 

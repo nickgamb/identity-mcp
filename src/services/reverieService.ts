@@ -4,8 +4,12 @@ import { config } from "../config";
 import { logger } from "../utils/logger";
 import { getAgentId, lettaFetch } from "../mcp/lettaProxy";
 import {
-  REVERIE_PROMPTS,
+  getActivePrompts,
+  getReveriePromptsRaw,
+  saveReveriePrompts as savePromptsToFile,
+  reloadReveriePrompts,
   formatReverieUserContent,
+  type ReveriePrompt,
 } from "../utils/reveriePrompts";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -57,7 +61,10 @@ function loadConfig(): void {
       if (typeof raw.intervalMinutes === "number" && raw.intervalMinutes >= 30) {
         reverieConfig.intervalMinutes = raw.intervalMinutes;
       }
-      logger.info("Reverie config loaded", reverieConfig);
+      if (typeof raw.promptIndex === "number" && raw.promptIndex >= 0) {
+        state.promptIndex = raw.promptIndex % getActivePrompts().length;
+      }
+      logger.info("Reverie config loaded", { ...reverieConfig, promptIndex: state.promptIndex });
     }
   } catch (e) {
     logger.warn("Failed to load reverie config, using defaults", {
@@ -71,7 +78,11 @@ function saveConfig(): void {
     fs.writeFileSync(
       CONFIG_PATH,
       JSON.stringify(
-        { enabled: reverieConfig.enabled, intervalMinutes: reverieConfig.intervalMinutes },
+        {
+          enabled: reverieConfig.enabled,
+          intervalMinutes: reverieConfig.intervalMinutes,
+          promptIndex: state.promptIndex,
+        },
         null,
         2
       ),
@@ -121,11 +132,17 @@ async function executeReverie(): Promise<void> {
     return;
   }
 
-  const prompt = REVERIE_PROMPTS[state.promptIndex];
+  const prompts = getActivePrompts();
+  const prompt = prompts[state.promptIndex % prompts.length];
   state.running = true;
   state.lastPrompt = prompt.label;
+
+  // Always advance to next prompt so restarts/failures don't repeat the same one
+  state.promptIndex = (state.promptIndex + 1) % prompts.length;
+  saveConfig();
+
   logger.info(
-    `Reverie: starting "${prompt.label}" (prompt ${state.promptIndex + 1}/${REVERIE_PROMPTS.length})`
+    `Reverie: starting "${prompt.label}" (next will be ${state.promptIndex + 1}/${prompts.length})`
   );
 
   try {
@@ -154,7 +171,6 @@ async function executeReverie(): Promise<void> {
     }
 
     state.lastReverieTime = Date.now();
-    state.promptIndex = (state.promptIndex + 1) % REVERIE_PROMPTS.length;
   } catch (e) {
     logger.error("Reverie: failed to send message", { error: String(e) });
   } finally {
@@ -176,7 +192,7 @@ export function getReverieStatus(): ReverieStatus {
     lastReverieTime: state.lastReverieTime
       ? new Date(state.lastReverieTime).toISOString()
       : null,
-    nextPromptLabel: REVERIE_PROMPTS[state.promptIndex].label,
+    nextPromptLabel: getActivePrompts()[state.promptIndex % getActivePrompts().length].label,
   };
 }
 
@@ -192,6 +208,32 @@ export function updateReverieConfig(
   saveConfig();
   logger.info("Reverie config updated", reverieConfig);
   return { success: true, config: { ...reverieConfig } };
+}
+
+export function getReveriePrompts(): ReveriePrompt[] {
+  return getReveriePromptsRaw();
+}
+
+export function updateReveriePrompts(
+  prompts: ReveriePrompt[]
+): { success: boolean; count: number; error?: string } {
+  if (!Array.isArray(prompts) || prompts.length === 0) {
+    return { success: false, count: 0, error: "Prompts array must not be empty" };
+  }
+  for (const p of prompts) {
+    if (!p.label?.trim() || !p.text?.trim()) {
+      return { success: false, count: 0, error: "Each prompt needs a label and text" };
+    }
+  }
+  const cleaned = prompts.map((p) => ({ label: p.label.trim(), text: p.text.trim() }));
+  savePromptsToFile(cleaned);
+  reloadReveriePrompts();
+  if (state.promptIndex >= cleaned.length) {
+    state.promptIndex = 0;
+    saveConfig();
+  }
+  logger.info("Reverie prompts updated", { count: cleaned.length });
+  return { success: true, count: cleaned.length };
 }
 
 export function startReverieLoop(): void {

@@ -125,6 +125,8 @@ import {
 import {
   getReverieStatus,
   updateReverieConfig,
+  getReveriePrompts,
+  updateReveriePrompts,
 } from "../services/reverieService";
 import {
   handleDataStatus,
@@ -1235,6 +1237,33 @@ mcpRouter.patch("/mcp/reverie.config", async (req: Request, res: Response) => {
       return;
     }
     const result = updateReverieConfig(patch);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.get("/mcp/reverie.prompts", async (_req: Request, res: Response) => {
+  try {
+    const prompts = getReveriePrompts();
+    res.json({ prompts });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.put("/mcp/reverie.prompts", async (req: Request, res: Response) => {
+  try {
+    const { prompts } = req.body;
+    if (!prompts) {
+      res.status(400).json({ error: "No prompts provided" });
+      return;
+    }
+    const result = updateReveriePrompts(prompts);
+    if (!result.success) {
+      res.status(400).json(result);
+      return;
+    }
     res.json(result);
   } catch (err) {
     handleError(res, err);

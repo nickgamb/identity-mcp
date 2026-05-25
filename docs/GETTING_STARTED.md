@@ -326,7 +326,7 @@ See script header comments for more examples and configuration options.
 
 ## Related Documentation
 
-- **[MCP Protocol Reference](./MCP_README.md)** - Complete API reference for all 50 MCP tools
+- **[MCP Protocol Reference](./MCP_README.md)** - Complete API reference for all 76 MCP tools
 - **[Identity Verification](./IDENTITY_VERIFICATION.md)** - How the verification system works
 - **[Multi-User & OIDC Support](./MULTI_USER_OIDC.md)** - Multi-user data isolation and OIDC authentication
 - **[Docker Setup](./DOCKER_SETUP.md)** - Container deployment guide

@@ -11,11 +11,14 @@ interface DataStatus {
   sourceFiles: {
     conversationsJson: boolean
     memoriesJson: boolean
+    anthropicConversationsJson: boolean
+    anthropicMemoriesJson: boolean
   }
   generatedData: {
     conversations: boolean
     memory: boolean
     identityModel: boolean
+    interactionMap?: boolean
     eegIdentityModel?: boolean
   }
   counts: {

@@ -136,7 +136,7 @@ No breaking changes required.
 ## Related Documentation
 
 - **[Getting Started](./GETTING_STARTED.md)** - End-to-end setup with your ChatGPT data
-- **[MCP Protocol Reference](./MCP_README.md)** - Complete API reference for all 50 MCP tools
+- **[MCP Protocol Reference](./MCP_README.md)** - Complete API reference for all 76 MCP tools
 - **[Identity Verification](./IDENTITY_VERIFICATION.md)** - How the verification system works
 - **[Docker Setup](./DOCKER_SETUP.md)** - Container deployment guide
 - **[Environment Variables](./ENVIRONMENT_VARIABLES.md)** - Complete reference for all configuration options

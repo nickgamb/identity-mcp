@@ -22,8 +22,12 @@ import {
   ArrowUpDown,
   Filter,
   Sparkles,
+  Pencil,
+  X,
+  RotateCcw,
 } from 'lucide-react'
 import { authenticatedFetch } from './utils/api'
+import { CodeEditor } from './components/CodeEditor'
 import {
   classifyArchivalPassage,
   passageDateKey,
@@ -35,6 +39,7 @@ import { MemoryMaintenance } from './components/MemoryMaintenance'
 import { ActivityMessageCard } from './components/ActivityMessageCard'
 import {
   type ActivityMessage,
+  type ActivityFilterType,
   activityMatchesFilter,
   activityMessageKey,
   activityTimestamp,
@@ -146,7 +151,7 @@ export function MemoryExplorer() {
   // Activity
   const [messages, setMessages] = useState<ActivityMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(false)
-  const [activityFilter, setActivityFilter] = useState<'all' | 'sleeptime' | 'tools'>('all')
+  const [activityFilter, setActivityFilter] = useState<ActivityFilterType>('all')
   const [activitySort, setActivitySort] = useState<'newest' | 'oldest'>('newest')
   const [activityDateFrom, setActivityDateFrom] = useState('')
   const [activityDateTo, setActivityDateTo] = useState('')
@@ -174,6 +179,13 @@ export function MemoryExplorer() {
     nextPromptLabel: string
   } | null>(null)
   const [updatingReverie, setUpdatingReverie] = useState(false)
+
+  // Reverie prompts editor
+  const [promptsEditorOpen, setPromptsEditorOpen] = useState(false)
+  const [promptsJson, setPromptsJson] = useState('')
+  const [promptsLoading, setPromptsLoading] = useState(false)
+  const [promptsSaving, setPromptsSaving] = useState(false)
+  const [promptsSaveSuccess, setPromptsSaveSuccess] = useState(false)
 
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false)
@@ -461,6 +473,60 @@ export function MemoryExplorer() {
       setUpdatingReverie(false)
     }
   }
+
+  const loadReveriePrompts = useCallback(async () => {
+    setPromptsLoading(true)
+    try {
+      const res = await authenticatedFetch('/api/mcp/reverie.prompts')
+      const data = await res.json()
+      setPromptsJson(JSON.stringify(data.prompts ?? [], null, 2))
+    } catch (error) {
+      console.error('Failed to load reverie prompts:', error)
+      setPromptsJson('[]')
+    } finally {
+      setPromptsLoading(false)
+    }
+  }, [])
+
+  const saveReveriePrompts = useCallback(async () => {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(promptsJson)
+    } catch {
+      alert('Invalid JSON — please fix syntax errors before saving.')
+      return
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      alert('Prompts must be a non-empty JSON array.')
+      return
+    }
+    for (const p of parsed as any[]) {
+      if (!p.label?.trim() || !p.text?.trim()) {
+        alert('Each prompt needs both a "label" and "text" field.')
+        return
+      }
+    }
+    setPromptsSaving(true)
+    try {
+      const res = await authenticatedFetch('/api/mcp/reverie.prompts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompts: parsed }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setPromptsSaveSuccess(true)
+        setTimeout(() => setPromptsSaveSuccess(false), 2000)
+        await loadReverieStatus()
+      } else {
+        alert(`Save failed: ${data.error}`)
+      }
+    } catch (error) {
+      alert(`Save error: ${error}`)
+    } finally {
+      setPromptsSaving(false)
+    }
+  }, [promptsJson, loadReverieStatus])
 
   const reverieConfigDirty =
     reverieStatus != null &&
@@ -1050,7 +1116,7 @@ export function MemoryExplorer() {
         <div>
           {/* Filter */}
           <div className="flex items-center gap-2 mb-4">
-            {(['all', 'sleeptime', 'tools'] as const).map(f => (
+            {(['all', 'sleeptime', 'reverie', 'tools'] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setActivityFilter(f)}
@@ -1060,7 +1126,7 @@ export function MemoryExplorer() {
                     : 'bg-surface-100 text-text-secondary hover:bg-surface-200'
                 }`}
               >
-                {f === 'all' ? 'All' : f === 'sleeptime' ? 'Sleeptime' : 'Tool Calls'}
+                {f === 'all' ? 'All' : f === 'sleeptime' ? 'Sleeptime' : f === 'reverie' ? 'Reverie' : 'Tool Calls'}
               </button>
             ))}
             <div className="flex-1" />
@@ -1110,7 +1176,7 @@ export function MemoryExplorer() {
               <RefreshCw className="w-6 h-6 animate-spin text-accent" />
             </div>
           ) : filteredMessages.length === 0 ? (
-            <EmptyState icon={Activity} title="No Activity" message={activityFilter === 'all' ? 'No messages yet' : `No ${activityFilter} activity found`} />
+            <EmptyState icon={Activity} title="No Activity" message={activityFilter === 'all' ? 'No messages yet' : `No ${activityFilter === 'tools' ? 'tool call' : activityFilter} activity found`} />
           ) : (
             <div className="space-y-1.5">
               {filteredMessages.map((m, idx) => {
@@ -1344,6 +1410,101 @@ export function MemoryExplorer() {
                 Last reverie: {new Date(reverieStatus.lastReverieTime).toLocaleString()}
                 {' — next prompt: '}{reverieStatus.nextPromptLabel}
               </p>
+            )}
+
+            <div className="mt-4 pt-4 border-t border-surface-200">
+              <button
+                type="button"
+                className="btn btn-ghost text-sm gap-1.5 text-accent hover:bg-accent/10"
+                onClick={() => {
+                  loadReveriePrompts()
+                  setPromptsEditorOpen(true)
+                }}
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Edit Prompts
+              </button>
+            </div>
+
+            {promptsEditorOpen && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                <div className="bg-surface-50 border border-surface-200 rounded-xl shadow-xl w-[90vw] max-w-3xl max-h-[85vh] flex flex-col">
+                  <div className="flex items-center justify-between px-5 py-3 border-b border-surface-200">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-accent" />
+                      <h3 className="font-display font-semibold text-text-primary text-sm">Reverie Prompts</h3>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost p-1.5"
+                      onClick={() => setPromptsEditorOpen(false)}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="flex-1 min-h-0 overflow-hidden">
+                    {promptsLoading ? (
+                      <div className="flex items-center justify-center h-64 text-text-muted text-sm">
+                        <RefreshCw className="w-4 h-4 animate-spin mr-2" /> Loading prompts…
+                      </div>
+                    ) : (
+                      <CodeEditor
+                        value={promptsJson}
+                        onChange={(v) => setPromptsJson(v ?? '')}
+                        language="json"
+                        height="55vh"
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between px-5 py-3 border-t border-surface-200">
+                    <button
+                      type="button"
+                      className="btn btn-ghost text-xs gap-1.5"
+                      title="Reset to built-in defaults"
+                      onClick={async () => {
+                        setPromptsLoading(true)
+                        try {
+                          const mod = await import('./utils/reverieDefaults')
+                          setPromptsJson(JSON.stringify(mod.DEFAULT_REVERIE_PROMPTS, null, 2))
+                        } catch {
+                          alert('Could not load defaults')
+                        } finally {
+                          setPromptsLoading(false)
+                        }
+                      }}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Reset to Defaults
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-ghost text-sm"
+                        onClick={() => setPromptsEditorOpen(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary text-sm gap-1.5"
+                        disabled={promptsSaving}
+                        onClick={saveReveriePrompts}
+                      >
+                        {promptsSaving ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : promptsSaveSuccess ? (
+                          <CheckCircle className="w-3.5 h-3.5" />
+                        ) : (
+                          <Save className="w-3.5 h-3.5" />
+                        )}
+                        {promptsSaving ? 'Saving…' : promptsSaveSuccess ? 'Saved!' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 

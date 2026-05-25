@@ -15,8 +15,10 @@ This system preserves **patterns of continuity** from your conversations—provi
 - **Model-Agnostic**: Works with any LLM (OpenAI, Anthropic, Ollama, local models, etc.)
 - **Pattern Discovery**: Analyze your conversations to discover unique patterns and themes
 - **MCP Protocol**: Full MCP 2024-11-05 implementation with streaming support
-- **Comprehensive Access**: 62 tools for accessing memories, conversations, files, identity verification, and semantic search
+- **Comprehensive Access**: 76 tools for memories, conversations, files, identity verification, semantic search, Letta agent, and reverie
 - **Fine-Tuning Support**: LoRA fine-tuning with dual GPU support and CPU offloading
+- **Letta Integration**: Stateful AI agent with archival memory (pgvector), core memory blocks, sleeptime agents
+- **Reverie System**: Background self-reflection — the agent dream-walks its memories when the GPU is idle
 - **Web Dashboard**: Upload, process, browse, and edit all data with Monaco editor
 - **Pipeline Automation**: Run processing scripts via MCP tools or dashboard
 - **Data Management**: Upload, clean, and inspect all source and generated data
@@ -33,6 +35,7 @@ docker-compose up --build
 Services:
 - **MCP Server**: `http://localhost:4000`
 - **Dashboard**: `http://localhost:3001`
+- **Letta**: `http://localhost:8283`
 - **Ollama**: `http://localhost:11434`
 - **LibreChat**: `http://localhost:3080`
 
@@ -61,7 +64,7 @@ identity-mcp/
 │   │   ├── health.ts         # Health check endpoint
 │   │   ├── httpApi.ts        # Direct HTTP REST API
 │   │   └── mcpProtocol.ts    # MCP protocol implementation
-│   ├── mcp/                  # MCP tool handlers (62 tools)
+│   ├── mcp/                  # MCP tool handlers (76 tools)
 │   │   ├── memoryTools.ts
 │   │   ├── memorySearchTools.ts
 │   │   ├── identityTools.ts
@@ -72,16 +75,22 @@ identity-mcp/
 │   │   ├── conversationTools.ts
 │   │   ├── statisticsTools.ts
 │   │   ├── unifiedSearchTools.ts
+│   │   ├── semanticSearchTools.ts
 │   │   ├── exportTools.ts
 │   │   ├── finetuneTools.ts
 │   │   ├── pipelineTools.ts
 │   │   ├── dataManagementTools.ts
+│   │   ├── eegIdentityTools.ts
+│   │   ├── lettaProxy.ts        # Letta agent proxy (archival, core memory, config)
 │   │   └── memoryParserTools.ts
-│   └── services/             # Core business logic
-│       ├── fileStore.ts
-│       ├── fileLoader.ts
-│       ├── conversationLoader.ts
-│       └── memoryParser.ts
+│   ├── services/             # Core business logic
+│   │   ├── fileStore.ts
+│   │   ├── fileLoader.ts
+│   │   ├── conversationLoader.ts
+│   │   ├── reverieService.ts    # Background self-reflection loop
+│   │   └── memoryParser.ts
+│   └── utils/
+│       └── reveriePrompts.ts    # Reverie prompt config (external JSON)
 ├── memory/                   # JSONL memory files
 ├── conversations/            # Conversation history (JSONL files)
 ├── files/                   # RAG-able files (documents, notes, etc.)
@@ -107,7 +116,7 @@ identity-mcp/
 
 3. **Health Check** (`/health`): Server status and uptime
 
-## MCP Tools Reference (50 Tools)
+## MCP Tools Reference (76 Tools)
 
 ### Memory Tools (7 tools)
 
@@ -139,12 +148,14 @@ Focus: Human communication patterns and identity fingerprinting
 - **`interaction_get_by_topic`**: Get conversations filtered by specific topic tag
 - **`interaction_timeline`**: Timeline of key human communication events by date range
 
-### File RAG Tools (4 tools)
+### File RAG Tools (6 tools)
 
 - **`file_list`**: List files from RAG folders
 - **`file_get`**: Retrieve a specific file by path
 - **`file_search`**: Full-text search across files
 - **`file_get_numbered`**: Get numbered files from a folder (by range or max count)
+- **`file_upload`**: Upload a file to the RAG folder
+- **`file_delete`**: Delete a file from the RAG folder
 
 ### Conversation Tools (4 tools)
 
@@ -175,20 +186,24 @@ Focus: Human communication patterns and identity fingerprinting
 - **`finetune_cancel`**: Cancel a running job
 - **`finetune_export_dataset`**: Export training dataset without training
 
-### Pipeline Tools (5 tools)
+### Pipeline Tools (6 tools)
 
 - **`pipeline_list`**: List available processing scripts
 - **`pipeline_run`**: Run a specific processing script
 - **`pipeline_run_all`**: Run all scripts in order (stops on failure)
 - **`pipeline_status`**: Check if a specific script is running
 - **`pipeline_list_running`**: List all currently running scripts
+- **`pipeline_stop`**: Stop a running pipeline script
 
-### Data Management Tools (9 tools)
+### Data Management Tools (12 tools)
 
 - **`data_status`**: Check presence of source files and generated data
 - **`data_upload_conversations`**: Upload conversations.json (overwrites existing)
 - **`data_upload_memories`**: Upload memories.json (overwrites existing)
+- **`data_upload_anthropic_conversations`**: Upload Anthropic conversations export
+- **`data_upload_anthropic_memories`**: Upload Anthropic memories export
 - **`data_clean`**: Clean generated data from a directory (keeps source files)
+- **`data_delete_source`**: Delete a specific source data file
 - **`data_conversations_list`**: List all parsed conversation files with metadata
 - **`data_conversation_get`**: Get specific conversation content by ID
 - **`data_conversation_update`**: Update conversation content
@@ -202,6 +217,34 @@ Focus: Human communication patterns and identity fingerprinting
 - **`identity_verify`**: Verify a single message against identity profile
 - **`identity_verify_conversation`**: Verify multiple messages
 - **`identity_profile_summary`**: Get trained identity profile summary
+
+### EEG Identity Assurance Tools (4 tools)
+
+- **`eeg_model_status`**: Check EEG identity model training status
+- **`eeg_enroll`**: Enroll EEG biometric data for identity verification
+- **`eeg_authorize`**: Authorize a session via EEG biometric match
+- **`eeg_profile_summary`**: Get EEG identity profile summary
+
+### Semantic Search Tools (1 tool)
+
+- **`search_semantic`**: Vector-based semantic search across archival memory (requires Letta + embedding model)
+
+### Letta Agent Tools (7 tools)
+
+- **`ollama_models`**: List models installed on the Ollama server
+- **`letta_status`**: Get Letta agent status (agent info, sleeptime config, model handles)
+- **`letta_memory`**: Get core memory blocks (persona, human)
+- **`letta_memory_update`**: Update a core memory block
+- **`letta_archival`**: Search or list archival memory passages (pgvector)
+- **`letta_messages`**: Get recent agent messages (conversation + sleeptime activity)
+- **`letta_config`**: Update Letta agent settings (sleeptime, model, embedding, timezone)
+
+### Reverie Tools (4 tools)
+
+- **`reverie_status`**: Get reverie status (running, last reverie time, next prompt, config)
+- **`reverie_config`**: Update reverie settings (enabled, interval 30-720 min)
+- **`reverie_prompts_get`**: Get the current list of self-reflection prompts
+- **`reverie_prompts_update`**: Replace the reverie prompt list
 
 ## Memory Files
 
@@ -269,6 +312,13 @@ curl -X POST http://localhost:4000/mcp/search.all \
 Environment variables:
 - `PORT` - Server port (default: 4000)
 - `MEMORY_DIR` - Memory files directory (default: ./memory)
+- `LETTA_BASE_URL` - Letta server URL (default: `http://letta:8283`)
+- `LETTA_AGENT_NAME` - Letta agent name (default: `identity`)
+- `OLLAMA_BASE_URL` - Ollama server URL (default: `http://ollama:11434`)
+- `REVERIE_ENABLED` - Enable background self-reflection (default: `false`)
+- `REVERIE_INTERVAL_MINUTES` - Minutes between reveries (default: `120`, min 30)
+
+See **[Environment Variables](./ENVIRONMENT_VARIABLES.md)** for the full reference.
 
 Directories:
 - `memory/` - Memory JSONL files

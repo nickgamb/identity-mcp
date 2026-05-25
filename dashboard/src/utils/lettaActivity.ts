@@ -5,8 +5,6 @@ import {
   Wrench,
   MessageSquare,
   Brain,
-  Moon,
-  AlertCircle,
   FileText,
   Zap,
   Shield,
@@ -179,11 +177,14 @@ export function isSleeptimeActivity(m: ActivityMessage): boolean {
   )
 }
 
+export type ActivityFilterType = 'all' | 'sleeptime' | 'tools' | 'reverie'
+
 export function activityMatchesFilter(
   m: ActivityMessage,
-  filter: 'all' | 'sleeptime' | 'tools'
+  filter: ActivityFilterType
 ): boolean {
   if (filter === 'all') return true
+  if (filter === 'reverie') return isReverieActivity(m)
   if (filter === 'tools') {
     return (
       m.role === 'tool' ||
@@ -195,8 +196,8 @@ export function activityMatchesFilter(
   return isSleeptimeActivity(m)
 }
 
-/** Stable list/expand id — never use array index (breaks when sort order changes). */
-export function activityMessageKey(m: ActivityMessage, index: number): string {
+/** Stable list/expand id — must NOT depend on array position (breaks on re-sort). */
+export function activityMessageKey(m: ActivityMessage, _index: number): string {
   if (m.id) return m.id
   return [
     m.created_at ?? '',
@@ -205,7 +206,7 @@ export function activityMessageKey(m: ActivityMessage, index: number): string {
     m.tool_call_id ?? '',
     m.role,
     m.message_type ?? '',
-    String(index),
+    (m.content ?? '').slice(0, 64),
   ].join('|')
 }
 

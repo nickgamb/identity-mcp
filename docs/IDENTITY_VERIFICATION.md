@@ -345,7 +345,7 @@ docker-compose --profile identity up -d identity-service
 ## Related Documentation
 
 - **[Getting Started](./GETTING_STARTED.md)** - End-to-end setup with your ChatGPT data
-- **[MCP Protocol Reference](./MCP_README.md)** - Complete API reference for all 50 MCP tools
+- **[MCP Protocol Reference](./MCP_README.md)** - Complete API reference for all 76 MCP tools
 - **[Multi-User & OIDC Support](./MULTI_USER_OIDC.md)** - Multi-user data isolation and OIDC authentication
 - **[Docker Setup](./DOCKER_SETUP.md)** - Container deployment guide
 - **[Environment Variables](./ENVIRONMENT_VARIABLES.md)** - Complete reference for all configuration options
