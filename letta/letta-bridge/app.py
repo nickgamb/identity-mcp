@@ -23,14 +23,14 @@ Memory tool calls (archival_memory_search, core_memory_append, etc.) appear as b
 annotations inside the thinking block for observability.
 
 Env:
-  LETTA_BASE_URL         default http://letta:8283
-  LETTA_AGENT_NAME       default "identity"
-  LETTA_AGENT_ID         optional explicit id (overrides name lookup)
-  LETTA_MODEL            default ollama/qwen3:32b
-  LETTA_EMBEDDING        default ollama/nomic-embed-text:latest
-  MODEL_ID               default "letta-identity"
-  PORT                   default 8284
-  LETTA_STREAM_TIMEOUT   default 600 (seconds; long for cold-loaded big models)
+  LETTA_BASE_URL              default http://letta:8283
+  LETTA_AGENT_NAME            default "identity"
+  LETTA_AGENT_ID              optional explicit id (overrides name lookup)
+  LETTA_MODEL_PREFS_FILE      default /app/memory/letta-model-prefs.json (from dashboard)
+  LETTA_MODEL / LETTA_EMBEDDING  optional override for new-agent creation only
+  MODEL_ID                    default "letta-identity"
+  PORT                        default 8284
+  LETTA_STREAM_TIMEOUT        default 600 (seconds; long for cold-loaded big models)
 """
 import os
 import re
@@ -48,6 +48,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from letta_client import Letta
 
+from model_prefs import load_prefs_file, models_from_existing_agent, resolve_models_for_create
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("letta-bridge")
 
@@ -57,8 +59,6 @@ log = logging.getLogger("letta-bridge")
 LETTA_BASE_URL = os.getenv("LETTA_BASE_URL", "http://letta:8283")
 AGENT_NAME = os.getenv("LETTA_AGENT_NAME", "identity")
 AGENT_ID_ENV = os.getenv("LETTA_AGENT_ID")
-LETTA_MODEL = os.getenv("LETTA_MODEL", "ollama/qwen3:32b")
-LETTA_EMBEDDING = os.getenv("LETTA_EMBEDDING", "ollama/nomic-embed-text:latest")
 MODEL_ID = os.getenv("MODEL_ID", "letta-identity")
 STREAM_TIMEOUT = float(os.getenv("LETTA_STREAM_TIMEOUT", "600"))
 
@@ -72,6 +72,10 @@ _http: Optional[httpx.AsyncClient] = None
 async def lifespan(_app: FastAPI):
     global _http
     _http = httpx.AsyncClient(timeout=httpx.Timeout(STREAM_TIMEOUT, connect=30.0))
+    try:
+        ensure_agent()
+    except Exception as e:
+        log.warning("Agent not ready at startup (will retry on first request): %s", e)
     yield
     await _http.aclose()
 
@@ -95,13 +99,21 @@ def ensure_agent() -> str:
     matched = [a for a in page if getattr(a, "name", None) == AGENT_NAME]
     if matched:
         _agent_id = matched[0].id
-        log.info("Using existing agent %s (%s)", AGENT_NAME, _agent_id)
+        model, embed = models_from_existing_agent(matched[0])
+        log.info(
+            "Using existing agent %s (%s) model=%s embed=%s",
+            AGENT_NAME,
+            _agent_id,
+            model,
+            embed,
+        )
         return _agent_id
-    log.info("Creating agent %s (model=%s, embed=%s)", AGENT_NAME, LETTA_MODEL, LETTA_EMBEDDING)
+    model, embed = resolve_models_for_create(client, AGENT_NAME)
+    log.info("Creating agent %s (model=%s, embed=%s)", AGENT_NAME, model, embed)
     agent = client.agents.create(
         name=AGENT_NAME,
-        model=LETTA_MODEL,
-        embedding=LETTA_EMBEDDING,
+        model=model,
+        embedding=embed,
         memory_blocks=[
             {"label": "persona",
              "value": "I am a persistent identity. I remember our past conversations and "

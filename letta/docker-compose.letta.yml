@@ -11,8 +11,7 @@
 #   OLLAMA_BASE_URL=http://<server-ip>:11434/v1 \
 #   docker compose -f letta/docker-compose.letta.yml --profile letta up -d
 #
-# Driver model (Design A — also the chat model): reliable native tool-caller, NOT a Q2 ARK model.
-#   LETTA_MODEL=ollama/qwen3:32b  (or llama3.3:70b / gpt-oss:20b)
+# Model handles: ../memory/letta-model-prefs.json (Memory Explorer → Update models). No hardcoded defaults.
 services:
   letta-postgres:
     profiles: ["letta"]
@@ -65,8 +64,8 @@ services:
   letta-bridge:
     profiles: ["letta"]
     build:
-      context: ./letta/letta-bridge
-      dockerfile: Dockerfile
+      context: ./letta
+      dockerfile: letta-bridge/Dockerfile
     container_name: letta-bridge
     restart: unless-stopped
     ports:
@@ -74,10 +73,11 @@ services:
     environment:
       - LETTA_BASE_URL=http://letta:8283
       - LETTA_AGENT_NAME=${LETTA_AGENT_NAME:-identity}
-      - LETTA_MODEL=${LETTA_MODEL:-ollama/qwen3:32b}
-      - LETTA_EMBEDDING=${LETTA_EMBEDDING:-ollama/nomic-embed-text:latest}
+      - LETTA_MODEL_PREFS_FILE=/app/memory/letta-model-prefs.json
       - MODEL_ID=${LETTA_MODEL_ID:-letta-identity}
       - LETTA_STREAM_TIMEOUT=1800
+    volumes:
+      - ../memory:/app/memory:ro
     networks:
       - mcp-network
     depends_on:

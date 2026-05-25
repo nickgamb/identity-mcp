@@ -1,9 +1,10 @@
 FROM python:3.12-slim
 
 WORKDIR /app
-COPY requirements.txt .
+COPY letta-bridge/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py .
+COPY letta-bridge/app.py .
+COPY model_prefs.py .
 
 EXPOSE 8284
 # Simple liveness: the bridge answers /v1/models without needing Letta up yet.

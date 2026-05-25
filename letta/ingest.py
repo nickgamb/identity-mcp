@@ -51,10 +51,10 @@ log = logging.getLogger("ingest")
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+from model_prefs import resolve_models_for_create
+
 BASE = os.getenv("LETTA_BASE_URL", "http://localhost:8283")
 NAME = os.getenv("LETTA_AGENT_NAME", "identity")
-MODEL = os.getenv("LETTA_MODEL", "ollama/qwen3:32b")
-EMBED = os.getenv("LETTA_EMBEDDING", "ollama/nomic-embed-text:latest")
 DATA_ROOT = os.getenv("DATA_ROOT", ".")
 
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ingest_state.json")
@@ -114,9 +114,11 @@ EMPTY_HUMAN = (
 
 
 def create_agent():
-    log.info("Creating agent %s (model=%s, embed=%s)", NAME, MODEL, EMBED)
+    prefs = os.path.join(DATA_ROOT, "memory", "letta-model-prefs.json")
+    model, embed = resolve_models_for_create(client, NAME, prefs_path_override=prefs)
+    log.info("Creating agent %s (model=%s, embed=%s)", NAME, model, embed)
     return client.agents.create(
-        name=NAME, model=MODEL, embedding=EMBED,
+        name=NAME, model=model, embedding=embed,
         memory_blocks=[
             {"label": "persona", "value": EMPTY_PERSONA},
             {"label": "human", "value": EMPTY_HUMAN},

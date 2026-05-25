@@ -9,8 +9,8 @@ Bootstrap / enrich the Letta "identity" agent from the identity-mcp corpus.
 
 Run on the HOST (needs the data dirs) against a running Letta server:
     pip install letta-client
-    DATA_ROOT=/path/to/data LETTA_BASE_URL=http://localhost:8283 \
-      LETTA_MODEL=ollama/qwen3:32b python letta/bootstrap_agent.py
+    DATA_ROOT=/path/to/data LETTA_BASE_URL=http://localhost:8283 python letta/bootstrap_agent.py
+      # requires memory/letta-model-prefs.json (from dashboard Update models)
 
 Flags:
     --skip-archival     only ensure agent + seed persona (fast)
@@ -28,13 +28,17 @@ import json
 import argparse
 from letta_client import Letta
 
+from model_prefs import resolve_models_for_create
+
 BASE = os.getenv("LETTA_BASE_URL", "http://localhost:8283")
 NAME = os.getenv("LETTA_AGENT_NAME", "identity")
-MODEL = os.getenv("LETTA_MODEL", "ollama/qwen3:32b")
-EMBED = os.getenv("LETTA_EMBEDDING", "ollama/nomic-embed-text")
 DATA_ROOT = os.getenv("DATA_ROOT", ".")
 
 client = Letta(base_url=BASE)
+
+
+def _prefs_path():
+    return os.path.join(DATA_ROOT, "memory", "letta-model-prefs.json")
 
 
 def ensure_agent():
@@ -47,9 +51,10 @@ def ensure_agent():
     if matched:
         print(f"agent exists: {matched[0].id}")
         return matched[0]
-    print(f"creating agent {NAME} (model={MODEL}, embed={EMBED})")
+    model, embed = resolve_models_for_create(client, NAME, prefs_path_override=_prefs_path())
+    print(f"creating agent {NAME} (model={model}, embed={embed})")
     return client.agents.create(
-        name=NAME, model=MODEL, embedding=EMBED,
+        name=NAME, model=model, embedding=embed,
         memory_blocks=[
             {"label": "persona",
              "value": "I am a persistent identity that remembers and notices itself over time."},

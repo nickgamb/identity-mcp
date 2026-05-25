@@ -5,6 +5,7 @@ import { healthRouter } from "./routes/health";
 import { mcpRouter } from "./routes/httpApi";
 import { mcpProtocolRouter } from "./routes/mcpProtocol";
 import { MemoryParser } from "./services/memoryParser";
+import { ensureLettaModelPrefsFromAgent } from "./mcp/lettaProxy";
 import { startReverieLoop } from "./services/reverieService";
 
 const app = express();
@@ -91,6 +92,9 @@ app.listen(config.PORT, "0.0.0.0", async () => {
   // Initialize memories in background
   initializeMemories().catch(err => {
     logger.warn("Background memory initialization failed", err);
+  });
+  ensureLettaModelPrefsFromAgent().catch((err) => {
+    logger.warn("Letta model prefs seed skipped", { error: String(err) });
   });
   startReverieLoop();
 });

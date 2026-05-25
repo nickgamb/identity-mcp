@@ -6,6 +6,7 @@
 
 import { config } from "../config";
 import { logger } from "../utils/logger";
+import { readLettaModelPrefs, writeLettaModelPrefs } from "../utils/lettaModelPrefs";
 import {
   type ArchivalPassageType,
   matchesArchivalTypeFilter,
@@ -21,7 +22,7 @@ import {
 
 export type ArchivalTypeFilter = ArchivalPassageType;
 
-function toOllamaHandle(nameOrHandle: string): string {
+export function toOllamaHandle(nameOrHandle: string): string {
   const trimmed = nameOrHandle.trim();
   if (!trimmed) return trimmed;
   return trimmed.startsWith("ollama/") ? trimmed : `ollama/${trimmed}`;
@@ -831,12 +832,126 @@ function resolveAgentEmbeddingHandle(agentData: any): string {
   );
 }
 
+export interface LettaModelSyncReport {
+  identity_agent_id: string;
+  compaction_model: string;
+  embedding: string;
+  related_agents: string[];
+  prefs_file: string;
+}
+
+function buildAgentModelPatch(
+  agentData: any,
+  modelHandle: string,
+  embeddingHandle: string
+): Record<string, unknown> {
+  const prevCompaction = agentData?.compaction_settings;
+  return {
+    model: modelHandle,
+    embedding: embeddingHandle,
+    compaction_settings: {
+      ...(prevCompaction && typeof prevCompaction === "object"
+        ? prevCompaction
+        : {}),
+      model: modelHandle,
+    },
+  };
+}
+
+/** Identity agent, compaction summarizer, and sleeptime group agents share one model. */
+async function syncLettaModelsEverywhere(opts: {
+  identityAgentId: string;
+  identityAgentData: any;
+  group: any | null;
+  model?: string;
+  embedding?: string;
+}): Promise<LettaModelSyncReport> {
+  const modelHandle =
+    opts.model !== undefined
+      ? toOllamaHandle(String(opts.model))
+      : resolveAgentModelHandle(opts.identityAgentData);
+  const embeddingHandle =
+    opts.embedding !== undefined
+      ? toOllamaHandle(String(opts.embedding))
+      : resolveAgentEmbeddingHandle(opts.identityAgentData);
+
+  if (!modelHandle) {
+    throw new Error("No model handle to sync");
+  }
+
+  await lettaFetch(`/v1/agents/${opts.identityAgentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(
+      buildAgentModelPatch(opts.identityAgentData, modelHandle, embeddingHandle)
+    ),
+  });
+  logger.info("Synced model on identity agent", {
+    agentId: opts.identityAgentId,
+    model: modelHandle,
+  });
+
+  const relatedAgents: string[] = [];
+  const groupIds: string[] = Array.isArray(opts.group?.agent_ids)
+    ? opts.group.agent_ids
+    : [];
+
+  for (const relatedId of groupIds) {
+    if (!relatedId || relatedId === opts.identityAgentId) continue;
+    try {
+      const relatedData = await lettaFetch(`/v1/agents/${relatedId}`);
+      await lettaFetch(`/v1/agents/${relatedId}`, {
+        method: "PATCH",
+        body: JSON.stringify(
+          buildAgentModelPatch(relatedData, modelHandle, embeddingHandle)
+        ),
+      });
+      relatedAgents.push(relatedId);
+      logger.info("Synced model on sleeptime agent", {
+        agentId: relatedId,
+        model: modelHandle,
+      });
+    } catch (e) {
+      logger.warn("Failed to sync model on related agent", {
+        agentId: relatedId,
+        error: String(e),
+      });
+    }
+  }
+
+  return {
+    identity_agent_id: opts.identityAgentId,
+    compaction_model: modelHandle,
+    embedding: embeddingHandle,
+    related_agents: relatedAgents,
+    prefs_file: writeLettaModelPrefs(modelHandle, embeddingHandle),
+  };
+}
+
+/** Seed prefs file from the live agent when missing (e.g. after upgrade). */
+export async function ensureLettaModelPrefsFromAgent(): Promise<void> {
+  const agentId = await getAgentId();
+  if (!agentId) return;
+  if (readLettaModelPrefs()) return;
+  try {
+    const agentData = await lettaFetch(`/v1/agents/${agentId}`);
+    const model = resolveAgentModelHandle(agentData);
+    const embedding = resolveAgentEmbeddingHandle(agentData);
+    if (model && embedding) {
+      writeLettaModelPrefs(model, embedding);
+      logger.info("Seeded letta-model-prefs.json from agent", { model, embedding });
+    }
+  } catch (e) {
+    logger.warn("Could not seed letta model prefs from agent", { error: String(e) });
+  }
+}
+
 export async function updateLettaConfig(
   patch: Record<string, any>
 ): Promise<{
   success: boolean;
   error?: string;
   ollama?: OllamaSwapResult;
+  model_sync?: LettaModelSyncReport;
 }> {
   const agentId = await getAgentId();
   if (!agentId) {
@@ -864,16 +979,26 @@ export async function updateLettaConfig(
     const previousModelHandle = resolveAgentModelHandle(agentData);
     const previousEmbeddingHandle = resolveAgentEmbeddingHandle(agentData);
 
+    const modelOrEmbedPatch =
+      patch.model !== undefined || patch.embedding !== undefined;
+
+    let modelSync: LettaModelSyncReport | undefined;
+    if (modelOrEmbedPatch) {
+      modelSync = await syncLettaModelsEverywhere({
+        identityAgentId: agentId,
+        identityAgentData: agentData,
+        group,
+        model: patch.model !== undefined ? String(patch.model) : undefined,
+        embedding:
+          patch.embedding !== undefined ? String(patch.embedding) : undefined,
+      });
+    }
+
     const agentBody: Record<string, unknown> = {};
     if (patch.enable_sleeptime !== undefined) {
       agentBody.enable_sleeptime = patch.enable_sleeptime;
     }
-    if (patch.model !== undefined) {
-      agentBody.model = toOllamaHandle(String(patch.model));
-    }
-    if (patch.embedding !== undefined) {
-      agentBody.embedding = toOllamaHandle(String(patch.embedding));
-    }
+    // model/embedding/compaction/sleeptime agents: syncLettaModelsEverywhere above
     if (patch.timezone !== undefined) {
       agentBody.timezone = patch.timezone;
     }
@@ -942,7 +1067,7 @@ export async function updateLettaConfig(
       }
     }
 
-    return { success: true, ollama };
+    return { success: true, ollama, model_sync: modelSync };
   } catch (e) {
     logger.error("updateLettaConfig failed", { error: String(e) });
     return { success: false, error: String(e) };

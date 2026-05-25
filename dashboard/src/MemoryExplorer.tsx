@@ -572,7 +572,11 @@ export function MemoryExplorer() {
       })
       const data = await res.json()
       if (data.success) {
-        if (data.ollama?.message) {
+        if (data.model_sync?.compaction_model) {
+          setModelUpdatePhase(
+            `Synced ${data.model_sync.compaction_model} (compaction + sleeptime agents)`,
+          )
+        } else if (data.ollama?.message) {
           setModelUpdatePhase(data.ollama.message)
         }
         clearSettingsDraft()
