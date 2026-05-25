@@ -96,7 +96,10 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - OLLAMA_HOST=0.0.0.0
       - OLLAMA_MODELS=/root/.ollama/models
-      - OLLAMA_NUM_PARALLEL=1  # Number of parallel requests (can increase for multiple models)
+      # Concurrent slots per loaded model (extra KV/context VRAM per slot; scales with context).
+      # 2: chat + reverie overlap. Try 3 if stable (chat + reverie + sleeptime on same agent model).
+      # 2× P40 + 128GB RAM — Ollama offloads layers to RAM when VRAM is tight. Check: ollama ps, nvidia-smi.
+      - OLLAMA_NUM_PARALLEL=2
       - OLLAMA_KEEP_ALIVE=-1   # Never unload model from VRAM (default is 5m which causes slow cold-starts)
     deploy:
       resources:

@@ -25,7 +25,8 @@ HOST_HF_CACHE="${HF_CACHE_DIR:-$HOME/models/hf_models}"
 #   - The base model required for LoRA fine-tuning
 #
 # Do NOT add a model here if it already has a solid Ollama GGUF match — those go
-# in download_ollama_models.sh and run better on Pascal via llama.cpp.
+# in download_ollama_models.sh (library pull) or download_ollama_gguf_imports.sh
+# (Unsloth/HF GGUF + ollama create; e.g. Qwen3.6 UD-IQ4_NL / UD-Q5_K_M).
 #
 # P40 has NO FP8 and NO BF16 tensor cores. FP8 repos are excluded: they upcast to
 # FP16/FP32 and blow past 48GB VRAM + 112GB RAM. Frontier MoEs (Qwen3.5-397B,

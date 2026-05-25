@@ -1205,6 +1205,9 @@ mcpRouter.get("/mcp/letta.messages", async (req: Request, res: Response) => {
 });
 
 mcpRouter.patch("/mcp/letta.config", async (req: Request, res: Response) => {
+  // Model swap can unload + warm-load large GGUFs (many minutes on P40).
+  req.setTimeout(20 * 60 * 1000);
+  res.setTimeout(20 * 60 * 1000);
   try {
     const patch = req.body;
     if (!patch || Object.keys(patch).length === 0) {

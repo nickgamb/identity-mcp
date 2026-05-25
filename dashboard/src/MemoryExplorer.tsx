@@ -193,6 +193,8 @@ export function MemoryExplorer() {
   const [selectedModel, setSelectedModel] = useState('')
   const [selectedEmbedding, setSelectedEmbedding] = useState('')
   const [updatingModels, setUpdatingModels] = useState(false)
+  /** Shown on Update models while Letta + Ollama unload/load run (can take several minutes). */
+  const [modelUpdatePhase, setModelUpdatePhase] = useState<string | null>(null)
 
   // Expanded items
   const [expandedPassages, setExpandedPassages] = useState<Set<string>>(new Set())
@@ -557,6 +559,7 @@ export function MemoryExplorer() {
 
   const updateAgentModels = async () => {
     setUpdatingModels(true)
+    setModelUpdatePhase('Saving to Letta and loading model in Ollama (this may take several minutes)…')
     try {
       const res = await authenticatedFetch('/api/mcp/letta.config', {
         method: 'PATCH',
@@ -565,18 +568,28 @@ export function MemoryExplorer() {
           model: selectedModel,
           embedding: selectedEmbedding,
         }),
+        signal: AbortSignal.timeout(20 * 60 * 1000),
       })
       const data = await res.json()
       if (data.success) {
+        if (data.ollama?.message) {
+          setModelUpdatePhase(data.ollama.message)
+        }
         clearSettingsDraft()
         await loadStatus()
       } else {
-        alert(`Update failed: ${data.error}`)
+        alert(`Update failed: ${data.error || data.ollama?.error || 'Unknown error'}`)
       }
     } catch (error) {
-      alert(`Update error: ${error}`)
+      const msg = error instanceof Error ? error.message : String(error)
+      alert(
+        msg.includes('timeout') || msg.includes('aborted')
+          ? 'Update timed out while loading the model in Ollama. Check server GPU load and try again.'
+          : `Update error: ${msg}`,
+      )
     } finally {
       setUpdatingModels(false)
+      setModelUpdatePhase(null)
     }
   }
 
@@ -1644,7 +1657,13 @@ export function MemoryExplorer() {
                 </div>
               </div>
 
-              <div className="flex justify-end pt-2">
+              <div className="flex flex-col items-end gap-2 pt-2">
+                {updatingModels && modelUpdatePhase && (
+                  <p className="text-[11px] text-text-muted text-right max-w-md flex items-center gap-2 justify-end">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                    {modelUpdatePhase}
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={updateAgentModels}
@@ -1661,7 +1680,7 @@ export function MemoryExplorer() {
                   ) : (
                     <Save className="w-4 h-4" />
                   )}
-                  Update models
+                  {updatingModels ? 'Updating models…' : 'Update models'}
                 </button>
               </div>
             </div>

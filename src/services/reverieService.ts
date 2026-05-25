@@ -93,20 +93,11 @@ function saveConfig(): void {
   }
 }
 
-// ── GPU idle check ─────────────────────────────────────────────────────
-
-async function isGpuIdle(): Promise<boolean> {
-  try {
-    const resp = await fetch(`${config.OLLAMA_BASE_URL}/api/ps`);
-    if (!resp.ok) return false;
-    const data = (await resp.json()) as { models?: any[] };
-    return !data.models || data.models.length === 0;
-  } catch {
-    return false;
-  }
-}
-
 // ── Core logic ─────────────────────────────────────────────────────────
+// No GPU idle check needed — Ollama serializes requests per model, so a
+// reverie message sent to Letta simply queues behind any active chat and
+// runs when the GPU is free.  state.running prevents reveries from
+// stacking on each other.
 
 function shouldFire(): boolean {
   if (!reverieConfig.enabled) return false;
@@ -123,12 +114,6 @@ async function executeReverie(): Promise<void> {
   const agentId = await getAgentId();
   if (!agentId) {
     logger.warn("Reverie: Letta agent not available, skipping");
-    return;
-  }
-
-  const idle = await isGpuIdle();
-  if (!idle) {
-    logger.info("Reverie: GPU busy, deferring");
     return;
   }
 

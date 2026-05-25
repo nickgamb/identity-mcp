@@ -14,6 +14,10 @@ import {
   preferNewestScanForType,
 } from "../utils/archivalPassage";
 import { parseReverieFromText } from "../utils/reveriePrompts";
+import {
+  swapOllamaAfterModelChange,
+  type OllamaSwapResult,
+} from "./ollamaModelSwap";
 
 export type ArchivalTypeFilter = ArchivalPassageType;
 
@@ -811,9 +815,29 @@ export async function listOllamaModels(): Promise<{
 /**
  * Update agent configuration (sleeptime, models, timezone, etc.).
  */
+function resolveAgentModelHandle(agentData: any): string {
+  return (
+    agentData?.llm_config?.handle ||
+    agentData?.model ||
+    ""
+  );
+}
+
+function resolveAgentEmbeddingHandle(agentData: any): string {
+  return (
+    agentData?.embedding_config?.handle ||
+    agentData?.embedding ||
+    ""
+  );
+}
+
 export async function updateLettaConfig(
   patch: Record<string, any>
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{
+  success: boolean;
+  error?: string;
+  ollama?: OllamaSwapResult;
+}> {
   const agentId = await getAgentId();
   if (!agentId) {
     return { success: false, error: "Letta agent not available" };
@@ -836,6 +860,9 @@ export async function updateLettaConfig(
     const agentData = await lettaFetch(`/v1/agents/${agentId}`);
     const group = resolveManagedGroup(agentData);
     const groupId = group?.id as string | undefined;
+
+    const previousModelHandle = resolveAgentModelHandle(agentData);
+    const previousEmbeddingHandle = resolveAgentEmbeddingHandle(agentData);
 
     const agentBody: Record<string, unknown> = {};
     if (patch.enable_sleeptime !== undefined) {
@@ -886,7 +913,36 @@ export async function updateLettaConfig(
       logger.info("Updated sleeptime group frequency", { groupId, freq });
     }
 
-    return { success: true };
+    let ollama: OllamaSwapResult | undefined;
+    if (patch.model !== undefined || patch.embedding !== undefined) {
+      const newModelHandle =
+        patch.model !== undefined
+          ? toOllamaHandle(String(patch.model))
+          : previousModelHandle;
+      const newEmbeddingHandle =
+        patch.embedding !== undefined
+          ? toOllamaHandle(String(patch.embedding))
+          : previousEmbeddingHandle;
+
+      ollama = await swapOllamaAfterModelChange({
+        modelPatched: patch.model !== undefined,
+        embeddingPatched: patch.embedding !== undefined,
+        previousModelHandle,
+        newModelHandle,
+        previousEmbeddingHandle,
+        newEmbeddingHandle,
+      });
+
+      if (ollama.status === "failed") {
+        return {
+          success: false,
+          error: ollama.error || "Ollama model swap failed",
+          ollama,
+        };
+      }
+    }
+
+    return { success: true, ollama };
   } catch (e) {
     logger.error("updateLettaConfig failed", { error: String(e) });
     return { success: false, error: String(e) };
