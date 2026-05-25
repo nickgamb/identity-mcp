@@ -29,6 +29,12 @@ export function modelsMatch(a: string, b: string): boolean {
   return na === nb || na.startsWith(`${nb}:`) || nb.startsWith(`${na}:`);
 }
 
+/** Embedding-only models (e.g. nomic-embed-text) reject /api/generate. */
+export function isEmbeddingModel(modelName: string): boolean {
+  const base = normalizeModelName(modelName.split(":")[0] ?? modelName);
+  return base.includes("embed");
+}
+
 type PsModel = { name: string };
 
 async function listRunningModels(): Promise<string[]> {
@@ -60,13 +66,44 @@ async function ollamaGenerate(
   await resp.text();
 }
 
+async function ollamaEmbeddings(
+  body: Record<string, unknown>,
+  timeoutMs: number
+): Promise<void> {
+  const resp = await fetch(`${config.OLLAMA_BASE_URL}/api/embeddings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(`Ollama embeddings ${resp.status}: ${text.slice(0, 300)}`);
+  }
+  await resp.text();
+}
+
 async function unloadModel(modelName: string): Promise<void> {
   logger.info("Ollama: unloading model", { model: modelName });
-  await ollamaGenerate({ model: modelName, keep_alive: 0 }, UNLOAD_TIMEOUT_MS);
+  if (isEmbeddingModel(modelName)) {
+    await ollamaEmbeddings(
+      { model: modelName, prompt: " ", keep_alive: 0 },
+      UNLOAD_TIMEOUT_MS
+    );
+  } else {
+    await ollamaGenerate({ model: modelName, keep_alive: 0 }, UNLOAD_TIMEOUT_MS);
+  }
 }
 
 async function warmModel(modelName: string): Promise<void> {
   logger.info("Ollama: warm-loading model", { model: modelName });
+  if (isEmbeddingModel(modelName)) {
+    await ollamaEmbeddings(
+      { model: modelName, prompt: " ", keep_alive: -1 },
+      WARM_LOAD_TIMEOUT_MS
+    );
+    return;
+  }
   await ollamaGenerate(
     {
       model: modelName,
@@ -199,7 +236,7 @@ export async function swapOllamaAfterModelChange(opts: {
           }
         }
       }
-      await warmModel(newEmbed);
+      await ensureModelLoaded(newEmbed);
       return {
         status: "completed",
         unloaded,

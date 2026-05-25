@@ -1671,11 +1671,11 @@ export function MemoryExplorer() {
                 <button
                   type="button"
                   onClick={updateAgentModels}
-                  disabled={
-                    updatingModels ||
-                    !modelsConfigDirty ||
-                    !selectedModel ||
-                    !selectedEmbedding
+                  disabled={updatingModels || !selectedModel || !selectedEmbedding}
+                  title={
+                    modelsConfigDirty
+                      ? 'Save model choices to Letta, sync compaction/sleeptime agents, and load in Ollama'
+                      : 'Re-apply current models (syncs compaction/sleeptime and reloads Ollama if needed)'
                   }
                   className="btn btn-primary"
                 >
@@ -1684,7 +1684,11 @@ export function MemoryExplorer() {
                   ) : (
                     <Save className="w-4 h-4" />
                   )}
-                  {updatingModels ? 'Updating models…' : 'Update models'}
+                  {updatingModels
+                    ? 'Updating models…'
+                    : modelsConfigDirty
+                      ? 'Update models'
+                      : 'Apply & load in Ollama'}
                 </button>
               </div>
             </div>
