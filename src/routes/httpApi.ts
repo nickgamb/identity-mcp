@@ -123,6 +123,10 @@ import {
   type ArchivalTypeFilter,
 } from "../mcp/lettaProxy";
 import {
+  getReverieStatus,
+  updateReverieConfig,
+} from "../services/reverieService";
+import {
   handleDataStatus,
   handleDataUploadConversations,
   handleDataUploadMemories,
@@ -1206,6 +1210,31 @@ mcpRouter.patch("/mcp/letta.config", async (req: Request, res: Response) => {
       return;
     }
     const result = await updateLettaConfig(patch);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── Reverie (background self-reflection) ────────────────────────────────
+
+mcpRouter.get("/mcp/reverie.status", async (_req: Request, res: Response) => {
+  try {
+    const result = getReverieStatus();
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.patch("/mcp/reverie.config", async (req: Request, res: Response) => {
+  try {
+    const patch = req.body;
+    if (!patch || Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "No config fields provided" });
+      return;
+    }
+    const result = updateReverieConfig(patch);
     res.json(result);
   } catch (err) {
     handleError(res, err);

@@ -21,6 +21,10 @@ const MCP_SERVER_URL =
 const OLLAMA_BASE_URL =
   process.env.OLLAMA_BASE_URL || "http://ollama:11434";
 
+// Reverie (background self-reflection)
+const REVERIE_ENABLED = process.env.REVERIE_ENABLED === "true";
+const REVERIE_INTERVAL_MINUTES = parseInt(process.env.REVERIE_INTERVAL_MINUTES || "120", 10);
+
 // OIDC Configuration (optional - for multi-user support)
 const OIDC_ENABLED = process.env.OIDC_ENABLED === "true";
 const OIDC_ISSUER = process.env.OIDC_ISSUER || "http://localhost:8080/realms/mcp";
@@ -37,7 +41,9 @@ logger.info("Config loaded", {
   OIDC_ENABLED,
   OIDC_ISSUER,
   OIDC_AUDIENCE,
-  OIDC_REQUIRE_AUTH
+  OIDC_REQUIRE_AUTH,
+  REVERIE_ENABLED,
+  REVERIE_INTERVAL_MINUTES,
 });
 
 export const config = {
@@ -54,4 +60,6 @@ export const config = {
   OIDC_ISSUER,
   OIDC_AUDIENCE,
   OIDC_REQUIRE_AUTH,
+  REVERIE_ENABLED,
+  REVERIE_INTERVAL_MINUTES,
 };

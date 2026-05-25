@@ -54,7 +54,7 @@ export function clearAgentIdCache(): void {
 
 // ── Helper ──────────────────────────────────────────────────────────────
 
-async function lettaFetch(path: string, init?: RequestInit): Promise<any> {
+export async function lettaFetch(path: string, init?: RequestInit): Promise<any> {
   const resp = await fetch(`${config.LETTA_BASE_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...init,

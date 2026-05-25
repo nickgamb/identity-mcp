@@ -5,6 +5,7 @@ import { healthRouter } from "./routes/health";
 import { mcpRouter } from "./routes/httpApi";
 import { mcpProtocolRouter } from "./routes/mcpProtocol";
 import { MemoryParser } from "./services/memoryParser";
+import { startReverieLoop } from "./services/reverieService";
 
 const app = express();
 
@@ -91,6 +92,7 @@ app.listen(config.PORT, "0.0.0.0", async () => {
   initializeMemories().catch(err => {
     logger.warn("Background memory initialization failed", err);
   });
+  startReverieLoop();
 });
 
 

@@ -21,6 +21,7 @@ import {
   Workflow,
   ArrowUpDown,
   Filter,
+  Sparkles,
 } from 'lucide-react'
 import { authenticatedFetch } from './utils/api'
 import {
@@ -158,6 +159,17 @@ export function MemoryExplorer() {
   }
   const [updatingConfig, setUpdatingConfig] = useState(false)
 
+  // Reverie
+  const [reverieEnabled, setReverieEnabled] = useState(false)
+  const [reverieInterval, setReverieInterval] = useState(120)
+  const [reverieStatus, setReverieStatus] = useState<{
+    config: { enabled: boolean; intervalMinutes: number }
+    running: boolean
+    lastReverieTime: string | null
+    nextPromptLabel: string
+  } | null>(null)
+  const [updatingReverie, setUpdatingReverie] = useState(false)
+
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false)
   const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(null)
@@ -289,6 +301,20 @@ export function MemoryExplorer() {
     }
   }, [])
 
+  const loadReverieStatus = useCallback(async () => {
+    try {
+      const res = await authenticatedFetch('/api/mcp/reverie.status')
+      const data = await res.json()
+      setReverieStatus(data)
+      if (!settingsDraftActiveRef.current) {
+        setReverieEnabled(data.config?.enabled ?? false)
+        setReverieInterval(data.config?.intervalMinutes ?? 120)
+      }
+    } catch (error) {
+      console.error('Failed to load reverie status:', error)
+    }
+  }, [])
+
   const loadMessages = useCallback(async () => {
     setMessagesLoading(true)
     try {
@@ -330,8 +356,9 @@ export function MemoryExplorer() {
     if (activeTab === 'settings') {
       loadStatus()
       loadOllamaModels()
+      loadReverieStatus()
     }
-  }, [activeTab, loadCoreMemory, loadMessages, loadOllamaModels, loadStatus])
+  }, [activeTab, loadCoreMemory, loadMessages, loadOllamaModels, loadReverieStatus, loadStatus])
 
   // Archival browse: reload when tab, sort, type, or date range changes (server-side scan)
   useEffect(() => {
@@ -403,6 +430,38 @@ export function MemoryExplorer() {
     }
   }
 
+  const updateReverieConfig = async () => {
+    setUpdatingReverie(true)
+    try {
+      const res = await authenticatedFetch('/api/mcp/reverie.config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: reverieEnabled,
+          intervalMinutes: Math.max(30, reverieInterval),
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        clearSettingsDraft()
+        setSaveSuccess('reverie')
+        setTimeout(() => setSaveSuccess(null), 2000)
+        await loadReverieStatus()
+      } else {
+        alert(`Update failed: ${data.error}`)
+      }
+    } catch (error) {
+      alert(`Update error: ${error}`)
+    } finally {
+      setUpdatingReverie(false)
+    }
+  }
+
+  const reverieConfigDirty =
+    reverieStatus != null &&
+    (reverieEnabled !== reverieStatus.config.enabled ||
+      reverieInterval !== reverieStatus.config.intervalMinutes)
+
   const sleeptimeConfigDirty =
     status?.agent &&
     (sleeptimeEnabled !== (status.agent.enable_sleeptime ?? false) ||
@@ -472,7 +531,8 @@ export function MemoryExplorer() {
       if (activityDateTo && m.created_at && m.created_at.slice(0, 10) > activityDateTo) return false
       return true
     })
-    if (activitySort === 'newest') return [...filtered].reverse()
+    // API returns newest-first (order=desc); reverse only for oldest-first
+    if (activitySort === 'oldest') return [...filtered].reverse()
     return filtered
   })()
 
@@ -1155,6 +1215,120 @@ export function MemoryExplorer() {
                 {updatingConfig ? 'Saving…' : saveSuccess === 'sleeptime' ? 'Saved' : 'Save'}
               </button>
             </div>
+          </div>
+
+          {/* Reverie */}
+          <div className="card lg:col-span-1">
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles className="w-5 h-5 text-accent" />
+              <h3 className="font-display font-semibold text-text-primary">Reverie</h3>
+              {reverieStatus?.running && (
+                <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent animate-pulse">
+                  Running
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-text-secondary mb-4">
+              Periodic self-reflection when the GPU is idle. The agent dream-walks its memories — reviewing conversations, noticing patterns, refining its self-model.
+            </p>
+
+            <div className="flex items-center justify-between gap-4 mb-5 py-3 px-3 rounded-lg bg-surface-100 border border-surface-200">
+              <div>
+                <p className="text-sm font-medium text-text-primary">Enable reverie</p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  {reverieEnabled ? 'Will reflect when GPU is idle' : 'Disabled — no background reflection'}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={reverieEnabled}
+                data-on={reverieEnabled}
+                className="toggle-track"
+                onClick={() => {
+                  markSettingsDraft()
+                  setReverieEnabled(v => !v)
+                }}
+              >
+                <span className="toggle-thumb" />
+              </button>
+            </div>
+
+            <div className={`flex flex-wrap items-center gap-4 ${!reverieEnabled ? 'opacity-50' : ''}`}>
+              <label className="text-sm text-text-secondary">Interval</label>
+              <div className="input-number">
+                <input
+                  type="number"
+                  min={30}
+                  max={720}
+                  value={reverieInterval}
+                  disabled={!reverieEnabled}
+                  onChange={e => {
+                    markSettingsDraft()
+                    setReverieInterval(Math.min(720, Math.max(30, parseInt(e.target.value, 10) || 30)))
+                  }}
+                  className="input-number-field"
+                />
+                <div className="input-number-step">
+                  <button
+                    type="button"
+                    disabled={!reverieEnabled || reverieInterval >= 720}
+                    onClick={() => {
+                      markSettingsDraft()
+                      setReverieInterval(f => Math.min(720, f + 30))
+                    }}
+                    aria-label="Increase interval"
+                  >
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!reverieEnabled || reverieInterval <= 30}
+                    onClick={() => {
+                      markSettingsDraft()
+                      setReverieInterval(f => Math.max(30, f - 30))
+                    }}
+                    aria-label="Decrease interval"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <span className="text-sm text-text-muted">
+                {reverieInterval < 60
+                  ? `${reverieInterval} min`
+                  : reverieInterval === 60
+                    ? '1 hour'
+                    : `${(reverieInterval / 60).toFixed(1).replace(/\.0$/, '')} hours`}
+              </span>
+              <button
+                type="button"
+                onClick={updateReverieConfig}
+                disabled={updatingReverie || !reverieConfigDirty}
+                className="btn btn-primary ml-auto"
+                title={
+                  !reverieConfigDirty
+                    ? 'Change interval or toggle to enable Save'
+                    : undefined
+                }
+              >
+                {updatingReverie ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : saveSuccess === 'reverie' ? (
+                  <CheckCircle className="w-4 h-4" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                {updatingReverie ? 'Saving…' : saveSuccess === 'reverie' ? 'Saved' : 'Save'}
+              </button>
+            </div>
+
+            {reverieStatus?.lastReverieTime && (
+              <p className="text-xs text-text-muted mt-4">
+                Last reverie: {new Date(reverieStatus.lastReverieTime).toLocaleString()}
+                {' — next prompt: '}{reverieStatus.nextPromptLabel}
+              </p>
+            )}
           </div>
 
           {/* Agent Info */}
