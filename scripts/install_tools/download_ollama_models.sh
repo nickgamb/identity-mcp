@@ -17,8 +17,8 @@ MODELS=(
 
     # Newer additions (see librechat-config/MODELS.md)
     "qwen3.6:35b"
-    "gemma4:31b"
-    "gemma4:26b"            # Gemma 4 26B-A4B MoE (4B active) — fast, +vision, 256K ctx
+    "gemma4:31b-it-q8_0"    # Gemma 4 31B dense Q8 (34GB); fits 2x P40
+    "gemma4:26b-a4b-it-q8_0" # Gemma 4 26B-A4B MoE Q8 (28GB); fits 2x P40
     "deepseek-r1:32b"
     "qwq:32b"
     "llama3.3:70b"

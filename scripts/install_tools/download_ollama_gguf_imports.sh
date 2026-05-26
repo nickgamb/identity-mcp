@@ -35,17 +35,22 @@ IMPORTS_DIR="${OLLAMA_IMPORTS_DIR:-$HOME/models/ollama_models/imports}"
 ARK_MAX_GB="${ARK_MAX_GB:-2000}"
 OLLAMA="docker exec ollama-server ollama"
 
-# repo_id | quant pattern (substring matched against .gguf filenames) | ollama model name
+# repo_id | quant pattern (substring matched against .gguf filenames) | ollama model name | renderer
+# The optional 4th field sets RENDERER + PARSER in the Modelfile so Ollama reports the
+# correct capabilities (tools, thinking, vision). Without it the GGUF import is
+# completion-only and invisible to tool-calling frameworks like Letta.
+# Available renderer names: https://github.com/ollama/ollama/tree/main/model/renderers
+#
 # Sizes are the chosen quant's footprint; all fit the ~160GB RAM+VRAM run budget except
 # the Tier-C archives (Kimi/etc.) which are archival (run slow via heavy offload).
 MODEL_SPECS=(
   # --- Tier A: Qwen3.6-35B-A3B identity experiments (fits 1x P40 at Q4/Q5; optional vs ollama pull qwen3.6:35b) ---
-  "unsloth/Qwen3.6-35B-A3B-GGUF|A3B-UD-IQ4_NL|qwen3.6-35b-iq4nl"   # ~18GB imatrix Q4-class
-  "unsloth/Qwen3.6-35B-A3B-GGUF|A3B-UD-Q5_K_M|qwen3.6-35b-q5km"   # ~26GB; Letta ≥Q5 guidance
+  "unsloth/Qwen3.6-35B-A3B-GGUF|A3B-UD-IQ4_NL|qwen3.6-35b-iq4nl|qwen3.5"   # ~18GB imatrix Q4-class
+  "unsloth/Qwen3.6-35B-A3B-GGUF|A3B-UD-Q5_K_M|qwen3.6-35b-q5km|qwen3.5"   # ~26GB; Letta ≥Q5 guidance
 
   # --- Tier B: frontier MoE that RUNS at usable speed (RAM offload) ---
   "unsloth/MiniMax-M2.5-GGUF|UD-Q3_K_XL|minimax-m2.5"        # 230B/10B-active, ~101GB
-  "unsloth/Qwen3.5-397B-A17B-GGUF|UD-IQ2_M|qwen3.5-397b"     # 397B/17B-active, ~120GB (repo has no UD-Q2_K_XL)
+  "unsloth/Qwen3.5-397B-A17B-GGUF|UD-IQ2_M|qwen3.5-397b|qwen3.5"     # 397B/17B-active, ~120GB (repo has no UD-Q2_K_XL)
   "unsloth/GLM-4.6-GGUF|UD-Q2_K_XL|glm-4.6"                  # 357B MoE, ~135GB, strong tools
 
   # --- Tier C: ARK archive (huge; archival + occasional use). Auto-skips if no GGUF yet. ---
@@ -88,10 +93,13 @@ find_gguf_from() {
 }
 
 create_ollama_import() {
-  local name="$1" host_from="$2" size_gb="${3:-0}"
+  local name="$1" host_from="$2" size_gb="${3:-0}" renderer="${4:-}"
   local container_from="/imports/${host_from#$IMPORTS_DIR/}"
   local modelfile="$IMPORTS_DIR/$name/Modelfile"
   printf 'FROM %s\n' "$container_from" > "$modelfile"
+  if [ -n "$renderer" ]; then
+    printf 'RENDERER %s\nPARSER %s\n' "$renderer" "$renderer" >> "$modelfile"
+  fi
   echo "  → ollama create $name"
   if $OLLAMA create "$name" -f "/imports/$name/Modelfile"; then
     echo "  ✓ imported $name"
@@ -179,7 +187,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   remaining="$ARK_MAX_GB"
   for spec in "${MODEL_SPECS[@]}"; do
     repo_id="${spec%%|*}"; rest="${spec#*|}"
-    quant="${rest%%|*}"; name="${rest##*|}"
+    quant="${rest%%|*}"; rest2="${rest#*|}"
+    name="${rest2%%|*}"
+    renderer=""; [[ "$rest2" == *"|"* ]] && renderer="${rest2#*|}"
 
     if [ -n "${OLLAMA_GGUF_ONLY:-}" ]; then
       wanted=0
@@ -205,7 +215,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
       host_from="$(find_gguf_from "$name" "$quant")"
       if [ -n "$host_from" ]; then
         echo "  ✓ already on disk — importing only"
-        create_ollama_import "$name" "$host_from" "0"
+        create_ollama_import "$name" "$host_from" "0" "$renderer"
         echo ""
         continue
       fi
@@ -228,7 +238,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
       echo "  ✗ download failed — skipping"; echo ""; continue
     fi
 
-    if create_ollama_import "$name" "$host_from" "$size_gb"; then
+    if create_ollama_import "$name" "$host_from" "$size_gb" "$renderer"; then
       remaining=$(( remaining - ${size_gb%.*} ))
       echo "  remaining budget: ${remaining}GB"
     fi

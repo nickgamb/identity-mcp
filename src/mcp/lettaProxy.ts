@@ -850,6 +850,25 @@ export interface LettaModelSyncReport {
   prefs_file: string;
 }
 
+async function syncLettaOllamaProvider(): Promise<void> {
+  try {
+    const providers: any[] = await lettaFetch("/v1/providers/");
+    const ollama = providers.find(
+      (p: any) => p.provider_type === "ollama" || p.name?.includes("ollama")
+    );
+    if (!ollama) {
+      logger.warn("No Ollama provider registered in Letta — skipping sync");
+      return;
+    }
+    await lettaFetch(`/v1/providers/${ollama.id}/refresh`, {
+      method: "PATCH",
+    });
+    logger.info("Refreshed Letta Ollama provider", { providerId: ollama.id });
+  } catch (e) {
+    logger.warn("Letta Ollama provider sync failed", { error: String(e) });
+  }
+}
+
 function buildAgentModelPatch(
   agentData: any,
   modelHandle: string,
@@ -888,6 +907,8 @@ async function syncLettaModelsEverywhere(opts: {
   if (!modelHandle) {
     throw new Error("No model handle to sync");
   }
+
+  await syncLettaOllamaProvider();
 
   await lettaFetch(`/v1/agents/${opts.identityAgentId}`, {
     method: "PATCH",
