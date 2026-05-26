@@ -25,6 +25,7 @@ import {
   Pencil,
   X,
   RotateCcw,
+  HardDrive,
 } from 'lucide-react'
 import { authenticatedFetch } from './utils/api'
 import { CodeEditor } from './components/CodeEditor'
@@ -202,6 +203,20 @@ export function MemoryExplorer() {
   const [promptsSaving, setPromptsSaving] = useState(false)
   const [promptsSaveSuccess, setPromptsSaveSuccess] = useState(false)
 
+  // Backup
+  const [backupEnabled, setBackupEnabled] = useState(false)
+  const [backupIntervalHours, setBackupIntervalHours] = useState(24)
+  const [backupRetentionDays, setBackupRetentionDays] = useState(0)
+  const [backupIncludeCorpus, setBackupIncludeCorpus] = useState(false)
+  const [backupStatus, setBackupStatus] = useState<{
+    config: { enabled: boolean; intervalHours: number; retentionDays: number; includeCorpus: boolean }
+    lastBackupTime: string | null
+    backupCount: number
+    nextBackupIn: string | null
+  } | null>(null)
+  const [updatingBackup, setUpdatingBackup] = useState(false)
+  const [backupTriggering, setBackupTriggering] = useState(false)
+
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false)
   const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(null)
@@ -354,6 +369,24 @@ export function MemoryExplorer() {
     }
   }, [])
 
+  const loadBackupStatus = useCallback(async () => {
+    try {
+      const res = await authenticatedFetch('/api/mcp/backup.status')
+      if (!res.ok) return
+      const data = await res.json()
+      if (!data?.config) return
+      setBackupStatus(data)
+      if (!settingsDraftActiveRef.current) {
+        setBackupEnabled(data.config.enabled ?? false)
+        setBackupIntervalHours(data.config.intervalHours ?? 24)
+        setBackupRetentionDays(data.config.retentionDays ?? 0)
+        setBackupIncludeCorpus(data.config.includeCorpus ?? false)
+      }
+    } catch (error) {
+      console.error('Failed to load backup status:', error)
+    }
+  }, [])
+
   const loadMessages = useCallback(async () => {
     setMessagesLoading(true)
     try {
@@ -396,8 +429,9 @@ export function MemoryExplorer() {
       loadStatus()
       loadOllamaModels()
       loadReverieStatus()
+      loadBackupStatus()
     }
-  }, [activeTab, loadCoreMemory, loadMessages, loadOllamaModels, loadReverieStatus, loadStatus])
+  }, [activeTab, loadCoreMemory, loadMessages, loadOllamaModels, loadReverieStatus, loadBackupStatus, loadStatus])
 
   // Archival browse: reload when tab, sort, type, or date range changes (server-side scan)
   useEffect(() => {
@@ -569,6 +603,72 @@ export function MemoryExplorer() {
           reverieActiveHoursEnd !== (savedReverieActiveHours?.end ?? '23:59') ||
           reverieTimezone !== (savedReverieActiveHours?.timezone ?? ''))))
 
+  const updateBackupSettings = async () => {
+    setUpdatingBackup(true)
+    try {
+      const res = await authenticatedFetch('/api/mcp/backup.config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: backupEnabled,
+          intervalHours: Math.max(1, backupIntervalHours),
+          retentionDays: Math.max(0, backupRetentionDays),
+          includeCorpus: backupIncludeCorpus,
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        clearSettingsDraft()
+        setSaveSuccess('backup')
+        setTimeout(() => setSaveSuccess(null), 2000)
+        await loadBackupStatus()
+      } else {
+        alert(`Update failed: ${data.error}`)
+      }
+    } catch (error) {
+      alert(`Update error: ${error}`)
+    } finally {
+      setUpdatingBackup(false)
+    }
+  }
+
+  const triggerBackup = async () => {
+    setBackupTriggering(true)
+    try {
+      const controller = new AbortController()
+      const timeoutId = window.setTimeout(() => controller.abort(), 20 * 60 * 1000)
+      const res = await authenticatedFetch('/api/mcp/backup.trigger', {
+        method: 'POST',
+        signal: controller.signal,
+      })
+      window.clearTimeout(timeoutId)
+      const data = await res.json()
+      if (data.success) {
+        await loadBackupStatus()
+        setSaveSuccess('backup')
+        setTimeout(() => setSaveSuccess(null), 3000)
+      } else {
+        alert(data.message || data.error || 'Backup failed')
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      alert(
+        msg.includes('abort')
+          ? 'Backup timed out after 20 minutes — check server logs and memory/backups/'
+          : `Backup error: ${msg}`
+      )
+    } finally {
+      setBackupTriggering(false)
+    }
+  }
+
+  const backupConfigDirty =
+    backupStatus?.config != null &&
+    (backupEnabled !== backupStatus.config.enabled ||
+      backupIntervalHours !== backupStatus.config.intervalHours ||
+      backupRetentionDays !== backupStatus.config.retentionDays ||
+      backupIncludeCorpus !== (backupStatus.config.includeCorpus ?? false))
+
   const sleeptimeConfigDirty =
     status?.agent &&
     (sleeptimeEnabled !== (status.agent.enable_sleeptime ?? false) ||
@@ -735,10 +835,6 @@ export function MemoryExplorer() {
             </button>
           )
         })}
-        <div className="flex-1" />
-        <button onClick={loadStatus} className="btn btn-ghost text-xs" title="Refresh">
-          <RefreshCw className="w-3.5 h-3.5" />
-        </button>
       </div>
 
       {/* ── Overview ─────────────────────────────────────────────── */}
@@ -1167,7 +1263,7 @@ export function MemoryExplorer() {
         <div>
           {/* Filter */}
           <div className="flex items-center gap-2 mb-4">
-            {(['all', 'sleeptime', 'reverie', 'tools'] as const).map(f => (
+            {(['all', 'sleeptime', 'reverie', 'tools', 'guard'] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setActivityFilter(f)}
@@ -1177,7 +1273,15 @@ export function MemoryExplorer() {
                     : 'bg-surface-100 text-text-secondary hover:bg-surface-200'
                 }`}
               >
-                {f === 'all' ? 'All' : f === 'sleeptime' ? 'Sleeptime' : f === 'reverie' ? 'Reverie' : 'Tool Calls'}
+                {f === 'all'
+                  ? 'All'
+                  : f === 'sleeptime'
+                    ? 'Sleeptime'
+                    : f === 'reverie'
+                      ? 'Reverie'
+                      : f === 'guard'
+                        ? 'Guard'
+                        : 'Tool Calls'}
               </button>
             ))}
             <div className="flex-1" />
@@ -1362,14 +1466,18 @@ export function MemoryExplorer() {
               )}
             </div>
             <p className="text-sm text-text-secondary mb-4">
-              Periodic self-reflection when the GPU is idle. The agent dream-walks its memories — reviewing conversations, noticing patterns, refining its self-model.
+              Background self-reflection on the interval and active-hours you set below. The agent
+              dream-walks its memories — reviewing conversations, noticing patterns, refining its
+              self-model — and queues behind active chat (one run at a time).
             </p>
 
             <div className="flex items-center justify-between gap-4 mb-5 py-3 px-3 rounded-lg bg-surface-100 border border-surface-200">
               <div>
                 <p className="text-sm font-medium text-text-primary">Enable reverie</p>
                 <p className="text-xs text-text-muted mt-0.5">
-                  {reverieEnabled ? 'Will reflect when GPU is idle' : 'Disabled — no background reflection'}
+                  {reverieEnabled
+                    ? 'Runs on your interval and active-hours window (queues behind chat)'
+                    : 'Disabled — no background reflection'}
                 </p>
               </div>
               <button
@@ -1641,8 +1749,8 @@ export function MemoryExplorer() {
             )}
           </div>
 
-          {/* Agent Info */}
-          <div className="card lg:col-span-2">
+          {/* Agent Info (compact) */}
+          <div className="card lg:col-span-1">
             <div className="flex items-center gap-2 mb-4">
               <Bot className="w-5 h-5 text-accent" />
               <h3 className="font-display font-semibold text-text-primary">Agent Info</h3>
@@ -1657,35 +1765,27 @@ export function MemoryExplorer() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 mb-6">
+            <div className="space-y-2 mb-4">
               {[
-                { label: 'Agent ID', value: status.agent.id, wide: true },
                 { label: 'Name', value: status.agent.name },
-                {
-                  label: 'Created',
-                  value: status.agent.created_at
-                    ? new Date(status.agent.created_at).toLocaleString()
-                    : 'Unknown',
-                },
                 { label: 'Tools', value: `${status.agent.tool_count} registered` },
+                { label: 'ID', value: status.agent.id },
               ].map(item => (
                 <div
                   key={item.label}
-                  className={`flex items-center justify-between gap-3 py-2 border-b border-surface-200 last:border-0 ${
-                    item.wide ? 'sm:col-span-2' : ''
-                  }`}
+                  className="flex items-center justify-between gap-3 py-1.5 border-b border-surface-200 last:border-0"
                 >
-                  <span className="text-sm text-text-secondary shrink-0">{item.label}</span>
-                  <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs text-text-secondary shrink-0">{item.label}</span>
+                  <div className="flex items-center gap-1.5 min-w-0">
                     <span
-                      className="text-sm text-text-primary font-mono truncate text-right"
+                      className="text-xs text-text-primary font-mono truncate text-right"
                       title={item.value}
                     >
                       {item.value}
                     </span>
                     <button
                       onClick={() => copyToClipboard(item.value, item.label)}
-                      className="btn btn-ghost p-1"
+                      className="btn btn-ghost p-0.5"
                       title="Copy"
                     >
                       {copiedId === item.label ? (
@@ -1699,28 +1799,24 @@ export function MemoryExplorer() {
               ))}
             </div>
 
-            <div className="border-t border-surface-200 pt-5 space-y-4">
-              <p className="text-sm text-text-secondary">
-                Chat and embedding models are served by Ollama. Pick from installed models below.
-              </p>
-
+            <div className="border-t border-surface-200 pt-4 space-y-3">
               {ollamaModelsError && (
                 <p className="text-xs text-warning">{ollamaModelsError}</p>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-text-primary mb-1.5">
+                  <label className="block text-xs font-medium text-text-primary mb-1">
                     Chat model
                   </label>
                   {ollamaModelsLoading && modelHandleOptions.length === 0 ? (
                     <div className="flex items-center gap-2 py-2 text-sm text-text-muted">
-                      <div className="w-5 h-5 border-2 border-surface-300 border-t-accent rounded-full animate-spin" />
-                      Loading models…
+                      <div className="w-4 h-4 border-2 border-surface-300 border-t-accent rounded-full animate-spin" />
+                      Loading…
                     </div>
                   ) : (
                     <select
-                      className="select"
+                      className="select text-sm"
                       value={selectedModel}
                       onChange={e => {
                         markSettingsDraft()
@@ -1742,13 +1838,13 @@ export function MemoryExplorer() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-text-primary mb-1.5">
+                  <label className="block text-xs font-medium text-text-primary mb-1">
                     Embedding model
                   </label>
                   {ollamaModelsLoading && embeddingHandleOptions.length === 0 ? (
                     <div className="flex items-center gap-2 py-2 text-sm text-text-muted">
-                      <div className="w-5 h-5 border-2 border-surface-300 border-t-accent rounded-full animate-spin" />
-                      Loading models…
+                      <div className="w-4 h-4 border-2 border-surface-300 border-t-accent rounded-full animate-spin" />
+                      Loading…
                     </div>
                   ) : (
                     <select
@@ -1771,17 +1867,17 @@ export function MemoryExplorer() {
                       )}
                     </select>
                   )}
-                  <p className="text-[11px] text-text-muted mt-1">
-                    Use an embedding model (e.g. nomic-embed-text) for archival search.
+                  <p className="text-[10px] text-text-muted mt-0.5">
+                    For archival search (e.g. nomic-embed-text)
                   </p>
                 </div>
               </div>
 
-              <div className="flex flex-col items-end gap-2 pt-2">
+              <div className="flex items-center gap-2 pt-2">
                 {updatingModels && modelUpdatePhase && (
-                  <p className="text-[11px] text-text-muted text-right max-w-md flex items-center gap-2 justify-end">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
-                    {modelUpdatePhase}
+                  <p className="text-[10px] text-text-muted flex items-center gap-1 flex-1 min-w-0">
+                    <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
+                    <span className="truncate">{modelUpdatePhase}</span>
                   </p>
                 )}
                 <button
@@ -1793,7 +1889,7 @@ export function MemoryExplorer() {
                       ? 'Save model choices to Letta, sync compaction/sleeptime agents, and load in Ollama'
                       : 'Re-apply current models (syncs compaction/sleeptime and reloads Ollama if needed)'
                   }
-                  className="btn btn-primary"
+                  className="btn btn-primary ml-auto"
                 >
                   {updatingModels ? (
                     <RefreshCw className="w-4 h-4 animate-spin" />
@@ -1801,12 +1897,226 @@ export function MemoryExplorer() {
                     <Save className="w-4 h-4" />
                   )}
                   {updatingModels
-                    ? 'Updating models…'
+                    ? 'Updating…'
                     : modelsConfigDirty
-                      ? 'Update models'
-                      : 'Apply & load in Ollama'}
+                      ? 'Update'
+                      : 'Apply'}
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* Backup */}
+          <div className="card lg:col-span-1">
+            <div className="flex items-center gap-2 mb-4">
+              <HardDrive className="w-5 h-5 text-accent" />
+              <h3 className="font-display font-semibold text-text-primary">Backups</h3>
+              {backupTriggering ? (
+                <span className="ml-auto flex items-center gap-1.5 text-xs text-amber-400">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Backing up…
+                </span>
+              ) : backupStatus ? (
+                <span className="ml-auto text-xs text-text-muted">
+                  {backupStatus.backupCount} saved
+                </span>
+              ) : null}
+            </div>
+            {backupTriggering && (
+              <p className="text-sm text-amber-400/90 mb-4 py-2 px-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                Running Letta database backup — large databases can take several minutes. Please
+                wait…
+              </p>
+            )}
+            <p className="text-sm text-text-secondary mb-4">
+              Periodic <code className="text-xs">pg_dump</code> of the Letta postgres DB to{' '}
+              <code className="text-xs">memory/backups/&lt;timestamp&gt;/letta-db.sql</code>. Retention 0
+              keeps all snapshots.
+            </p>
+
+            <div className="flex items-center justify-between gap-4 mb-5 py-3 px-3 rounded-lg bg-surface-100 border border-surface-200">
+              <div>
+                <p className="text-sm font-medium text-text-primary">Enable backups</p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  {backupEnabled
+                    ? backupStatus?.lastBackupTime
+                      ? `Last: ${new Date(backupStatus.lastBackupTime).toLocaleString()}`
+                      : 'Enabled — waiting for first backup'
+                    : 'Disabled — no automatic backups'}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={backupEnabled}
+                data-on={backupEnabled}
+                disabled={backupTriggering}
+                className="toggle-track"
+                onClick={() => {
+                  markSettingsDraft()
+                  setBackupEnabled(v => !v)
+                }}
+              >
+                <span className="toggle-thumb" />
+              </button>
+            </div>
+
+            <div
+              className={`space-y-4 ${!backupEnabled || backupTriggering ? 'opacity-50 pointer-events-none' : ''}`}
+            >
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="text-sm text-text-secondary">Interval</label>
+                <div className="input-number">
+                  <input
+                    type="number"
+                    min={1}
+                    max={168}
+                    value={backupIntervalHours}
+                    disabled={!backupEnabled}
+                    onChange={e => {
+                      markSettingsDraft()
+                      setBackupIntervalHours(Math.min(168, Math.max(1, parseInt(e.target.value, 10) || 1)))
+                    }}
+                    className="input-number-field"
+                  />
+                  <div className="input-number-step">
+                    <button
+                      type="button"
+                      disabled={!backupEnabled || backupIntervalHours >= 168}
+                      onClick={() => {
+                        markSettingsDraft()
+                        setBackupIntervalHours(h => Math.min(168, h + 1))
+                      }}
+                      aria-label="Increase interval"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!backupEnabled || backupIntervalHours <= 1}
+                      onClick={() => {
+                        markSettingsDraft()
+                        setBackupIntervalHours(h => Math.max(1, h - 1))
+                      }}
+                      aria-label="Decrease interval"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <span className="text-sm text-text-muted">
+                  {backupIntervalHours === 1 ? 'Every hour' : `Every ${backupIntervalHours} hours`}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="text-sm text-text-secondary">Retention</label>
+                <div className="input-number">
+                  <input
+                    type="number"
+                    min={0}
+                    max={365}
+                    value={backupRetentionDays}
+                    disabled={!backupEnabled}
+                    onChange={e => {
+                      markSettingsDraft()
+                      setBackupRetentionDays(Math.min(365, Math.max(0, parseInt(e.target.value, 10) || 0)))
+                    }}
+                    className="input-number-field"
+                  />
+                  <div className="input-number-step">
+                    <button
+                      type="button"
+                      disabled={!backupEnabled || backupRetentionDays >= 365}
+                      onClick={() => {
+                        markSettingsDraft()
+                        setBackupRetentionDays(d => Math.min(365, d + 1))
+                      }}
+                      aria-label="Increase retention"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!backupEnabled || backupRetentionDays <= 0}
+                      onClick={() => {
+                        markSettingsDraft()
+                        setBackupRetentionDays(d => Math.max(0, d - 1))
+                      }}
+                      aria-label="Decrease retention"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <span className="text-sm text-text-muted">
+                  {backupRetentionDays === 0 ? 'Keep all (no pruning)' : `${backupRetentionDays} days`}
+                </span>
+              </div>
+            </div>
+
+            {/* Include corpus toggle */}
+            <div className="flex items-center justify-between mt-4 py-3 px-3 rounded-lg bg-surface-100 border border-surface-200">
+              <div>
+                <span className="text-sm font-medium text-text-primary">Include full corpus</span>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Also archive conversations, files &amp; memory as corpus.tar.gz (Letta DB always included)
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={backupIncludeCorpus}
+                data-on={backupIncludeCorpus}
+                className="toggle-track"
+                onClick={() => {
+                  markSettingsDraft()
+                  setBackupIncludeCorpus(v => !v)
+                }}
+              >
+                <span className="toggle-thumb" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 mt-5">
+              <button
+                type="button"
+                onClick={triggerBackup}
+                disabled={backupTriggering || updatingBackup}
+                className="btn btn-ghost text-sm"
+                title={
+                  backupTriggering
+                    ? 'Backup in progress'
+                    : 'Create a backup immediately'
+                }
+              >
+                {backupTriggering ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <HardDrive className="w-3.5 h-3.5" />
+                )}
+                {backupTriggering ? 'Backing up…' : 'Backup now'}
+              </button>
+              <button
+                type="button"
+                onClick={updateBackupSettings}
+                disabled={updatingBackup || backupTriggering || !backupConfigDirty}
+                className="btn btn-primary ml-auto"
+                title={
+                  !backupConfigDirty
+                    ? 'Change settings to enable Save'
+                    : undefined
+                }
+              >
+                {updatingBackup ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : saveSuccess === 'backup' ? (
+                  <CheckCircle className="w-4 h-4" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                {updatingBackup ? 'Saving…' : saveSuccess === 'backup' ? 'Saved' : 'Save'}
+              </button>
             </div>
           </div>
 

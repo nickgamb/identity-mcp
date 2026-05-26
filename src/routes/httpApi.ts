@@ -129,6 +129,11 @@ import {
   updateReveriePrompts,
 } from "../services/reverieService";
 import {
+  getBackupStatus,
+  updateBackupConfig,
+  triggerBackupNow,
+} from "../services/backupService";
+import {
   handleDataStatus,
   handleDataUploadConversations,
   handleDataUploadMemories,
@@ -1267,6 +1272,43 @@ mcpRouter.put("/mcp/reverie.prompts", async (req: Request, res: Response) => {
       res.status(400).json(result);
       return;
     }
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// ── Backup ─────────────────────────────────────────────────────────────
+
+mcpRouter.get("/mcp/backup.status", async (_req: Request, res: Response) => {
+  try {
+    const result = getBackupStatus();
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.patch("/mcp/backup.config", async (req: Request, res: Response) => {
+  try {
+    const patch = req.body;
+    if (!patch || Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "No config fields provided" });
+      return;
+    }
+    const result = updateBackupConfig(patch);
+    res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+mcpRouter.post("/mcp/backup.trigger", async (req: Request, res: Response) => {
+  // Large Letta DB dumps can take many minutes.
+  req.setTimeout(20 * 60 * 1000);
+  res.setTimeout(20 * 60 * 1000);
+  try {
+    const result = triggerBackupNow();
     res.json(result);
   } catch (err) {
     handleError(res, err);

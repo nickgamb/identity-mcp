@@ -126,6 +126,11 @@ import {
   getReveriePrompts,
   updateReveriePrompts,
 } from "../services/reverieService";
+import {
+  getBackupStatus,
+  updateBackupConfig,
+  triggerBackupNow,
+} from "../services/backupService";
 
 export const mcpProtocolRouter = Router();
 
@@ -1149,6 +1154,45 @@ function registerTools(server: McpServer, getUserId: () => string | null) {
       }),
     },
     async ({ prompts }) => toContent(updateReveriePrompts(prompts)),
+  );
+
+  // ── Backup (Letta postgres via pg_dump) ─────────────────────────────────
+
+  server.registerTool(
+    "backup_status",
+    {
+      title: "Backup Status",
+      description:
+        "Get backup config, last Letta DB dump time, and count under memory/backups/.",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(getBackupStatus()),
+  );
+
+  server.registerTool(
+    "backup_config",
+    {
+      title: "Update Backup Config",
+      description:
+        "Update backup settings: enabled, intervalHours (1-168), retentionDays (0=keep all), includeCorpus (tar.gz conversations/files/memory).",
+      inputSchema: z.object({
+        enabled: z.boolean().optional(),
+        intervalHours: z.number().min(1).max(168).optional(),
+        retentionDays: z.number().min(0).max(365).optional(),
+        includeCorpus: z.boolean().optional(),
+      }),
+    },
+    async (patch) => toContent(updateBackupConfig(patch)),
+  );
+
+  server.registerTool(
+    "backup_trigger",
+    {
+      title: "Trigger Backup Now",
+      description: "Immediately pg_dump the Letta postgres database to memory/backups/.",
+      inputSchema: z.object({}),
+    },
+    async () => toContent(triggerBackupNow()),
   );
 }
 

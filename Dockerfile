@@ -1,12 +1,20 @@
 FROM node:20-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies (postgresql-client-16 matches letta-postgres pg16)
+RUN apt-get update && apt-get install -y curl ca-certificates gnupg \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+       https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+       > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y \
     wget \
     python3 \
     python3-pip \
     python3-venv \
     build-essential \
+    postgresql-client-16 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

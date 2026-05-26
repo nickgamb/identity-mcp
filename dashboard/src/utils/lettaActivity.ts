@@ -94,6 +94,12 @@ export const ACTIVITY_ROLE_CONFIG: Record<
     badgeClass: 'bg-surface-200 text-text-secondary',
     iconClass: 'text-text-secondary',
   },
+  bridge_guard: {
+    label: 'Reasoning guard',
+    icon: Shield,
+    badgeClass: 'bg-red-500/15 text-red-400',
+    iconClass: 'text-red-400',
+  },
   approval: {
     label: 'Approval',
     icon: Shield,
@@ -177,7 +183,11 @@ export function isSleeptimeActivity(m: ActivityMessage): boolean {
   )
 }
 
-export type ActivityFilterType = 'all' | 'sleeptime' | 'tools' | 'reverie'
+export type ActivityFilterType = 'all' | 'sleeptime' | 'tools' | 'reverie' | 'guard'
+
+export function isBridgeGuardActivity(m: ActivityMessage): boolean {
+  return m.role === 'bridge_guard' || m.message_type === 'bridge_guard_event'
+}
 
 export function activityMatchesFilter(
   m: ActivityMessage,
@@ -193,6 +203,7 @@ export function activityMatchesFilter(
       (m.message_type?.includes('tool') ?? false)
     )
   }
+  if (filter === 'guard') return isBridgeGuardActivity(m)
   return isSleeptimeActivity(m)
 }
 

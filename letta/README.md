@@ -124,6 +124,8 @@ Success criterion: ask about something only in your past conversations — it re
 | `LETTA_BASE_URL` | `http://letta:8283` | bridge → Letta server |
 | `LETTA_STREAM_TIMEOUT` | `600` | HTTP stream + post-trim cancel wait (seconds); `0` = no timeout |
 | `LETTA_TOOL_RETURN_MAX_CHARS` | `4000` | max tool result text shown in a thinking block |
+| `LETTA_GUARD_LOG_PATH` | `/app/memory/bridge-guard-events.jsonl` | loop-guard hits (Activity tab + `docker logs`) |
+| `LETTA_GUARD_SAMPLE_CHARS` | `500` | raw tail saved when guard fires |
 
 ## Known limitations / follow-ups
 - **One continuous identity.** A single agent with persistent memory is the whole point. Every

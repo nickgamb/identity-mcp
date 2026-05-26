@@ -781,7 +781,17 @@ export async function getLettaMessages(
     const messages: LettaMessage[] = rawMessages.map(mapLettaMessage);
     tagReverieRuns(messages);
 
-    return { available: true, messages };
+    const { loadBridgeGuardActivity } = await import(
+      "../utils/bridgeGuardEvents.js"
+    );
+    const guardEvents = loadBridgeGuardActivity(Math.min(limit, 80));
+    const merged = [...messages, ...guardEvents].sort((a, b) => {
+      const ta = a.created_at ? Date.parse(a.created_at) : 0;
+      const tb = b.created_at ? Date.parse(b.created_at) : 0;
+      return tb - ta;
+    });
+
+    return { available: true, messages: merged.slice(0, limit + guardEvents.length) };
   } catch (e) {
     logger.error("getLettaMessages failed", { error: String(e) });
     return { available: false, messages: [], error: String(e) };

@@ -7,6 +7,7 @@ import { mcpProtocolRouter } from "./routes/mcpProtocol";
 import { MemoryParser } from "./services/memoryParser";
 import { ensureLettaModelPrefsFromAgent } from "./mcp/lettaProxy";
 import { startReverieLoop } from "./services/reverieService";
+import { startBackupLoop } from "./services/backupService";
 
 const app = express();
 
@@ -97,6 +98,7 @@ app.listen(config.PORT, "0.0.0.0", async () => {
     logger.warn("Letta model prefs seed skipped", { error: String(err) });
   });
   startReverieLoop();
+  startBackupLoop();
 });
 
 

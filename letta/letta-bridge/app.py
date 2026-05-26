@@ -36,6 +36,8 @@ Env:
   PORT                        default 8284
   LETTA_STREAM_TIMEOUT        default 600; 0 = no HTTP/cancel timeout (unlimited stream)
   LETTA_TOOL_RETURN_MAX_CHARS default 4000 (truncate tool results in thinking UI)
+  LETTA_GUARD_LOG_PATH        default /app/memory/bridge-guard-events.jsonl
+  LETTA_GUARD_SAMPLE_CHARS    default 500 (raw tail saved when guard fires)
 """
 import os
 import re
@@ -54,6 +56,7 @@ from pydantic import BaseModel
 from letta_client import Letta
 
 from model_prefs import load_prefs_file, models_from_existing_agent, resolve_models_for_create
+from guard_log import record_guard_event
 from reasoning_guard import (
     LoopReason,
     ReasoningLoopGuard,
@@ -336,9 +339,11 @@ def _thinking_blocks_from_messages(messages: List[Any]) -> str:
             return
         text = "".join(reasoning_buf)
         reasoning_buf = []
-        safe, trimmed = trim_reasoning_for_display(text)
+        safe, trimmed, detail = trim_reasoning_for_display(text)
         if trimmed:
             safe += "\n\n_(planning trimmed — reply below)_\n"
+            if detail:
+                record_guard_event(detail, source="batch")
         flush_block([safe])
 
     def flush_tool() -> None:
@@ -488,7 +493,9 @@ async def _stream_letta(agent_id: str, user_text: str) -> AsyncGenerator[str, No
                                 m.get("assistant_message", "") or m.get("content", "")
                             ))
                     reasoning = "\n".join(reasoning_parts).strip()
-                    reasoning, trimmed = trim_reasoning_for_display(reasoning)
+                    reasoning, trimmed, detail = trim_reasoning_for_display(reasoning)
+                    if trimmed and detail:
+                        record_guard_event(detail, source="json_fallback")
                     text = "".join(text_parts).strip() or "(no response)"
                     if reasoning:
                         suffix = (
@@ -584,9 +591,14 @@ async def _stream_letta(agent_id: str, user_text: str) -> AsyncGenerator[str, No
                     for part in parts:
                         yield _oai_chunk(cid, created, {"content": part})
                     if closed_loop:
-                        log.warning(
-                            "Reasoning loop detected — closed segment, stream continues"
-                        )
+                        detail = segments._guard.last_detection
+                        if detail:
+                            record_guard_event(
+                                detail,
+                                agent_id=agent_id,
+                                run_id=active_run_id,
+                                source="stream",
+                            )
                         trimmed_waiting_reply = True
                         trimmed_at = time.time()
 
