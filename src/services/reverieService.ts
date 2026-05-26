@@ -37,6 +37,8 @@ interface ReverieState {
 export interface ReverieStatus {
   config: ReverieConfig;
   running: boolean;
+  /** Set while a reverie Letta run is in progress (from MCP's in-flight request). */
+  currentPromptLabel: string | null;
   lastReverieTime: string | null;
   nextPromptLabel: string;
   withinActiveHours: boolean;
@@ -150,17 +152,22 @@ async function executeReverie(): Promise<void> {
   );
 
   try {
-    const result = await lettaFetch(`/v1/agents/${agentId}/messages`, {
-      method: "POST",
-      body: JSON.stringify({
-        messages: [
-          {
-            role: "user",
-            content: formatReverieUserContent(prompt.label, prompt.text),
-          },
-        ],
-      }),
-    });
+    const result = await lettaFetch(
+      `/v1/agents/${agentId}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          max_steps: config.REVERIE_MAX_STEPS,
+          messages: [
+            {
+              role: "user",
+              content: formatReverieUserContent(prompt.label, prompt.text),
+            },
+          ],
+        }),
+        signal: AbortSignal.timeout(config.REVERIE_TIMEOUT_MS),
+      }
+    );
 
     const messages = Array.isArray(result) ? result : result?.messages || [];
     const assistantMsg = messages.find(
@@ -197,6 +204,7 @@ export function getReverieStatus(): ReverieStatus {
       activeHours,
     },
     running: state.running,
+    currentPromptLabel: state.running ? state.lastPrompt : null,
     lastReverieTime: state.lastReverieTime
       ? new Date(state.lastReverieTime).toISOString()
       : null,

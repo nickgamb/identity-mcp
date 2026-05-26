@@ -189,6 +189,7 @@ export function MemoryExplorer() {
       }
     }
     running: boolean
+    currentPromptLabel?: string | null
     lastReverieTime: string | null
     nextPromptLabel: string
     withinActiveHours?: boolean
@@ -432,6 +433,13 @@ export function MemoryExplorer() {
       loadBackupStatus()
     }
   }, [activeTab, loadCoreMemory, loadMessages, loadOllamaModels, loadReverieStatus, loadBackupStatus, loadStatus])
+
+  // Poll reverie status on Settings so "Running" stays visible during long Letta runs
+  useEffect(() => {
+    if (activeTab !== 'settings') return
+    const poll = setInterval(loadReverieStatus, 5000)
+    return () => clearInterval(poll)
+  }, [activeTab, loadReverieStatus])
 
   // Archival browse: reload when tab, sort, type, or date range changes (server-side scan)
   useEffect(() => {
@@ -1460,8 +1468,14 @@ export function MemoryExplorer() {
               <Sparkles className="w-5 h-5 text-accent" />
               <h3 className="font-display font-semibold text-text-primary">Reverie</h3>
               {reverieStatus?.running && (
-                <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent animate-pulse">
+                <span
+                  className="ml-auto text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent animate-pulse max-w-[55%] truncate"
+                  title={reverieStatus.currentPromptLabel ?? 'Reverie in progress'}
+                >
                   Running
+                  {reverieStatus.currentPromptLabel
+                    ? `: ${reverieStatus.currentPromptLabel}`
+                    : ''}
                 </span>
               )}
             </div>

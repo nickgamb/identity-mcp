@@ -24,6 +24,8 @@ const OLLAMA_BASE_URL =
 // Reverie (background self-reflection)
 const REVERIE_ENABLED = process.env.REVERIE_ENABLED === "true";
 const REVERIE_INTERVAL_MINUTES = parseInt(process.env.REVERIE_INTERVAL_MINUTES || "120", 10);
+const REVERIE_MAX_STEPS = Math.max(3, parseInt(process.env.REVERIE_MAX_STEPS || "8", 10));
+const REVERIE_TIMEOUT_MS = parseInt(process.env.REVERIE_TIMEOUT_MS || "600000", 10);
 
 // OIDC Configuration (optional - for multi-user support)
 const OIDC_ENABLED = process.env.OIDC_ENABLED === "true";
@@ -44,6 +46,8 @@ logger.info("Config loaded", {
   OIDC_REQUIRE_AUTH,
   REVERIE_ENABLED,
   REVERIE_INTERVAL_MINUTES,
+  REVERIE_MAX_STEPS,
+  REVERIE_TIMEOUT_MS,
 });
 
 export const config = {
@@ -62,4 +66,6 @@ export const config = {
   OIDC_REQUIRE_AUTH,
   REVERIE_ENABLED,
   REVERIE_INTERVAL_MINUTES,
+  REVERIE_MAX_STEPS,
+  REVERIE_TIMEOUT_MS,
 };

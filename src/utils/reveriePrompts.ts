@@ -125,6 +125,7 @@ export function formatReverieUserContent(label: string, text: string): string {
   // the agent "reflects on its reflections" and loses signal from real chats.
   const policy =
     "IMPORTANT:\n" +
+    "- This is a quiet reverie, not a research session. Use at most 2–3 tool calls, then write your reflection and stop.\n" +
     "- When you search conversation history, focus on real user/assistant chats.\n" +
     "- Exclude prior reverie runs (messages containing '[reverie:' or labeled as reverie).\n" +
     "- Do not treat reverie prompts or reverie outputs as evidence about the user.\n";
