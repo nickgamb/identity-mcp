@@ -97,3 +97,7 @@ echo "=== Download complete ==="
 echo "Available models:"
 $OLLAMA_CMD list
 
+echo ""
+echo "Restarting Letta so it discovers new models..."
+docker restart letta 2>/dev/null && echo "  ✓ Letta restarted" || echo "  ✗ Letta restart failed (is it running?)"
+

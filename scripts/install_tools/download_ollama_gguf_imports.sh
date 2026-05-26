@@ -247,4 +247,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
   echo "=== Done ==="
   $OLLAMA list
+
+  echo ""
+  echo "Restarting Letta so it discovers new models..."
+  docker restart letta 2>/dev/null && echo "  ✓ Letta restarted" || echo "  ✗ Letta restart failed (is it running?)"
 fi
