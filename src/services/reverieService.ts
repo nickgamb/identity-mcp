@@ -137,6 +137,9 @@ async function executeReverie(): Promise<void> {
   const prompt = prompts[state.promptIndex % prompts.length];
   state.running = true;
   state.lastPrompt = prompt.label;
+  // Record start time so failures/timeouts don't cause rapid re-fire loops.
+  // (We rely on state.running to prevent concurrent runs.)
+  state.lastReverieTime = Date.now();
 
   // Always advance to next prompt so restarts/failures don't repeat the same one
   state.promptIndex = (state.promptIndex + 1) % prompts.length;
@@ -171,7 +174,6 @@ async function executeReverie(): Promise<void> {
       logger.info(`Reverie: agent responded (${text.length} chars)`);
     }
 
-    state.lastReverieTime = Date.now();
   } catch (e) {
     logger.error("Reverie: failed to send message", { error: String(e) });
   } finally {

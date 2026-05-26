@@ -121,7 +121,14 @@ export const REVERIE_PROMPTS = new Proxy(DEFAULT_REVERIE_PROMPTS, {
 const REVERIE_MARKER_RE = /^\[reverie:\s*([^\]]+)\]/i;
 
 export function formatReverieUserContent(label: string, text: string): string {
-  return `[reverie: ${label}]\n\n${text}`;
+  // Crucial: exclude prior reverie runs when searching conversation history, otherwise
+  // the agent "reflects on its reflections" and loses signal from real chats.
+  const policy =
+    "IMPORTANT:\n" +
+    "- When you search conversation history, focus on real user/assistant chats.\n" +
+    "- Exclude prior reverie runs (messages containing '[reverie:' or labeled as reverie).\n" +
+    "- Do not treat reverie prompts or reverie outputs as evidence about the user.\n";
+  return `[reverie: ${label}]\n\n${policy}\n${text}`;
 }
 
 export function stripReverieMarker(text: string): string {

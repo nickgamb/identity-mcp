@@ -22,6 +22,7 @@
 # Run on the server (host, not in container):
 #   export HF_TOKEN=hf_...            # optional, for gated/faster downloads
 #   export ARK_MAX_GB=2000            # total disk budget across all imports (default 2000)
+#   export OLLAMA_GGUF_ONLY=qwen3.6-35b-iq4nl,qwen3.6-35b-q5km  # optional subset for A/B
 #   ./scripts/install_tools/download_ollama_gguf_imports.sh
 
 set -uo pipefail
@@ -179,6 +180,19 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   for spec in "${MODEL_SPECS[@]}"; do
     repo_id="${spec%%|*}"; rest="${spec#*|}"
     quant="${rest%%|*}"; name="${rest##*|}"
+
+    if [ -n "${OLLAMA_GGUF_ONLY:-}" ]; then
+      wanted=0
+      IFS=',' read -ra only_names <<< "$OLLAMA_GGUF_ONLY"
+      for on in "${only_names[@]}"; do
+        on="${on// /}"
+        [ "$on" = "$name" ] && wanted=1 && break
+      done
+      if [ "$wanted" -eq 0 ]; then
+        continue
+      fi
+    fi
+
     echo "=== $repo_id ($quant) -> $name ==="
 
     if ollama_has "$name"; then
