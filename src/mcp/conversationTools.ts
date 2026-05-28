@@ -6,6 +6,7 @@
 
 import { ConversationLoader, ConversationSequence } from "../services/conversationLoader";
 import { logger } from "../utils/logger";
+import { tokenize } from "../utils/queryTokens";
 
 export interface ConversationListRequest {
   limit?: number;
@@ -102,32 +103,32 @@ export async function handleConversationSearch(
   userId: string | null = null
 ): Promise<ConversationSearchResponse> {
   try {
+    const matcher = tokenize(req.query);
+    if (matcher.isEmpty) return { conversations: [], count: 0 };
+
     const loader = new ConversationLoader(undefined, userId);
-    const query = req.query.toLowerCase();
     const all = await loader.loadAllConversations();
     const limit = req.limit ?? 50;
-    
-    const matching: ConversationSequence[] = [];
-    
+
+    // Score each conversation by total token hits across id + messages.
+    // Hit per-message saturates at full token count so a single dense
+    // message doesn't dominate over a conversation with broader coverage.
+    const scored: Array<{ conv: ConversationSequence; score: number }> = [];
+
     for (const conv of all) {
-      // Search in conversation ID
-      if (conv.conversationId.toLowerCase().includes(query)) {
-        matching.push(conv);
-        continue;
-      }
-      
-      // Search in message content
+      let score = matcher.matchCount(conv.conversationId);
       for (const msg of conv.messages) {
-        if (msg.content.toLowerCase().includes(query)) {
-          matching.push(conv);
-          break;
-        }
+        score += matcher.matchCount(msg.content);
       }
-      
-      if (matching.length >= limit) break;
+      if (score > 0) scored.push({ conv, score });
     }
-    
-    return { conversations: matching, count: matching.length };
+
+    scored.sort((a, b) => b.score - a.score);
+
+    return {
+      conversations: scored.slice(0, limit).map((s) => s.conv),
+      count: scored.length,
+    };
   } catch (error) {
     logger.error("Error searching conversations", { query: req.query, error });
     return { conversations: [], count: 0 };

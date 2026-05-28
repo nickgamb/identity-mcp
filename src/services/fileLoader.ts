@@ -8,6 +8,7 @@ import {
   loadTabularCorpusText,
   searchTabularRows,
 } from "../utils/csvCorpus";
+import { tokenize, type QueryMatcher } from "../utils/queryTokens";
 
 export interface FileDocument {
   filename: string;
@@ -310,47 +311,48 @@ export class FileLoader {
     maxFiles: number = 20,
     maxRowsPerTabular: number = 10
   ): Promise<FileDocument[]> {
+    const matcher = tokenize(query);
+    if (matcher.isEmpty) return [];
+
     const normalizedFolder = folder?.replace(/^\/+|\/+$/g, "");
     const filenames = normalizedFolder
       ? await this.listFiles(normalizedFolder)
       : await this.listFiles();
 
-    const lowerQuery = query.toLowerCase().trim();
-    if (!lowerQuery) return [];
-
-    const results: FileDocument[] = [];
+    // Score-then-sort so the most relevant files surface across the corpus.
+    const scored: Array<{ doc: FileDocument; score: number }> = [];
 
     for (const filepath of filenames) {
-      if (results.length >= maxFiles) break;
-
       const fullPath = path.join(this.filesDir, filepath);
       if (!fs.existsSync(fullPath)) continue;
 
       const meta = this.describeFile(filepath);
-      const nameMatch =
-        meta.filename.toLowerCase().includes(lowerQuery) ||
-        meta.filepath.toLowerCase().includes(lowerQuery);
+      const nameHits =
+        matcher.matchCount(meta.filename) + matcher.matchCount(meta.filepath);
 
       if (isTabularFile(filepath)) {
+        // CSV/TSV: searchTabularRows still uses the raw query for row matching.
         const rowBlocks = await searchTabularRows(fullPath, query, maxRowsPerTabular);
         if (rowBlocks && rowBlocks.length > 0) {
-          results.push({
-            ...meta,
-            content: rowBlocks.join("\n\n"),
-            title: meta.filename,
+          scored.push({
+            doc: { ...meta, content: rowBlocks.join("\n\n"), title: meta.filename },
+            score: rowBlocks.length + nameHits,
           });
           continue;
         }
-        if (nameMatch) {
+        if (nameHits > 0) {
           const file = await this.loadFile(filepath);
           if (file) {
             const preview = file.content.slice(0, 8000);
-            results.push({
-              ...file,
-              content:
-                preview.length < file.content.length
-                  ? `${preview}\n\n[… truncated; use file_get for full corpus]`
-                  : file.content,
+            scored.push({
+              doc: {
+                ...file,
+                content:
+                  preview.length < file.content.length
+                    ? `${preview}\n\n[… truncated; use file_get for full corpus]`
+                    : file.content,
+              },
+              score: nameHits,
             });
           }
         }
@@ -359,33 +361,45 @@ export class FileLoader {
 
       const content = await fs.promises.readFile(fullPath, "utf8");
       const metadata = this.extractMetadata(content);
-      const titleMatch = metadata?.title?.toLowerCase().includes(lowerQuery);
-      if (
-        content.toLowerCase().includes(lowerQuery) ||
-        titleMatch ||
-        nameMatch
-      ) {
-        const snippet = this.extractSearchSnippet(content, lowerQuery);
-        results.push({
-          ...meta,
-          title: metadata?.title,
-          content: snippet,
-          metadata,
+      const titleHits = matcher.matchCount(metadata?.title ?? "");
+      const contentHits = matcher.matchCount(content);
+      const totalHits = contentHits + titleHits + nameHits;
+
+      if (totalHits > 0) {
+        scored.push({
+          doc: {
+            ...meta,
+            title: metadata?.title,
+            content: this.extractSearchSnippet(content, matcher),
+            metadata,
+          },
+          // Content matches weighted highest; title/name as tiebreakers.
+          score: contentHits * 3 + titleHits * 2 + nameHits,
         });
       }
     }
 
-    return results;
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, maxFiles).map((s) => s.doc);
   }
 
-  /** Surround the first match with local context for non-tabular text search hits. */
-  private extractSearchSnippet(content: string, lowerQuery: string, radius = 400): string {
-    const idx = content.toLowerCase().indexOf(lowerQuery);
+  /** Snippet around the first matching token; falls back to file prefix when no hit. */
+  private extractSearchSnippet(content: string, matcher: QueryMatcher, radius = 400): string {
+    const lower = content.toLowerCase();
+    let idx = -1;
+    let matchLen = 0;
+    for (const tok of matcher.tokens) {
+      const i = lower.indexOf(tok);
+      if (i >= 0 && (idx < 0 || i < idx)) {
+        idx = i;
+        matchLen = tok.length;
+      }
+    }
     if (idx < 0) {
       return content.length > 2000 ? `${content.slice(0, 2000)}\n\n[… truncated]` : content;
     }
     const start = Math.max(0, idx - radius);
-    const end = Math.min(content.length, idx + lowerQuery.length + radius);
+    const end = Math.min(content.length, idx + matchLen + radius);
     let snippet = content.slice(start, end);
     if (start > 0) snippet = `…${snippet}`;
     if (end < content.length) snippet = `${snippet}…`;

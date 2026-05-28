@@ -5,6 +5,7 @@
 import { listMemoryFiles, readAllRecords, MemoryFileName } from "../services/fileStore";
 import { MemoryRecord } from "./types";
 import { logger } from "../utils/logger";
+import { tokenize } from "../utils/queryTokens";
 
 export interface MemorySearchRequest {
   query: string;
@@ -26,61 +27,33 @@ export async function handleMemorySearch(
   userId: string | null = null
 ): Promise<MemorySearchResponse> {
   try {
-    const query = req.query.toLowerCase();
-    const targetFiles: MemoryFileName[] = req.files && req.files.length > 0 
-      ? req.files 
+    const matcher = tokenize(req.query);
+    if (matcher.isEmpty) return { results: [], count: 0 };
+
+    const targetFiles: MemoryFileName[] = req.files && req.files.length > 0
+      ? req.files
       : listMemoryFiles(userId);
     const limit = req.limit ?? 50;
-    
+
     const results: Array<{
       file: MemoryFileName;
       record: MemoryRecord;
       relevance: number;
     }> = [];
-    
+
     for (const file of targetFiles) {
       try {
         const records = await readAllRecords(file, userId);
-        
         for (const record of records) {
-          let relevance = 0;
-          let matchCount = 0;
-          
-          // Search in all string fields
-          const searchableFields = [
-            record.id,
-            record.type,
-            (record as any).content,
-            (record as any).text,
-            (record as any).message,
-            (record as any).title,
-            (record as any).description,
-            JSON.stringify(record), // Fallback: search entire record
-          ].filter(Boolean).map(String);
-          
-          for (const field of searchableFields) {
-            const fieldLower = field.toLowerCase();
-            if (fieldLower.includes(query)) {
-              matchCount++;
-              // Higher relevance for exact matches and matches in important fields
-              if (fieldLower === query) {
-                relevance += 1.0;
-              } else if (fieldLower.startsWith(query)) {
-                relevance += 0.8;
-              } else {
-                relevance += 0.5;
-              }
-            }
-          }
-          
-          // Normalize relevance (0-1)
-          if (matchCount > 0) {
-            relevance = Math.min(1.0, relevance / matchCount);
-            
+          // Score = distinct tokens matched in the record's full JSON blob.
+          // Normalized so a record matching every token scores 1.0.
+          const blob = JSON.stringify(record);
+          const hits = matcher.matchCount(blob);
+          if (hits > 0) {
             results.push({
               file,
               record,
-              relevance,
+              relevance: hits / matcher.tokens.length,
             });
           }
         }
@@ -88,15 +61,11 @@ export async function handleMemorySearch(
         logger.warn("Error searching memory file", { file, error });
       }
     }
-    
-    // Sort by relevance (highest first)
+
     results.sort((a, b) => b.relevance - a.relevance);
-    
-    // Apply limit
-    const limited = results.slice(0, limit);
-    
+
     return {
-      results: limited,
+      results: results.slice(0, limit),
       count: results.length,
     };
   } catch (error) {

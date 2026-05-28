@@ -42,35 +42,40 @@ export async function handleSemanticSearch(
   }
 
   try {
-    const topK = req.limit ?? 20;
-    const url = `${config.LETTA_BASE_URL}/v1/agents/${agentId}/archival-memory/search?query=${encodeURIComponent(req.query)}&top_k=${topK}`;
-    const resp = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
-    });
+    const targetLimit = req.limit ?? 20;
+    // Files are densely topical and tend to crowd out conversations in a
+    // single top-K (we've seen 100/100 files for some queries). Issue
+    // separate tag-filtered searches per type so every type gets a fair
+    // shot, then interleave by Letta's per-bucket rank.
+    const perBucket = Math.max(Math.ceil(targetLimit / 2), 5);
+    const bucketResults = await Promise.all(
+      INGEST_TAGS.map((tag) => searchByTag(agentId, req.query, tag, perBucket))
+    );
 
-    if (!resp.ok) {
-      const detail = await resp.text().catch(() => "");
-      return {
-        results: [],
-        count: 0,
-        source: "letta_archival",
-        agent_id: agentId,
-        error: `Letta returned ${resp.status}: ${detail.slice(0, 200)}`,
-      };
+    // Letta's per-tag responses come back already sorted by similarity within
+    // their bucket; interleaving keeps that ranking while guaranteeing variety.
+    const out: SemanticSearchResult[] = [];
+    const seenIds = new Set<string>();
+    let idx = 0;
+    while (out.length < targetLimit) {
+      let added = false;
+      for (const bucket of bucketResults) {
+        if (out.length >= targetLimit) break;
+        if (idx < bucket.length) {
+          const r = bucket[idx];
+          if (r.id && seenIds.has(r.id)) continue;
+          if (r.id) seenIds.add(r.id);
+          out.push(r);
+          added = true;
+        }
+      }
+      if (!added) break;
+      idx++;
     }
 
-    const body = await resp.json() as any;
-    const passages = body.results || body || [];
-    const results: SemanticSearchResult[] = passages.map((p: any) => ({
-      text: p.content || p.text || "",
-      created_at: p.timestamp || p.created_at,
-      score: p.score,
-      id: p.id,
-    }));
-
     return {
-      results,
-      count: results.length,
+      results: out,
+      count: out.length,
       source: "letta_archival",
       agent_id: agentId,
     };
@@ -83,5 +88,49 @@ export async function handleSemanticSearch(
       agent_id: agentId,
       error: String(e),
     };
+  }
+}
+
+// Tags applied by letta/ingest.py to each passage type. Order matters:
+// round-robin pulls in this priority so the agent always sees conversations
+// alongside files even when files dominate by vector similarity.
+const INGEST_TAGS = [
+  "conversation",
+  "file",
+  "memory",
+  "chatgpt_memory",
+  "claude_memory",
+];
+
+async function searchByTag(
+  agentId: string,
+  query: string,
+  tag: string,
+  topK: number
+): Promise<SemanticSearchResult[]> {
+  const url =
+    `${config.LETTA_BASE_URL}/v1/agents/${agentId}/archival-memory/search` +
+    `?query=${encodeURIComponent(query)}&top_k=${topK}` +
+    `&tags=${encodeURIComponent(tag)}&tag_match_mode=any`;
+  try {
+    const resp = await fetch(url, { headers: { "Content-Type": "application/json" } });
+    if (!resp.ok) {
+      logger.warn("Tag-filtered archival search failed", {
+        tag,
+        status: resp.status,
+      });
+      return [];
+    }
+    const body = await resp.json() as any;
+    const passages = body.results || body || [];
+    return passages.map((p: any) => ({
+      text: p.content || p.text || "",
+      created_at: p.timestamp || p.created_at,
+      score: p.score,
+      id: p.id,
+    }));
+  } catch (e) {
+    logger.warn("Tag-filtered archival search error", { tag, error: String(e) });
+    return [];
   }
 }
