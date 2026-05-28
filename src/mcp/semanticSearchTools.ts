@@ -47,7 +47,11 @@ export async function handleSemanticSearch(
     // single top-K (we've seen 100/100 files for some queries). Issue
     // separate tag-filtered searches per type so every type gets a fair
     // shot, then interleave by Letta's per-bucket rank.
-    const perBucket = Math.max(Math.ceil(targetLimit / 2), 5);
+    //
+    // Letta's `tags` is a post-filter applied to the vector top-K, not a
+    // pre-filter — so we have to over-fetch per bucket to ensure enough
+    // survivors of the chosen type. Empirically, ~3x the target works.
+    const perBucket = Math.max(targetLimit * 3, 30);
     const bucketResults = await Promise.all(
       INGEST_TAGS.map((tag) => searchByTag(agentId, req.query, tag, perBucket))
     );
