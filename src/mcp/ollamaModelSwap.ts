@@ -37,7 +37,7 @@ export function isEmbeddingModel(modelName: string): boolean {
 
 type PsModel = { name: string };
 
-async function listRunningModels(): Promise<string[]> {
+export async function listRunningModels(): Promise<string[]> {
   const resp = await fetch(`${config.OLLAMA_BASE_URL}/api/ps`, {
     signal: AbortSignal.timeout(30_000),
   });
@@ -151,7 +151,7 @@ async function unloadAllExcept(keepName?: string): Promise<string[]> {
   return unloaded;
 }
 
-async function ensureModelLoaded(modelName: string): Promise<void> {
+export async function ensureModelLoaded(modelName: string): Promise<void> {
   const running = await listRunningModels();
   if (running.some((n) => modelsMatch(n, modelName))) {
     logger.info("Ollama: model already loaded", { model: modelName });

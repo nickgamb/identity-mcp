@@ -226,6 +226,9 @@ export function MemoryExplorer() {
   const [updatingModels, setUpdatingModels] = useState(false)
   /** Shown on Update models while Letta + Ollama unload/load run (can take several minutes). */
   const [modelUpdatePhase, setModelUpdatePhase] = useState<string | null>(null)
+  /** Whether the agent's saved chat model is currently resident in Ollama VRAM. */
+  const [modelLoaded, setModelLoaded] = useState<boolean | null>(null)
+  const [warmingModel, setWarmingModel] = useState(false)
 
   // Expanded items
   const [expandedPassages, setExpandedPassages] = useState<Set<string>>(new Set())
@@ -351,6 +354,40 @@ export function MemoryExplorer() {
     }
   }, [])
 
+  const checkModelLoaded = useCallback(async (handle: string) => {
+    if (!handle) {
+      setModelLoaded(null)
+      return
+    }
+    try {
+      const res = await authenticatedFetch(
+        `/api/mcp/ollama.loaded?model=${encodeURIComponent(handle)}`
+      )
+      const data = await res.json()
+      setModelLoaded(Boolean(data.loaded))
+    } catch {
+      setModelLoaded(null)
+    }
+  }, [])
+
+  const warmCurrentModel = useCallback(async (handle: string) => {
+    if (!handle || warmingModel) return
+    setWarmingModel(true)
+    try {
+      const res = await authenticatedFetch('/api/mcp/ollama.warm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: handle }),
+      })
+      const data = await res.json()
+      setModelLoaded(Boolean(data.loaded))
+    } catch (error) {
+      console.error('Warm-load failed:', error)
+    } finally {
+      setWarmingModel(false)
+    }
+  }, [warmingModel])
+
   const loadReverieStatus = useCallback(async () => {
     try {
       const res = await authenticatedFetch('/api/mcp/reverie.status')
@@ -440,6 +477,18 @@ export function MemoryExplorer() {
     const poll = setInterval(loadReverieStatus, 5000)
     return () => clearInterval(poll)
   }, [activeTab, loadReverieStatus])
+
+  // Poll Ollama VRAM status for the saved chat model — detects when Ollama
+  // unloads the model so the user can warm it back up before the next reverie.
+  const savedModelHandle =
+    status?.agent?.model_handle ||
+    (status?.agent?.model ? toOllamaHandle(status.agent.model) : '')
+  useEffect(() => {
+    if (activeTab !== 'settings' || !savedModelHandle) return
+    checkModelLoaded(savedModelHandle)
+    const poll = setInterval(() => checkModelLoaded(savedModelHandle), 15000)
+    return () => clearInterval(poll)
+  }, [activeTab, savedModelHandle, checkModelLoaded])
 
   // Archival browse: reload when tab, sort, type, or date range changes (server-side scan)
   useEffect(() => {
@@ -684,9 +733,6 @@ export function MemoryExplorer() {
         sleeptimeFreq !==
           sleeptimeFreqForEditor(status.agent.sleeptime_agent_frequency ?? 0)))
 
-  const savedModelHandle =
-    status?.agent?.model_handle ||
-    (status?.agent?.model ? toOllamaHandle(status.agent.model) : '')
   const savedEmbeddingHandle =
     status?.agent?.embedding_handle ||
     (status?.agent?.embedding_model ? toOllamaHandle(status.agent.embedding_model) : '')
@@ -1820,9 +1866,43 @@ export function MemoryExplorer() {
 
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-text-primary mb-1">
-                    Chat model
-                  </label>
+                  <div className="flex items-center justify-between mb-1 gap-2">
+                    <label className="block text-xs font-medium text-text-primary">
+                      Chat model
+                    </label>
+                    {savedModelHandle && modelLoaded !== null && (
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                            modelLoaded
+                              ? 'bg-success/15 text-success'
+                              : 'bg-warning/15 text-warning'
+                          }`}
+                          title={
+                            modelLoaded
+                              ? 'Model is resident in Ollama VRAM'
+                              : 'Model is not loaded — next inference will cold-load it'
+                          }
+                        >
+                          {modelLoaded ? '● Loaded' : '○ Not loaded'}
+                        </span>
+                        {!modelLoaded && (
+                          <button
+                            type="button"
+                            onClick={() => warmCurrentModel(savedModelHandle)}
+                            disabled={warmingModel}
+                            className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-50 disabled:cursor-not-allowed font-medium inline-flex items-center gap-1"
+                            title="Load the model into Ollama VRAM now (keep_alive: -1)"
+                          >
+                            {warmingModel ? (
+                              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                            ) : null}
+                            {warmingModel ? 'Loading…' : 'Load now'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   {ollamaModelsLoading && modelHandleOptions.length === 0 ? (
                     <div className="flex items-center gap-2 py-2 text-sm text-text-muted">
                       <div className="w-4 h-4 border-2 border-surface-300 border-t-accent rounded-full animate-spin" />

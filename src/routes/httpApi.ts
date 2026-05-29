@@ -123,6 +123,12 @@ import {
   type ArchivalTypeFilter,
 } from "../mcp/lettaProxy";
 import {
+  ensureModelLoaded,
+  listRunningModels,
+  modelsMatch,
+  ollamaNameFromHandle,
+} from "../mcp/ollamaModelSwap";
+import {
   getReverieStatus,
   updateReverieConfig,
   getReveriePrompts,
@@ -1127,6 +1133,42 @@ mcpRouter.get("/mcp/ollama.models", async (_req: Request, res: Response) => {
   try {
     const result = await listOllamaModels();
     res.json(result);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Check whether a given model handle is currently loaded in Ollama.
+// Accepts either a bare name ("qwen3.6:35b") or a Letta handle
+// ("ollama/qwen3.6:35b"); compares with the same loose match used by the swap.
+mcpRouter.get("/mcp/ollama.loaded", async (req: Request, res: Response) => {
+  try {
+    const handle = String(req.query.model || "").trim();
+    if (!handle) {
+      res.status(400).json({ error: "model query param is required" });
+      return;
+    }
+    const modelName = ollamaNameFromHandle(handle);
+    const running = await listRunningModels();
+    const loaded = running.some((n) => modelsMatch(n, modelName));
+    res.json({ model: modelName, loaded, running });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+// Warm-load a model so the next inference doesn't pay cold-load cost.
+// Uses keep_alive: -1 internally so the model stays resident.
+mcpRouter.post("/mcp/ollama.warm", async (req: Request, res: Response) => {
+  try {
+    const handle = String(req.body?.model || "").trim();
+    if (!handle) {
+      res.status(400).json({ error: "model is required in body" });
+      return;
+    }
+    const modelName = ollamaNameFromHandle(handle);
+    await ensureModelLoaded(modelName);
+    res.json({ model: modelName, loaded: true });
   } catch (err) {
     handleError(res, err);
   }
