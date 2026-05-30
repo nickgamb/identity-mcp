@@ -1090,9 +1090,11 @@ export async function updateLettaConfig(
       });
 
       if (ollama.status === "failed") {
-        logger.warn("Ollama warm-load failed but model config was saved", {
-          error: ollama.error,
-        });
+        return {
+          success: false,
+          error: ollama.error || "Ollama model swap failed",
+          ollama,
+        };
       }
     }
 

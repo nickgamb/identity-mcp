@@ -147,8 +147,14 @@ async function executeReverie(): Promise<void> {
   state.promptIndex = (state.promptIndex + 1) % prompts.length;
   saveConfig();
 
+  // Cap the run at one minute less than the configured interval so a single
+  // reverie can never spill into (and block) the next one. Floor of 1 min so
+  // the minimum 30-min interval still gives the agent 29 min of breathing room.
+  const timeoutMs =
+    Math.max(reverieConfig.intervalMinutes - 1, 1) * 60_000;
+
   logger.info(
-    `Reverie: starting "${prompt.label}" (next will be ${state.promptIndex + 1}/${prompts.length})`
+    `Reverie: starting "${prompt.label}" (next will be ${state.promptIndex + 1}/${prompts.length}, timeout ${timeoutMs / 60_000}m)`
   );
 
   try {
@@ -157,7 +163,6 @@ async function executeReverie(): Promise<void> {
       {
         method: "POST",
         body: JSON.stringify({
-          max_steps: config.REVERIE_MAX_STEPS,
           messages: [
             {
               role: "user",
@@ -165,7 +170,7 @@ async function executeReverie(): Promise<void> {
             },
           ],
         }),
-        signal: AbortSignal.timeout(config.REVERIE_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       }
     );
 
